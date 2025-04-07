@@ -1,0 +1,15 @@
+[package]
+name = "kids"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4.5.31", features = ["derive"] }
+sentry = { version = "0.36", features = ["tracing"] }
+serde = { version = "1.0.218", features = ["serde_derive"] }
+toml = "0.8.20"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }

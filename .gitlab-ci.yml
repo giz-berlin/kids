@@ -1,0 +1,62 @@
+image: dr.rechenknecht.net/bauhelfer/container/main/rust:ubuntu-jammy
+
+stages:
+  - build
+  - test
+
+variables:
+  # This will instruct Docker not to start over TLS.
+  DOCKER_TLS_CERTDIR: ""
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
+cache:
+  # Cache per branch
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - target
+    - ${CI_PROJECT_DIR}/.cargo
+
+############
+# Building
+############
+
+build-release:
+  stage: build
+  script:
+    - cargo build --release --verbose
+  artifacts:
+    paths:
+      - target/release/kids
+    expire_in: 1 week
+    when: always
+
+build-debug:
+  stage: build
+  script:
+    - RUSTFLAGS=-Dunused-crate-dependencies cargo build --verbose
+  artifacts:
+    paths:
+      - target/debug/
+    expire_in: 1 week
+    when: always
+
+############
+# Testing
+############
+
+lint:
+  stage: test
+  script:
+    - rustup component add clippy
+    - cargo clippy --all-targets -- -Dwarnings
+    - rustup component add rustfmt
+    - cargo fmt --all -- --check
+  needs:
+    - build-debug
+
+test-debug:
+  stage: test
+  script:
+    - cargo test
+  needs:
+    - build-debug
