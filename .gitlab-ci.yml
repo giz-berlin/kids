@@ -33,7 +33,7 @@ build-release:
 build-debug:
   stage: build
   script:
-    - RUSTFLAGS=-Dunused-crate-dependencies cargo build --verbose
+    - cargo build --verbose
   artifacts:
     paths:
       - target/debug/
