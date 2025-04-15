@@ -1,0 +1,70 @@
+{
+  "realm": "giz_oidc",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "keycloak_identity_syncer",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "keycloak_identity_syncer_secret",
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled" : true
+    }
+  ],
+  "users": [
+    {
+      "username": "TestUser",
+      "email": "tester@test.giz.berlin",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "First",
+      "lastName": "Tester",
+      "groups": ["/TestGroup/SubGroup"],
+      "realmRoles": [
+        "TestRealmRole"
+      ]
+    },
+    {
+      "username": "SecondTestUser",
+      "email": "user@test.giz.berlin",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Second",
+      "lastName": "Tester",
+      "groups": ["/TestGroup"],
+      "realmRoles": [
+        "SecondTestRealmRole"
+      ]
+    },
+    {
+      "username": "service-account-keycloak_identity_syncer",
+      "enabled": true,
+      "serviceAccountClientId": "keycloak_identity_syncer",
+      "clientRoles": {
+        "realm-management": ["view-users", "view-realm"]
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "TestRealmRole"
+      },
+      {
+        "name": "SecondTestRealmRole"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "TestGroup",
+      "path": "/TestGroup",
+      "subGroups": [
+        {
+          "name": "SubGroup",
+          "path": "/TestGroup/SubGroup"
+        }
+      ]
+    }
+  ]
+}
