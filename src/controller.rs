@@ -51,6 +51,23 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
         let target_impl = T::new(config.target);
         tracing::info!("Active Source: {}", source_impl.info());
         tracing::info!("Active Target: {}", target_impl.info());
+
+        let users = source_impl.all_users().await.unwrap();
+        for user in users.into_iter() {
+            tracing::info!("user: {}", user.username().unwrap());
+            let user_groups = user.groups().await.unwrap();
+            for group in user_groups.into_iter() {
+                tracing::info!("user group: {}", group.path());
+            }
+        }
+        let groups = source_impl.all_groups().await.unwrap();
+        for group in groups.into_iter() {
+            tracing::info!("group: {}", group.path());
+            let sub_groups = group.sub_groups().await.unwrap();
+            for sub_group in sub_groups.into_iter() {
+                tracing::info!("sub group: {}", sub_group.path());
+            }
+        }
     });
 
     Ok(())

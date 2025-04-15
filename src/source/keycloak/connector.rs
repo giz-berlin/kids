@@ -1,27 +1,103 @@
+use crate::error;
 use crate::source::interface;
-use crate::{config, error};
+use crate::source::keycloak::{external, group, user};
 use std::rc;
 
 /// A connector to Keycloak providing the [Source](interface::Source) interface.
-pub struct Connector {}
+pub struct Connector {
+    pub keycloak_api: rc::Rc<dyn external::KeycloakApi>,
+}
 
 #[async_trait::async_trait(?Send)]
 impl interface::Source for Connector {
-    type Config = config::EmptyConfig;
+    type Config = external::KeycloakConfig;
 
     fn info(&self) -> String {
         "Keycloak Connector!".to_string()
     }
 
-    fn new(_config: Self::Config) -> Self {
-        Connector {}
+    fn new(config: Self::Config) -> Self {
+        Connector {
+            keycloak_api: rc::Rc::new(external::KeycloakServiceAccountClient::new(config)),
+        }
     }
 
     async fn all_groups(&self) -> Result<Vec<rc::Rc<dyn interface::Group>>, error::KidsError> {
-        todo!()
+        let groups = self.keycloak_api.get_groups().await?;
+        Ok(groups
+            .into_iter()
+            .map(|group| rc::Rc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), group)) as rc::Rc<dyn interface::Group>)
+            .collect())
     }
 
     async fn all_users(&self) -> Result<Vec<Box<dyn interface::User>>, error::KidsError> {
-        todo!()
+        let users = self.keycloak_api.get_users().await?;
+        Ok(users
+            .into_iter()
+            .map(|u| Box::new(user::KeycloakUser::new(self.keycloak_api.clone(), u)) as Box<dyn interface::User>)
+            .collect())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::source::interface::Source;
+    use crate::util::test_constants;
+
+    #[tokio::test]
+    async fn test_all_users() {
+        // given
+        let mut mock = external::MockKeycloakApi::new();
+        mock.expect_get_users().returning(|| {
+            Ok(vec![
+                external::test::KeycloakUserRepresentationBuilder::default()
+                    .id(test_constants::DEFAULT_USER_ID)
+                    .build_into(),
+                external::test::KeycloakUserRepresentationBuilder::default()
+                    .id(test_constants::ANOTHER_USER_ID)
+                    .build_into(),
+            ])
+        });
+
+        let source = Connector {
+            keycloak_api: rc::Rc::new(mock),
+        };
+
+        // when
+        let users = source.all_users().await.unwrap();
+
+        // then
+        assert_eq!(users.len(), 2);
+        assert_eq!(users[0].id(), test_constants::DEFAULT_USER_ID);
+        assert_eq!(users[1].id(), test_constants::ANOTHER_USER_ID);
+    }
+
+    #[tokio::test]
+    async fn test_all_groups() {
+        // given
+        let mut mock = external::MockKeycloakApi::new();
+        mock.expect_get_groups().returning(|| {
+            Ok(vec![
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(test_constants::DEFAULT_GROUP_ID)
+                    .build_into(),
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(test_constants::ANOTHER_GROUP_ID)
+                    .build_into(),
+            ])
+        });
+
+        let source = Connector {
+            keycloak_api: rc::Rc::new(mock),
+        };
+
+        // when
+        let groups = source.all_groups().await.unwrap();
+
+        // then
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].id(), test_constants::DEFAULT_GROUP_ID);
+        assert_eq!(groups[1].id(), test_constants::ANOTHER_GROUP_ID);
     }
 }
