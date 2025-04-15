@@ -1,23 +1,30 @@
 use anyhow::Context;
 
 #[derive(serde::Deserialize, Debug)]
-pub struct Config {
+#[serde(deny_unknown_fields)]
+pub struct Config<S, T> {
     pub sentry: Option<SentryConfig>,
+    pub source: Option<S>,
+    pub target: Option<T>,
 }
 
 #[derive(serde::Deserialize, Debug)]
+pub struct EmptyConfig {}
+
+#[derive(serde::Deserialize, Debug)]
 pub struct SentryConfig {
+    pub active: bool,
     pub dsn: String,
     pub environment: String,
 }
 
-impl Config {
+impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> Config<S, T> {
     pub fn try_from_str(content: &str) -> anyhow::Result<Self> {
         toml::from_str(content).context("Failed to parse config content")
     }
 }
 
-impl TryFrom<&std::path::Path> for Config {
+impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> TryFrom<&std::path::Path> for Config<S, T> {
     type Error = anyhow::Error;
 
     fn try_from(path: &std::path::Path) -> Result<Self, Self::Error> {
@@ -27,7 +34,7 @@ impl TryFrom<&std::path::Path> for Config {
     }
 }
 
-impl TryFrom<std::path::PathBuf> for Config {
+impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> TryFrom<std::path::PathBuf> for Config<S, T> {
     type Error = anyhow::Error;
 
     fn try_from(path: std::path::PathBuf) -> Result<Self, Self::Error> {
@@ -43,10 +50,11 @@ mod tests {
     fn test_try_from_str_valid() {
         let toml_str = r#"
             [sentry]
+            active = true
             dsn = "https://example@sentry.io/123"
             environment = "production"
         "#;
-        let config = Config::try_from_str(toml_str).unwrap();
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
         assert!(config.sentry.is_some());
         let sentry = config.sentry.unwrap();
         assert_eq!(sentry.dsn, "https://example@sentry.io/123");
@@ -58,7 +66,7 @@ mod tests {
         let toml_str = r#"
             # No sentry section
         "#;
-        let config = Config::try_from_str(toml_str).unwrap();
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
         assert!(config.sentry.is_none());
     }
 
@@ -68,7 +76,7 @@ mod tests {
             [sentry
             dsn = "https://example@sentry.io/123"
         "#;
-        let result = Config::try_from_str(toml_str);
+        let result = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str);
         assert!(result.is_err());
     }
 }

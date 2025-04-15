@@ -10,6 +10,14 @@ Currently, these applications are supported as sync targets:
 
 * None, see issues
 
+## Configuration
+
+We use TOML for our configuration. A config file should be assembled by concatenating the 
+[general configuration options applying to all use cases](default_configs/config.default.toml) as well as the configuration
+required for the used `Source` and `Target` components (see [architecture](#architecture)).
+
+All default configurations can be found in the [default config folder](default_configs).
+
 ## Architecture
 
 This project consists of three main components:
@@ -30,7 +38,7 @@ In the Keycloak case, we use the Keycloak Admin API to fetch the data transparen
 
 The controller is responsible to schedule syncs and to receive and process events from the KIDS event listener. It is the central component using the defined interfaces of the [target](#target) and [source](#source).
 
-## Target
+### Target
 
 This component is responsible to sync the data received via the interface to the target application as well as to fetch the current state of the target application.
 
@@ -38,21 +46,3 @@ It has to translate the data format and ensure that the data is applied on the t
 
 This repository contains multiple targets, each with a single syncer app per source/target combination.
 
-### Interface
-
-The basic interface a target must offer is like
-
-* `getGroups() -> Set\<UUID\>`
-    * Will be used by Controller to determine which groups have to be deleted during full sync
-* `getUsers() -> Set\<UUID\>`
-    * Will be used by Controller to determine which users have to be deleted during full sync
-* `deleteGroup(group: UUID)`
-    * Will be called for child groups first
-* `deleteUser(user: UUID)`
-* `createOrUpdateGroup(group: Group)`
-    * Only updates group attributes / authorizations or propagates these to users / other objects
-    * Not intended to manage group memberships
-    * Will be called for parent groups first
-* `createOrUpdateUser(user: User)`
-    * Update user attributes and authorization details
-    * Will be called after createOrUpdateGroup

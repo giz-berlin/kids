@@ -1,0 +1,13 @@
+### General & controller configuration
+[sentry]
+active = false
+dsn = "test"
+environment = "test"
+
+### Source configuration
+# [source]
+# ... insert source config here, see *-source.config.toml.default files
+
+### Target configuration
+# [target]
+# ... insert target config here, see *-target.config.toml.default files
