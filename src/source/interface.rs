@@ -1,5 +1,5 @@
 use crate::{error, types};
-use std::{collections, rc};
+use std::{collections, fmt, rc};
 
 // WHY WE ARE NOT USING ITERATORS IN THESE INTERFACES:
 // Currently, the traits specified in this file demand that all data is fetched from the source
@@ -71,6 +71,19 @@ pub trait User {
     async fn groups(&self) -> Result<Vec<rc::Rc<dyn Group>>, error::KidsError>;
 }
 
+impl fmt::Debug for dyn User {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("dyn User")
+            .field("id", &self.id())
+            .field("enabled", &self.enabled())
+            .field("username", &self.username())
+            .field("email", &self.email())
+            .field("attributes", &self.attributes())
+            .field("roles", &self.roles())
+            .finish()
+    }
+}
+
 /// A group entity within a data [Source].
 #[async_trait::async_trait(?Send)]
 pub trait Group {
@@ -92,4 +105,14 @@ pub trait Group {
     fn parent_group(&self) -> Option<rc::Rc<dyn Group>>;
     /// All direct subgroups of this [Group]. Will not contain transitive subgroups (i.e. grandchildren or deeper).
     async fn sub_groups(self: rc::Rc<Self>) -> Result<Vec<rc::Rc<dyn Group>>, error::KidsError>;
+}
+
+impl fmt::Debug for dyn Group {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("dyn Group")
+            .field("id", &self.id())
+            .field("name", &self.name())
+            .field("path", &self.path())
+            .finish()
+    }
 }
