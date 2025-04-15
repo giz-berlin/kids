@@ -49,6 +49,12 @@ lint:
   script:
     - rustup component add clippy
     - cargo clippy --all-targets -- -Dwarnings
+  needs:
+    - build-debug
+
+fmt-check:
+  stage: test
+  script:
     - rustup component add rustfmt
     - cargo fmt --all -- --check
   needs:
