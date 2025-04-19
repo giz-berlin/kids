@@ -1,16 +1,11 @@
 [source]
-# Adress of external Keycloak to fetch data from.
+# Address of the external Keycloak to fetch data from.
 keycloak_address = "http://localhost:8080"
 # Credentials of a Keycloak service account used to fetch the data.
 # The service account needs to have access to the realm and have the "view-users" and "view-realm" roles assigned.
 # Otherwise, the API will report an authentication error as it is not able to access the desired information,
-# even the credentials are valid.
+# even when the credentials are valid.
 client_id = "keycloak_identity_syncer"
 client_secret = "keycloak_identity_syncer_secret"
 # Keycloak realm to fetch the data from.
-realm = "giz_oidc"
-# Number of users or groups to fetch from Keycloak with any of the API calls. 
-# As we do not support pagination, this value must be high enough to **guarantee** that we
-# will receive the full list, or else we might miss some entities, which would cause them to
-# be deleted in the configured target
-num_entities_to_fetch = 100
+realm = "giz"

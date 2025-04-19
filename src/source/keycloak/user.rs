@@ -58,30 +58,28 @@ impl interface::User for KeycloakUser {
 mod test {
     use super::*;
     use crate::source::interface::User;
-    use crate::util::test_constants;
+    use crate::test_util::constants;
     use mockall::predicate;
 
     #[tokio::test]
     async fn test_user_groups() {
         // given
         let mut mock = external::MockKeycloakApi::new();
-        mock.expect_get_groups_of_user()
-            .with(predicate::eq(test_constants::DEFAULT_USER_ID))
-            .returning(|_| {
-                Ok(vec![
-                    external::test::KeycloakGroupRepresentationBuilder::default()
-                        .id(test_constants::DEFAULT_GROUP_ID)
-                        .build_into(),
-                    external::test::KeycloakGroupRepresentationBuilder::default()
-                        .id(test_constants::ANOTHER_GROUP_ID)
-                        .build_into(),
-                ])
-            });
+        mock.expect_get_groups_of_user().with(predicate::eq(constants::DEFAULT_USER_ID)).returning(|_| {
+            Ok(vec![
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::DEFAULT_GROUP_ID)
+                    .build_into(),
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::ANOTHER_GROUP_ID)
+                    .build_into(),
+            ])
+        });
 
         let user = KeycloakUser::new(
             rc::Rc::new(mock),
             external::test::KeycloakUserRepresentationBuilder::default()
-                .id(test_constants::DEFAULT_USER_ID)
+                .id(constants::DEFAULT_USER_ID)
                 .build_into(),
         );
 
@@ -90,7 +88,7 @@ mod test {
 
         // then
         assert_eq!(user_groups.len(), 2);
-        assert_eq!(user_groups[0].id(), test_constants::DEFAULT_GROUP_ID);
-        assert_eq!(user_groups[1].id(), test_constants::ANOTHER_GROUP_ID);
+        assert_eq!(user_groups[0].id(), constants::DEFAULT_GROUP_ID);
+        assert_eq!(user_groups[1].id(), constants::ANOTHER_GROUP_ID);
     }
 }

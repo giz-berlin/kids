@@ -16,8 +16,7 @@ impl fmt::Display for RandomId {
     }
 }
 
-#[cfg(test)]
-pub mod test_constants {
+pub mod constants {
     pub const DEFAULT_USER_ID: &str = "s0m3-us3r";
     pub const ANOTHER_USER_ID: &str = "4n0th3r-us3r";
     pub const DEFAULT_GROUP_ID: &str = "d3f4ult_gr0up";

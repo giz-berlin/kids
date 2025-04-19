@@ -1,5 +1,5 @@
 {
-  "realm": "giz_oidc",
+  "realm": "giz",
   "enabled": true,
   "clients": [
     {

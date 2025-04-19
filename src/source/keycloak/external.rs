@@ -2,27 +2,20 @@ use crate::error;
 
 #[derive(serde::Deserialize)]
 pub struct KeycloakConfig {
-    /// Adress of external Keycloak to fetch data from.
+    /// Address of the external Keycloak to fetch data from.
     pub keycloak_address: String,
     /// Client ID of a Keycloak service account used to fetch the data.
     /// The service account needs to have access to the realm and have the "view-users" and "view-realm" roles assigned.
     /// Otherwise, the API will report an authentication error as it is not able to access the desired information,
-    /// even the credentials are valid.
+    /// even when the credentials are valid.
     pub client_id: String,
     /// Keycloak client secret belonging to the `client_id`.
     pub client_secret: String,
     /// Keycloak realm to fetch the data from.
     pub realm: String,
-    /// Number of [UserRepresentations](keycloak::types::UserRepresentation) or
-    /// [GroupRepresentations](keycloak::types::GroupRepresentation) to fetch from Keycloak
-    /// with any of the [KeycloakApi] calls.
-    /// As we do not support pagination, this value must be high enough to **guarantee** that we
-    /// will receive the full list, or else we might miss some entities, which would cause them to
-    /// be deleted in the configured [Target](crate::target::interface::Target).
-    pub num_entities_to_fetch: i32,
 }
 
-/// Abstraction of the external keycloak API, reduced to the set of methods and parameters required for this library.
+/// Abstraction of the external Keycloak API, reduced to the set of methods and parameters required for this library.
 #[mockall::automock]
 #[async_trait::async_trait(?Send)]
 pub trait KeycloakApi {
@@ -68,6 +61,15 @@ impl KeycloakServiceAccountClient {
     }
 }
 
+/// As we do not support pagination, we need to make we always receive the full list of
+/// [UserRepresentations](keycloak::types::UserRepresentation) and
+/// [GroupRepresentations](keycloak::types::GroupRepresentation) from Keycloak
+/// with any of the [KeycloakApi] calls.
+///
+/// If we were to miss some entries, this would cause them to
+/// be deleted in the configured [Target](crate::target::interface::Target).
+const FETCH_ALL_ENTITIES: i32 = -1;
+
 #[async_trait::async_trait(?Send)]
 impl KeycloakApi for KeycloakServiceAccountClient {
     async fn get_users(&self) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, error::KidsError> {
@@ -85,7 +87,7 @@ impl KeycloakApi for KeycloakServiceAccountClient {
                     None,
                     None,
                     None,
-                    Some(self.config.num_entities_to_fetch),
+                    Some(FETCH_ALL_ENTITIES),
                     None,
                     None,
                     None,
@@ -97,7 +99,7 @@ impl KeycloakApi for KeycloakServiceAccountClient {
     async fn get_groups_of_user(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(
             self.keycloak_admin
-                .realm_users_with_user_id_groups_get(&self.config.realm, user_id, None, None, Some(self.config.num_entities_to_fetch), None)
+                .realm_users_with_user_id_groups_get(&self.config.realm, user_id, None, None, Some(FETCH_ALL_ENTITIES), None)
                 .await,
         )
     }
@@ -105,7 +107,7 @@ impl KeycloakApi for KeycloakServiceAccountClient {
     async fn get_groups(&self) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(
             self.keycloak_admin
-                .realm_groups_get(&self.config.realm, None, None, None, Some(self.config.num_entities_to_fetch), None, None, None)
+                .realm_groups_get(&self.config.realm, None, None, None, Some(FETCH_ALL_ENTITIES), None, None, None)
                 .await,
         )
     }
@@ -113,7 +115,7 @@ impl KeycloakApi for KeycloakServiceAccountClient {
     async fn get_subgroups(&self, group_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(
             self.keycloak_admin
-                .realm_groups_with_group_id_children_get(&self.config.realm, group_id, None, None, None, Some(self.config.num_entities_to_fetch), None)
+                .realm_groups_with_group_id_children_get(&self.config.realm, group_id, None, None, None, Some(FETCH_ALL_ENTITIES), None)
                 .await,
         )
     }
@@ -122,15 +124,16 @@ impl KeycloakApi for KeycloakServiceAccountClient {
 // The builder macro appears to confuse clippy in some way.
 // For example, it thinks the build_into() methods and the entity_number fields are unused, but they aren't.
 #[allow(dead_code)]
+#[cfg(test)]
 pub mod test {
-    use crate::util;
+    use crate::test_util;
     use std::collections::HashMap;
 
     #[derive(derive_builder::Builder, Default, Debug)]
     #[builder(setter(into), default)]
     pub struct KeycloakUserRepresentation {
-        #[builder(field(ty = "util::RandomId"))]
-        entity_number: util::RandomId,
+        #[builder(field(ty = "test_util::RandomId"))]
+        entity_number: test_util::RandomId,
 
         #[builder(default = "uuid::Uuid::new_v4().into()")]
         id: String,
@@ -182,8 +185,8 @@ pub mod test {
     #[derive(derive_builder::Builder, Default, Debug)]
     #[builder(setter(into), default)]
     pub struct KeycloakGroupRepresentation {
-        #[builder(field(ty = "util::RandomId"))]
-        entity_number: util::RandomId,
+        #[builder(field(ty = "test_util::RandomId"))]
+        entity_number: test_util::RandomId,
 
         #[builder(default = "uuid::Uuid::new_v4().into()")]
         id: String,

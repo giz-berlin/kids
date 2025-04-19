@@ -1,6 +1,6 @@
 services:
   keycloak:
-    image: "quay.io/keycloak/keycloak:25.0"
+    image: "quay.io/keycloak/keycloak:26.2"
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: password
@@ -8,4 +8,4 @@ services:
       - "./keycloak_realm_config:/opt/keycloak/data/import"
     command: start-dev --import-realm
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
