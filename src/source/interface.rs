@@ -28,7 +28,7 @@ use std::{collections, fmt, rc};
 // in Rust at the moment, so - at least for now - we simplify working with the traits by having them
 // return vectors instead.
 
-/// A data source of the syncer. In concrete instantiations, will typically be a connection to an external data store.
+/// A data source of the syncer. In concrete instantiations, it will typically be a connection to an external data store.
 /// [User] and [Group] information obtained from the source is considered to be the ground truth; the main purpose of this software is to
 /// synchronize the data to a [Target](crate::target::interface::Target).
 /// Note that this trait only provides methods for obtaining full lists of [User]s and [Group]s present in the source, as the data
@@ -55,7 +55,7 @@ pub trait Source {
 #[async_trait::async_trait(?Send)]
 pub trait User {
     /// Identifier of the [User].
-    fn id(&self) -> &types::ResourceIdentifier;
+    fn id(&self) -> &types::SharedResourceIdentifier;
     /// Whether this [User] is active: Users may still be present within the source even if they
     /// are no longer allowed to log in.
     fn enabled(&self) -> bool;
@@ -63,7 +63,7 @@ pub trait User {
     fn email(&self) -> Option<&str>;
     /// A map containing all additional user attributes.
     /// Many [Targets](crate::target::interface::Target) will make use of custom user attributes to store target-system-specific
-    /// configuration for a the user.
+    /// configuration for the user.
     fn attributes(&self) -> &collections::HashMap<String, Vec<String>>;
     fn roles(&self) -> &Vec<String>; // client_roles, realm_role;
 
@@ -88,7 +88,7 @@ impl fmt::Debug for dyn User {
 #[async_trait::async_trait(?Send)]
 pub trait Group {
     /// Identifier of the [Group].
-    fn id(&self) -> &types::ResourceIdentifier;
+    fn id(&self) -> &types::SharedResourceIdentifier;
     fn name(&self) -> &str;
     /// *Display* path of the [Group]. Must **not** be used as an identifier, as it might be ambiguous.
     /// For example, both a group named "A/B" and a subgroup B of group A might receive the same path "/A/B".
@@ -99,7 +99,7 @@ pub trait Group {
     // There is no such target at the moment, but there might be in the future.
     // fn users(&self) -> Vec<Box<dyn User>>;
 
-    /// Farthest ancestor of this [Group]. If this group is itself a root group, returns the group itself.
+    /// Farthest ancestor of this [Group]. If this group itself is a root group, returns this group.
     fn root_group(self: rc::Rc<Self>) -> rc::Rc<dyn Group>;
     /// The direct parent of this [Group]. Will return [None] if this group is a root group.
     fn parent_group(&self) -> Option<rc::Rc<dyn Group>>;

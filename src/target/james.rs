@@ -19,19 +19,19 @@ impl interface::Target for Connector {
         "James Connector!".to_string()
     }
 
-    async fn all_groups() -> Result<collections::HashSet<types::ResourceIdentifier>, error::KidsError> {
+    async fn all_groups() -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
         todo!()
     }
 
-    async fn all_users() -> Result<collections::HashSet<types::ResourceIdentifier>, error::KidsError> {
+    async fn all_users() -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
         todo!()
     }
 
-    async fn delete_group(_group: types::ResourceIdentifier) -> Result<(), error::KidsError> {
+    async fn delete_group(_group: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
         todo!()
     }
 
-    async fn delete_user(_user: types::ResourceIdentifier) -> Result<(), error::KidsError> {
+    async fn delete_user(_user: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
         todo!()
     }
 

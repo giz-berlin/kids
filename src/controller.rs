@@ -18,30 +18,26 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
 
     let config = config::Config::<S::Config, T::Config>::try_from(args.config)?;
 
-    let _guard = if let Some(sentry_config) = &config.sentry {
-        if sentry_config.active {
-            let dsn = sentry::types::Dsn::from_str(&sentry_config.dsn).map_err(|err| {
-                tracing::error!("Invalid Sentry DSN {}: {}", &sentry_config.dsn, err);
-                err
-            })?;
+    let _guard = if config.sentry.active {
+        let dsn = sentry::types::Dsn::from_str(config.sentry.dsn.as_ref().unwrap()).map_err(|err| {
+            tracing::error!("Invalid Sentry DSN {}: {}", &config.sentry.dsn.unwrap(), err);
+            err
+        })?;
 
-            let guard = sentry::init(sentry::ClientOptions {
-                dsn: Some(dsn),
-                release: sentry::release_name!(),
-                environment: Some(sentry_config.environment.clone().into()),
-                attach_stacktrace: true,
-                trim_backtraces: true,
-                // TODO: We may not want to have all transactions and thus set this to a lower value.
-                // See https://docs.sentry.io/platforms/rust/tracing/
-                traces_sample_rate: 1.0,
-                in_app_include: vec!["kids"],
-                ..Default::default()
-            });
+        let guard = sentry::init(sentry::ClientOptions {
+            dsn: Some(dsn),
+            release: sentry::release_name!(),
+            environment: Some(config.sentry.environment.unwrap().into()),
+            attach_stacktrace: true,
+            trim_backtraces: true,
+            // TODO: We may not want to have all transactions and thus set this to a lower value.
+            // See https://docs.sentry.io/platforms/rust/tracing/
+            traces_sample_rate: 1.0,
+            in_app_include: vec!["kids"],
+            ..Default::default()
+        });
 
-            Some(guard)
-        } else {
-            None
-        }
+        Some(guard)
     } else {
         None
     };
@@ -51,8 +47,8 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
     // Sentry should not be initialised inside a tokio async function, thus this weird workaround.
     // See https://docs.sentry.io/platforms/rust/#async-main-function.
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
-        let source_impl = S::new(config.source.unwrap());
-        let target_impl = T::new(config.target.unwrap());
+        let source_impl = S::new(config.source);
+        let target_impl = T::new(config.target);
         tracing::info!("Active Source: {}", source_impl.info());
         tracing::info!("Active Target: {}", target_impl.info());
     });
