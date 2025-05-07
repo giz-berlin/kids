@@ -1,7 +1,7 @@
 use crate::error;
 
 #[derive(serde::Deserialize)]
-pub struct KeycloakConfig {
+pub struct KeycloakApiConfig {
     /// Address of the external Keycloak to fetch data from.
     pub keycloak_address: String,
     /// Client ID of a Keycloak service account used to fetch the data.
@@ -28,12 +28,12 @@ pub trait KeycloakApi {
 /// A Keycloak service account client capable of making HTTP requests to an external Keycloak instance.
 /// Primary purpose is to implement the [KeycloakApi] trait.
 pub struct KeycloakServiceAccountClient {
-    pub config: KeycloakConfig,
+    pub config: KeycloakApiConfig,
     pub keycloak_admin: keycloak::KeycloakAdmin<keycloak::KeycloakServiceAccountAdminTokenRetriever>,
 }
 
 impl KeycloakServiceAccountClient {
-    pub fn new(config: KeycloakConfig) -> Self {
+    pub fn new(config: KeycloakApiConfig) -> Self {
         let keycloak_client = keycloak::KeycloakServiceAccountAdminTokenRetriever::create_with_custom_realm(
             &config.client_id,
             &config.client_secret,

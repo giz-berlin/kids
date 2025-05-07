@@ -1,4 +1,6 @@
 [source]
+
+[source.keycloak_api]
 # Address of the external Keycloak to fetch data from.
 keycloak_address = "http://localhost:8080"
 # Credentials of a Keycloak service account used to fetch the data.

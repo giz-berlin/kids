@@ -8,9 +8,14 @@ pub struct Connector {
     pub keycloak_api: rc::Rc<dyn external::KeycloakApi>,
 }
 
+#[derive(serde::Deserialize)]
+pub struct KeycloakConfig {
+    pub keycloak_api: external::KeycloakApiConfig,
+}
+
 #[async_trait::async_trait(?Send)]
 impl interface::Source for Connector {
-    type Config = external::KeycloakConfig;
+    type Config = KeycloakConfig;
 
     fn info(&self) -> String {
         "Keycloak Connector!".to_string()
@@ -18,7 +23,7 @@ impl interface::Source for Connector {
 
     fn new(config: Self::Config) -> Self {
         Connector {
-            keycloak_api: rc::Rc::new(external::KeycloakServiceAccountClient::new(config)),
+            keycloak_api: rc::Rc::new(external::KeycloakServiceAccountClient::new(config.keycloak_api)),
         }
     }
 
