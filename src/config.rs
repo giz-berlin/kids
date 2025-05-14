@@ -1,23 +1,35 @@
 use anyhow::Context;
 
 #[derive(serde::Deserialize, Debug)]
-pub struct Config {
-    pub sentry: Option<SentryConfig>,
+#[serde(deny_unknown_fields)]
+pub struct Config<S, T> {
+    pub sentry: SentryConfig,
+    pub source: S,
+    pub target: T,
 }
 
 #[derive(serde::Deserialize, Debug)]
+pub struct EmptyConfig {}
+
+#[derive(serde::Deserialize, Debug)]
 pub struct SentryConfig {
-    pub dsn: String,
-    pub environment: String,
+    /// Whether the sentry integration is active.
+    pub active: bool,
+    /// Sentry Data Source Name (DSN). Tells Sentry where to send events to so they're associated with the correct project.
+    /// Must be specified if Sentry is `active`.
+    pub dsn: Option<String>,
+    /// Tag specifying which context the service is running in (for example, development, production, ...).
+    /// Must be specified if Sentry is `active`.
+    pub environment: Option<String>,
 }
 
-impl Config {
+impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> Config<S, T> {
     pub fn try_from_str(content: &str) -> anyhow::Result<Self> {
         toml::from_str(content).context("Failed to parse config content")
     }
 }
 
-impl TryFrom<&std::path::Path> for Config {
+impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> TryFrom<&std::path::Path> for Config<S, T> {
     type Error = anyhow::Error;
 
     fn try_from(path: &std::path::Path) -> Result<Self, Self::Error> {
@@ -27,7 +39,7 @@ impl TryFrom<&std::path::Path> for Config {
     }
 }
 
-impl TryFrom<std::path::PathBuf> for Config {
+impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> TryFrom<std::path::PathBuf> for Config<S, T> {
     type Error = anyhow::Error;
 
     fn try_from(path: std::path::PathBuf) -> Result<Self, Self::Error> {
@@ -43,23 +55,44 @@ mod tests {
     fn test_try_from_str_valid() {
         let toml_str = r#"
             [sentry]
+            active = true
             dsn = "https://example@sentry.io/123"
             environment = "production"
+            
+            [source]
+            
+            [target]
         "#;
-        let config = Config::try_from_str(toml_str).unwrap();
-        assert!(config.sentry.is_some());
-        let sentry = config.sentry.unwrap();
-        assert_eq!(sentry.dsn, "https://example@sentry.io/123");
-        assert_eq!(sentry.environment, "production");
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
+        let sentry = config.sentry;
+        assert!(sentry.active);
+        assert_eq!(sentry.dsn.unwrap(), "https://example@sentry.io/123");
+        assert_eq!(sentry.environment.unwrap(), "production");
     }
 
     #[test]
-    fn test_try_from_str_no_sentry() {
+    fn test_try_from_str_sentry_inactive() {
         let toml_str = r#"
-            # No sentry section
+            [sentry]
+            active = false
+            # other fields may be left out.
+            
+            [source]
+            
+            [target]
         "#;
-        let config = Config::try_from_str(toml_str).unwrap();
-        assert!(config.sentry.is_none());
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
+        assert!(!config.sentry.active);
+    }
+
+    #[test]
+    fn test_try_from_str_missing_section() {
+        let toml_str = r#"
+            [sentry]
+            active = false
+        "#;
+        let result = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -68,7 +101,7 @@ mod tests {
             [sentry
             dsn = "https://example@sentry.io/123"
         "#;
-        let result = Config::try_from_str(toml_str);
+        let result = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str);
         assert!(result.is_err());
     }
 }

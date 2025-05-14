@@ -1,0 +1,20 @@
+### General & controller configuration
+[sentry]
+# Whether the sentry integration is active.
+active = false
+# Sentry Data Source Name (DSN). Tells Sentry where to send events to so they're associated with the correct project.
+# Must be specified if Sentry is `active`.
+# See https://docs.sentry.io/platforms/rust/#configure
+dsn = ""
+# Tag specifying which context the service is running in (for example, alice-develop, production, ...)
+# Must be specified if Sentry is `active`.
+# See https://docs.sentry.io/platforms/rust/configuration/environments/
+environment = ""
+
+### Source configuration
+# [source]
+# ... insert source config here, see *-source.config.example.toml files
+
+### Target configuration
+# [target]
+# ... insert target config here, see *-target.config.example.toml files

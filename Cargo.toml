@@ -13,3 +13,11 @@ toml = "0.8.20"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+async-trait = "0.1.88"
+thiserror = "1.0.69"
+
+[[bin]]
+name = "keycloak-james"
+
+[[bin]]
+name = "keycloak-synapse"
