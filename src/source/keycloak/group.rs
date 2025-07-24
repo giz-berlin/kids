@@ -1,6 +1,7 @@
 use crate::source::interface;
 use crate::source::keycloak::external;
 use crate::{error, types};
+use std::collections::HashMap;
 use std::rc;
 
 pub struct KeycloakGroup {
@@ -50,6 +51,10 @@ impl interface::Group for KeycloakGroup {
     fn path(&self) -> &str {
         // We can unwrap here because every Keycloak group has got a path.
         self.group_representation.path.as_ref().unwrap()
+    }
+
+    fn attributes(&self) -> &HashMap<String, Vec<String>> {
+        self.group_representation.attributes.as_ref().unwrap()
     }
 
     fn root_group(self: rc::Rc<Self>) -> rc::Rc<dyn interface::Group> {
