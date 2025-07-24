@@ -32,7 +32,7 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
             trim_backtraces: true,
             // TODO: We may not want to have all transactions and thus set this to a lower value.
             // See https://docs.sentry.io/platforms/rust/tracing/
-            traces_sample_rate: 1.0,
+            traces_sample_rate: 0.0,
             in_app_include: vec!["kids"],
             ..Default::default()
         });
@@ -48,32 +48,68 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
     // See https://docs.sentry.io/platforms/rust/#async-main-function.
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
         let source_impl = S::new(config.source);
-        let target_impl = T::new(config.target);
+        let target_impl = match T::new(config.target).await {
+            Ok(target_impl) => target_impl,
+            Err(e) => {
+                // tracing::error!(error = ?e, source = ?e.source(), "{}", e);
+                tracing::error!("{:?}", e);
+                panic!("{}", e)
+            }
+        };
         tracing::info!("Active Source: {}", source_impl.info());
         tracing::info!("Active Target: {}", target_impl.info());
 
-        let users = source_impl.all_users().await.unwrap();
-        for user in users.into_iter() {
-            tracing::info!("user: {}", user.username().unwrap());
-            let user_groups = user.groups().await.unwrap();
-            for group in user_groups.into_iter() {
-                tracing::info!("user group: {}", group.path());
-            }
-        }
-        let groups = source_impl.all_groups().await.unwrap();
-        for group in groups.into_iter() {
-            tracing::info!("group: {}", group.path());
-            let sub_groups = group.sub_groups().await.unwrap();
-            for sub_group in sub_groups.into_iter() {
-                tracing::info!("sub group: {}", sub_group.path());
-            }
-        }
+        // let _ = target_impl.full_sync_incoming().await;
+        //
+        // tracing::info!("{:?}", target_impl.all_groups().await);
+        //
+        // let groups = source_impl.all_groups().await.unwrap();
+        // for group in &groups {
+        //     target_impl.create_or_update_group(group.clone()).await.unwrap();
+        //     let sub_groups = group.clone().sub_groups().await.unwrap();
+        //     for sub_group in sub_groups {
+        //         target_impl.create_or_update_group(sub_group).await.unwrap();
+        //     }
+        // }
+        //
+        // let users = source_impl.all_users().await.unwrap();
+        // for user in users.into_iter() {
+        //     target_impl.create_or_update_user(user).await.unwrap();
+        // }
+        //
+        // for group in &groups {
+        //     target_impl.delete_group(group.id().to_owned()).await.unwrap();
+        // }
+        //
+        // let users = target_impl.all_users().await.unwrap();
+        // for user in users.into_iter() {
+        //     target_impl.delete_user(user).await.unwrap();
+        //     break;
+        // }
+
+        // target_impl.create_or_update_group(rc::Rc::new(source::interface::DummyGroup{name: "Test".to_string(), path: "/abc/Test".to_string() }) as rc::Rc<dyn source::interface::Group>).await.unwrap();
+        // let users = source_impl.all_users().await.unwrap();
+        // for user in users.into_iter() {
+        //     tracing::info!("user: {}", user.username().unwrap());
+        //     let user_groups = user.groups().await.unwrap();
+        //     for group in user_groups.into_iter() {
+        //         tracing::info!("user group: {}", group.path());
+        //     }
+        // }
+        // let groups = source_impl.all_groups().await.unwrap();
+        // for group in groups.into_iter() {
+        //     tracing::info!("group: {}", group.path());
+        //     let sub_groups = group.sub_groups().await.unwrap();
+        //     for sub_group in sub_groups.into_iter() {
+        //         tracing::info!("sub group: {}", sub_group.path());
+        //     }
+        // }
     });
 
     Ok(())
 }
 
-fn init_logging() -> anyhow::Result<()> {
+pub fn init_logging() -> anyhow::Result<()> {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
     // Consider the standard RUST_LOG environment variable as default.
@@ -81,11 +117,7 @@ fn init_logging() -> anyhow::Result<()> {
         .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
         .from_env_lossy();
 
-    let console_log_layer = tracing_subscriber::fmt::layer()
-        .pretty()
-        .with_target(true)
-        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-        .with_filter(filter);
+    let console_log_layer = tracing_subscriber::fmt::layer().pretty().with_target(true).with_filter(filter);
 
     let sentry_layer = sentry::integrations::tracing::layer()
         .enable_span_attributes()
