@@ -50,3 +50,12 @@ This repository contains multiple targets, each with a single syncer app per sou
 
 For manual end-to-end testing see [here](e2e-test/README.md).
 
+## Debugging
+
+### Backtraces
+
+For easier error handling we use the anyhow create. The Error type can also captures and print backtraces if an error occurred. To see the backtrace you have to enable it through environment variables. You have the following options:
+
+- `RUST_BACKTRACE=1`: backtraces for panics and errors
+- `RUST_LIB_BACKTRACE=1`: backtraces just for errors
+- `RUST_BACKTRACE=1` and `RUST_LIB_BACKTRACE=0`: backtraces just for panics
