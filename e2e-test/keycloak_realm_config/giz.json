@@ -9,10 +9,22 @@
       "secret": "keycloak_identity_syncer_secret",
       "serviceAccountsEnabled": true,
       "authorizationServicesEnabled" : true
+    },
+    {
+      "clientId": "synapse",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "synapse_secret",
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled" : true,
+      "redirectUris": [
+        "https://host.docker.internal:8448/_synapse/client/oidc/callback"
+      ]
     }
   ],
   "users": [
     {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
       "username": "TestUser",
       "email": "tester@test.giz.berlin",
       "emailVerified": true,
@@ -22,9 +34,17 @@
       "groups": ["/TestGroup/SubGroup"],
       "realmRoles": [
         "TestRealmRole"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
       ]
     },
     {
+      "id": "39f5a9da-86b1-4c91-94e2-d039c928dbb4",
       "username": "SecondTestUser",
       "email": "user@test.giz.berlin",
       "emailVerified": true,
@@ -34,6 +54,13 @@
       "groups": ["/TestGroup"],
       "realmRoles": [
         "SecondTestRealmRole"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
       ]
     },
     {
@@ -41,7 +68,7 @@
       "enabled": true,
       "serviceAccountClientId": "keycloak_identity_syncer",
       "clientRoles": {
-        "realm-management": ["view-users", "view-realm"]
+        "realm-management": ["view-users", "view-realm", "query-groups", "query-users"]
       }
     }
   ],
@@ -59,10 +86,16 @@
     {
       "name": "TestGroup",
       "path": "/TestGroup",
+      "attributes": {
+        "matrixRoomName": ["Test Group"]
+      },
       "subGroups": [
         {
           "name": "SubGroup",
-          "path": "/TestGroup/SubGroup"
+          "path": "/TestGroup/SubGroup",
+          "attributes": {
+            "matrixRoomName": ["_name_titlecase"]
+          }
         }
       ]
     }

@@ -48,6 +48,5 @@ This repository contains multiple targets, each with a single syncer app per sou
 
 ## Manual testing
 
-As a data source, a local Keycloak instance can be started by running `docker compose -f e2e-test/compose.yml up keycloak`. The keycloak instance already has a preconfigured realm `giz` with a couple of users and groups in it. You may add more users by editing the [bootstrap file](./e2e-test/keycloak_realm_config/giz.json) or via the Keycloak Admin console available at `localhost:8080` ([credentials](docker-compose.yml)). (Note that if you do so via the bootstrap file, make sure to create a new container, because realms will not be loaded from the file if they already exist)
+For manual end-to-end testing see [here](e2e-test/README.md).
 
-The default Keycloak instance will have a Keycloak service account client `keycloak_identity_syncer` with secret `keycloak_identity_syncer_secret` already set up. This client has already been assigned the `view-users` and `view-realm` roles in order to allow querying for user and group information.
