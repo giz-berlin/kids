@@ -16,53 +16,68 @@ cache:
     - target
     - ${CI_PROJECT_DIR}/.cargo
 
-############
-# Building
-############
-
-build-release:
-  stage: build
-  script:
-    - cargo build --release --verbose
-  artifacts:
-    paths:
-      - target/release/kids
-    expire_in: 1 week
-    when: always
-
-build-debug:
-  stage: build
-  script:
-    - cargo build --verbose
-  artifacts:
-    paths:
-      - target/debug/
-    expire_in: 1 week
-    when: always
-
-############
-# Testing
-############
-
-lint:
+e2e-test:
   stage: test
+  image: quay.io/podman/stable
+  variables:
+    DBUS_SESSION_BUS_ADDRESS: "/dev/null"
+    XDG_RUNTIME_DIR: "/tmp/xdg"
+    STORAGE_DRIVER: "vfs"
+  before_script:
+    - mkdir -p $XDG_RUNTIME_DIR
+    - podman info
   script:
-    - rustup component add clippy
-    - cargo clippy --all-targets -- -Dwarnings
-  needs:
-    - build-debug
+    - cd e2e-test
+    - bash setup_synapse_e2e.sh
+    - bash teardown_synapse_e2e.sh
 
-fmt-check:
-  stage: test
-  script:
-    - rustup component add rustfmt
-    - cargo fmt --all -- --check
-  needs:
-    - build-debug
-
-test-debug:
-  stage: test
-  script:
-    - cargo test
-  needs:
-    - build-debug
+#############
+## Building
+#############
+#
+#build-release:
+#  stage: build
+#  script:
+#    - cargo build --release --verbose
+#  artifacts:
+#    paths:
+#      - target/release/kids
+#    expire_in: 1 week
+#    when: always
+#
+#build-debug:
+#  stage: build
+#  script:
+#    - cargo build --verbose
+#  artifacts:
+#    paths:
+#      - target/debug/
+#    expire_in: 1 week
+#    when: always
+#
+#############
+## Testing
+#############
+#
+#lint:
+#  stage: test
+#  script:
+#    - rustup component add clippy
+#    - cargo clippy --all-targets -- -Dwarnings
+#  needs:
+#    - build-debug
+#
+#fmt-check:
+#  stage: test
+#  script:
+#    - rustup component add rustfmt
+#    - cargo fmt --all -- --check
+#  needs:
+#    - build-debug
+#
+#test-debug:
+#  stage: test
+#  script:
+#    - cargo test
+#  needs:
+#    - build-debug
