@@ -24,7 +24,7 @@ pub struct SynapseApiConfig {
     pub matrix_name_space: String,
 }
 
-#[mockall::automock]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait(?Send)]
 pub trait SynapseApi {
     fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool;

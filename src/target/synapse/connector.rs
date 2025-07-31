@@ -517,6 +517,8 @@ impl Connector {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::target::interface::Target;
+    use crate::target::synapse::external::MockSynapseApi;
     use rstest::*;
 
     #[fixture]
@@ -534,9 +536,221 @@ mod test {
                 room_deletion_strategy: RoomDeletionStrategy::Ignore,
                 source_room_name_attr: "test".to_string(),
             },
-            synapse_api: Box::new(external::MockSynapseApi::new()),
+            synapse_api: Box::new(MockSynapseApi::default()),
             group_id_mapping: collections::HashMap::new(),
             user_id_mapping: collections::HashMap::new(),
+        }
+    }
+
+    #[rstest]
+    fn info_works(connector: Connector) {
+        assert_eq!(connector.info(), "Synapse Connector!")
+    }
+
+    mod when_full_sync_incoming {
+        use super::*;
+        use crate::target::synapse::test_mocks::{MockSynapseRoomBuilder, MockSynapseUserBuilder, SynapseApiMocker};
+        use crate::test_util::constants;
+
+        #[rstest]
+        #[tokio::test]
+        async fn then_return_ok(mut connector: Connector) {
+            // given
+            connector.synapse_api = SynapseApiMocker::new()
+                .can_get_joined_rooms_of_syncer()
+                .can_associate_source_group_id_to_room()
+                .can_get_users()
+                .into();
+
+            // when & then
+            assert!(connector.full_sync_incoming().await.is_ok());
+        }
+
+        #[rstest]
+        #[tokio::test]
+        async fn then_add_groups_to_group_mapping(mut connector: Connector) {
+            // given
+            let room1 = MockSynapseRoomBuilder::default().build();
+            let room2 = MockSynapseRoomBuilder::default().build();
+
+            connector.synapse_api = SynapseApiMocker::new()
+                .with_rooms(vec![room1.clone(), room2.clone()])
+                .can_get_joined_rooms_of_syncer()
+                .can_get_room_associated_source_group_id_v1()
+                .can_associate_source_group_id_to_room()
+                .can_get_all_rooms_associated_source_group_id()
+                .can_get_users()
+                .into();
+
+            // when
+            assert!(connector.full_sync_incoming().await.is_ok());
+
+            // then
+            assert_eq!(connector.group_id_mapping.len(), 2);
+            assert_eq!(connector.group_id_mapping.get(&room1.source_room_id).unwrap(), &room1.matrix_room_id);
+            assert_eq!(connector.group_id_mapping.get(&room2.source_room_id).unwrap(), &room2.matrix_room_id);
+        }
+
+        #[rstest]
+        #[tokio::test]
+        async fn then_add_users_to_user_mapping(mut connector: Connector) {
+            // given
+            let user1 = MockSynapseUserBuilder::default().build();
+            let user2 = MockSynapseUserBuilder::default().build();
+
+            connector.synapse_api = SynapseApiMocker::new()
+                .with_users(vec![user1.clone(), user2.clone()])
+                .can_get_joined_rooms_of_syncer()
+                .can_get_users()
+                .can_get_source_user_id_for_all_matrix_users()
+                .into();
+
+            // then
+            assert!(connector.full_sync_incoming().await.is_ok());
+
+            // when
+            assert_eq!(connector.user_id_mapping.len(), 2);
+            assert_eq!(
+                connector.user_id_mapping.get(&user1.source_user_id).unwrap(),
+                &SynapseApiMocker::get_user_from(&user1)
+            );
+            assert_eq!(
+                connector.user_id_mapping.get(&user2.source_user_id).unwrap(),
+                &SynapseApiMocker::get_user_from(&user2)
+            );
+        }
+
+        #[rstest]
+        #[tokio::test]
+        async fn then_completely_clear_mappings_before_rebuild(mut connector: Connector) {
+            // given
+            connector
+                .group_id_mapping
+                .insert(constants::DEFAULT_SOURCE_GROUP_ID.to_string(), constants::DEFAULT_TARGET_ROOM_ID.to_string());
+            connector.user_id_mapping.insert(
+                constants::DEFAULT_SOURCE_USER_ID.to_string(),
+                dto::User {
+                    name: constants::DEFAULT_TARGET_USER_ID.to_string(),
+                    locked: false,
+                    external_ids: None,
+                },
+            );
+
+            connector.synapse_api = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().can_get_users().into();
+
+            // then
+            assert!(connector.full_sync_incoming().await.is_ok());
+
+            // when
+            assert!(connector.user_id_mapping.is_empty());
+            assert!(connector.group_id_mapping.is_empty());
+        }
+
+        #[rstest]
+        #[tokio::test]
+        async fn and_mapping_ambiguous__then_use_first_encountered_value(mut connector: Connector) {
+            // given
+            let room1 = MockSynapseRoomBuilder::default().build();
+            let room2 = MockSynapseRoomBuilder::default().source_room_id(room1.source_room_id.clone()).build();
+
+            let user1 = MockSynapseUserBuilder::default().build();
+            let user2 = MockSynapseUserBuilder::default().source_user_id(user1.source_user_id.clone()).build();
+
+            connector.synapse_api = SynapseApiMocker::new()
+                .with_rooms(vec![room1.clone(), room2.clone()])
+                .with_users(vec![user1.clone(), user2.clone()])
+                .can_get_joined_rooms_of_syncer()
+                .can_get_room_associated_source_group_id_v1()
+                .can_associate_source_group_id_to_room()
+                .can_get_all_rooms_associated_source_group_id()
+                .can_get_users()
+                .can_get_source_user_id_for_all_matrix_users()
+                .into();
+
+            // then
+            assert!(connector.full_sync_incoming().await.is_ok());
+
+            // when
+            assert_eq!(connector.group_id_mapping.get(&room1.source_room_id).unwrap(), &room1.matrix_room_id);
+            assert_eq!(
+                connector.user_id_mapping.get(&user1.source_user_id).unwrap(),
+                &SynapseApiMocker::get_user_from(&user1)
+            );
+        }
+
+        #[rstest]
+        #[tokio::test]
+        async fn and_obtaining_mapping_for_one_room_fails__then_still_process_other_rooms(mut connector: Connector) {
+            // given
+            let room1 = MockSynapseRoomBuilder::default().build();
+            let room2 = MockSynapseRoomBuilder::default().build();
+            let room3 = MockSynapseRoomBuilder::default().build();
+
+            connector.synapse_api = SynapseApiMocker::new()
+                .with_rooms(vec![room1.clone(), room2.clone(), room3.clone()])
+                .can_get_joined_rooms_of_syncer()
+                .can_get_room_associated_source_group_id_v1()
+                .can_associate_source_group_id_to_room()
+                .can_get_room_associated_source_group_id_for_room(&room1)
+                .cannot_get_room_associated_source_group_id_for_room(&room2)
+                .can_get_room_associated_source_group_id_for_room(&room3)
+                .can_get_users()
+                .into();
+
+            // then
+            assert!(connector.full_sync_incoming().await.is_ok());
+
+            // when
+            assert!(connector.group_id_mapping.contains_key(&room1.source_room_id));
+            assert!(!connector.group_id_mapping.contains_key(&room2.source_room_id));
+            assert!(connector.group_id_mapping.contains_key(&room3.source_room_id));
+        }
+
+        #[rstest]
+        #[tokio::test]
+        async fn and_obtaining_mapping_for_one_user_fails__then_still_process_other_user(mut connector: Connector) {
+            // given
+            let user1 = MockSynapseUserBuilder::default().build();
+            let user2 = MockSynapseUserBuilder::default().build();
+            let user3 = MockSynapseUserBuilder::default().build();
+
+            connector.synapse_api = SynapseApiMocker::new()
+                .with_users(vec![user1.clone(), user2.clone(), user3.clone()])
+                .can_get_joined_rooms_of_syncer()
+                .can_get_users()
+                .can_get_source_user_id_for_matrix_user(&user1)
+                .cannot_get_source_user_id_for_matrix_user(&user2)
+                .can_get_source_user_id_for_matrix_user(&user3)
+                .into();
+
+            // then
+            assert!(connector.full_sync_incoming().await.is_ok());
+
+            // when
+            assert!(connector.user_id_mapping.contains_key(&user1.source_user_id));
+            assert!(!connector.user_id_mapping.contains_key(&user2.source_user_id));
+            assert!(connector.user_id_mapping.contains_key(&user3.source_user_id));
+        }
+        #[rstest]
+        #[tokio::test]
+        async fn but_cannot_get_joined_rooms_of_syncer__then_return_err(mut connector: Connector) {
+            // given
+            connector.synapse_api = SynapseApiMocker::new().cannot_get_joined_rooms_of_syncer().into();
+
+            // when & then
+            assert!(connector.full_sync_incoming().await.is_err());
+        }
+
+        #[rstest]
+        #[tokio::test]
+        async fn but_cannot_get_users__then_return_err(mut connector: Connector) {
+            // given
+            connector.synapse_api = SynapseApiMocker::new()
+                .can_get_joined_rooms_of_syncer()
+                .cannot_get_users().into();
+
+            // when & then
+            assert!(connector.full_sync_incoming().await.is_err());
         }
     }
 }

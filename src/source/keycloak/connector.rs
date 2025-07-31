@@ -57,10 +57,10 @@ mod test {
         mock.expect_get_users().returning(|| {
             Ok(vec![
                 external::test::KeycloakUserRepresentationBuilder::default()
-                    .id(constants::DEFAULT_USER_ID)
+                    .id(constants::DEFAULT_SOURCE_USER_ID)
                     .build_into(),
                 external::test::KeycloakUserRepresentationBuilder::default()
-                    .id(constants::ANOTHER_USER_ID)
+                    .id(constants::ANOTHER_SOURCE_USER_ID)
                     .build_into(),
             ])
         });
@@ -74,8 +74,8 @@ mod test {
 
         // then
         assert_eq!(users.len(), 2);
-        assert_eq!(users[0].id(), constants::DEFAULT_USER_ID);
-        assert_eq!(users[1].id(), constants::ANOTHER_USER_ID);
+        assert_eq!(users[0].id(), constants::DEFAULT_SOURCE_USER_ID);
+        assert_eq!(users[1].id(), constants::ANOTHER_SOURCE_USER_ID);
     }
 
     #[tokio::test]
@@ -85,10 +85,10 @@ mod test {
         mock.expect_get_groups().returning(|| {
             Ok(vec![
                 external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::DEFAULT_GROUP_ID)
+                    .id(constants::DEFAULT_SOURCE_GROUP_ID)
                     .build_into(),
                 external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::ANOTHER_GROUP_ID)
+                    .id(constants::ANOTHER_SOURCE_GROUP_ID)
                     .build_into(),
             ])
         });
@@ -102,7 +102,7 @@ mod test {
 
         // then
         assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0].id(), constants::DEFAULT_GROUP_ID);
-        assert_eq!(groups[1].id(), constants::ANOTHER_GROUP_ID);
+        assert_eq!(groups[0].id(), constants::DEFAULT_SOURCE_GROUP_ID);
+        assert_eq!(groups[1].id(), constants::ANOTHER_SOURCE_GROUP_ID);
     }
 }

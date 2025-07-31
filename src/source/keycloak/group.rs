@@ -89,16 +89,18 @@ mod test {
     async fn test_sub_groups() {
         // given
         let mut mock = external::MockKeycloakApi::new();
-        mock.expect_get_subgroups().with(predicate::eq(constants::DEFAULT_GROUP_ID)).returning(|_| {
-            Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
-                .id(constants::ANOTHER_GROUP_ID)
-                .build_into()])
-        });
+        mock.expect_get_subgroups()
+            .with(predicate::eq(constants::DEFAULT_SOURCE_GROUP_ID))
+            .returning(|_| {
+                Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::ANOTHER_SOURCE_GROUP_ID)
+                    .build_into()])
+            });
 
         let group = rc::Rc::new(KeycloakGroup::new(
             rc::Rc::new(mock),
             external::test::KeycloakGroupRepresentationBuilder::default()
-                .id(constants::DEFAULT_GROUP_ID)
+                .id(constants::DEFAULT_SOURCE_GROUP_ID)
                 .build_into(),
         )) as rc::Rc<dyn interface::Group>;
 
@@ -107,7 +109,7 @@ mod test {
 
         // then
         assert_eq!(sub_groups.len(), 1);
-        assert_eq!(sub_groups[0].id(), constants::ANOTHER_GROUP_ID);
+        assert_eq!(sub_groups[0].id(), constants::ANOTHER_SOURCE_GROUP_ID);
         // also assigns parent relationships
         assert!(rc::Rc::ptr_eq(&sub_groups[0].parent_group().unwrap(), &group));
         assert!(rc::Rc::ptr_eq(&sub_groups[0].clone().root_group(), &group));
