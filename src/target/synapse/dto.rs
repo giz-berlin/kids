@@ -17,14 +17,14 @@ pub struct AllUsersResponse {
     pub users: Vec<User>,
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug, PartialEq, Clone)]
 pub struct User {
     pub name: String,
     pub locked: bool,
     pub external_ids: Option<Vec<ExternalId>>,
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug, PartialEq, Clone)]
 pub struct ExternalId {
     pub auth_provider: String,
     pub external_id: String,
