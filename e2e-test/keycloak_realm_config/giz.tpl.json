@@ -18,7 +18,7 @@
       "serviceAccountsEnabled": true,
       "authorizationServicesEnabled" : true,
       "redirectUris": [
-        "https://host.docker.internal:8448/_synapse/client/oidc/callback"
+        "https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/_synapse/client/oidc/callback"
       ]
     }
   ],
@@ -68,7 +68,7 @@
       "enabled": true,
       "serviceAccountClientId": "keycloak_identity_syncer",
       "clientRoles": {
-        "realm-management": ["view-users", "view-realm", "query-groups", "query-users"]
+        "realm-management": ["view-users", "view-realm"]
       }
     }
   ],

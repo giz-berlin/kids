@@ -12,7 +12,9 @@ podman to start containers.
 
 To use podman with macOS, you need to create a virtual machine first:
 
-```podman machine init -v /host/system/path/kids/e2e-test:/path/in/machine/e2e-test```
+```shell
+podman machine init -v /host/system/path/kids/e2e-test:/path/in/machine/e2e-test
+```
 
 Mounting a folder into the virtual machine is required so that the scripts can also mount it into the container. 
 
@@ -20,19 +22,17 @@ Start the machine with `podman machine start`. You should now be able to use pod
 
 ## Scripts
 
-The [setup_synapse_e2e.sh](setup_synapse_e2e.sh) script will spin up [keycloak](https://www.keycloak.org/server/containers) 
-and [synapse](https://hub.docker.com/r/matrixdotorg/synapse) containers, as well as a
-[synapse admin](https://github.com/etkecc/synapse-admin) interface.
-Also, it will automatically setup a local CA, because Synapse expects OIDC providers to use HTTPS.
+The [setup_synapse_e2e.sh](setup_synapse_e2e.sh) script will spin up [Keycloak](https://www.keycloak.org/server/containers) 
+and [Synapse](https://hub.docker.com/r/matrixdotorg/synapse) containers, as well as a
+[Synapse Admin](https://github.com/etkecc/synapse-admin) interface.
+Additionally, it will automatically setup a local CA, because Synapse expects OIDC providers to use HTTPS.
 The [teardown_synapse_e2e.sh](teardown_synapse_e2e.sh) script will delete any traces of these services.
 
-### Using the Synapse Admin Web Interface
+You can now access (see [.env](.env) for environment variables)
 
-The Synapse Admin web interface needs to connect to the Synapse API, which is likely to fail initially because the
-browser will reject the certificate of Synapse. In order to fix that, you may need to access the Synapse API manually
-once (located under `https://{PODMAN_SERVICE_HOSTNAME}:{SYNAPSE_TLS_PORT}`, see [.env file](.env)) and
-dismiss the certificate warning presented to you. This should make the browser trust the self-signed
-certificate going forward, which will enable Synapse Admin to work properly.
+- Keycloak at `https://$PODMAN_SERVICE_HOSTNAME:8443`
+- Synapse Admin at `http://$PODMAN_SERVICE_HOSTNAME:8080`
+- Synapse at `http://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_PORT` and `https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT`
 
 ## Manually (re)starting containers
 

@@ -1,2 +1,4 @@
 local_ca/
 synapse_data/
+synapse_admin_config.json
+keycloak_realm_config/giz.json

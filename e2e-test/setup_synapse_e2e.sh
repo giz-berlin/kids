@@ -6,8 +6,8 @@ set -a
 # By default, podman includes the /etc/hosts file of the host system in the /etc/hosts of the
 # containers. We have to disable that behavior, because we have already modified the host system file so that the service hostnames
 # from the perspectives of the containers and the host can match:
-#    host /etc/hosts: 127.0.0.1 host.docker.internal
-#    container /etc/hosts: <host ip> host.docker.internal   [will be automatically inserted by postman, but ONLY if DNS name
+#    host /etc/hosts: 127.0.0.1 host.docker.internal[=$PODMAN_SERVICE_HOSTNAME]
+#    container /etc/hosts: <host ip> host.docker.internal   [will be automatically inserted by podman, but ONLY if DNS name
 #                                                            not already contained in file previously]
 # See https://github.com/containers/common/blob/main/docs/containers.conf.5.md
 export CONTAINERS_CONF=./containers.conf
@@ -43,7 +43,8 @@ EOF
 
 restart_if_possible() {
   CONTAINER_NAME=$1
-  if podman ps -a | grep $CONTAINER_NAME; then
+  # Inspecting the container works iff it exists
+  if podman container inspect $CONTAINER_NAME >/dev/null; then
       progress_msg "(Re)starting $CONTAINER_NAME."
       # Note: Not using restart here, because this sometimes fails to bind the exposed ports (which appear to be still
       # in use by the very container *itself*)...
@@ -56,8 +57,8 @@ restart_if_possible() {
 }
 
 progress_msg "Checking if /etc/hosts file is correctly setup"
-if cat /etc/hosts | grep host.docker.internal; [ $? -ne 0 ]; then
-    echo "a line '127.0.0.1 host.docker.internal' must be contained in /etc/hosts file!"
+if grep "^127.0.0.1 $PODMAN_SERVICE_HOSTNAME" /etc/hosts; [ $? -ne 0 ]; then
+    echo "a line '127.0.0.1 $PODMAN_SERVICE_HOSTNAME' must be contained in /etc/hosts file!"
     exit 1
 else
     echo "OK."
@@ -84,6 +85,7 @@ if restart_if_possible $KEYCLOAK_CONTAINER_NAME; [ $? -ne 0 ]; then
   cd ..
 
   progress_msg "Starting $KEYCLOAK_CONTAINER_NAME podman container with hostname $PODMAN_SERVICE_HOSTNAME"
+  envsubst < keycloak_realm_config/giz.tpl.json > keycloak_realm_config/giz.json
   podman run \
       -d --name $KEYCLOAK_CONTAINER_NAME \
       -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=password \
@@ -96,7 +98,7 @@ if restart_if_possible $KEYCLOAK_CONTAINER_NAME; [ $? -ne 0 ]; then
 fi
 
 progress_msg "Awaiting $KEYCLOAK_CONTAINER_NAME to be healthy..."
-until curl --insecure --head -fsS https://host.docker.internal:9000/health/ready --http1.1
+until curl --insecure --head -fsS https://$PODMAN_SERVICE_HOSTNAME:9000/health/ready --http1.1
 do
     echo "--> Not yet healthy."
     sleep 5;
@@ -135,14 +137,14 @@ if restart_if_possible $SYNAPSE_CONTAINER_NAME; [ $? -ne 0 ]; then
       -e UID=0 -e GID=0 \
       -e SSL_CERT_FILE=/opt/ca/$KIDS_CA_NAME.crt \
       -v "./local_ca:/opt/ca" -v "./synapse_data:/data" \
-      -p "127.0.0.1:8048:8048" -p "127.0.0.1:$SYNAPSE_TLS_PORT:$SYNAPSE_TLS_PORT" \
+      -p "127.0.0.1:$SYNAPSE_PORT:$SYNAPSE_PORT" -p "127.0.0.1:$SYNAPSE_TLS_PORT:$SYNAPSE_TLS_PORT" \
       docker.io/matrixdotorg/synapse:latest
 
   export SHOULD_CREATE_USERS=1
 fi
 
 progress_msg "Awaiting $SYNAPSE_CONTAINER_NAME to be healthy..."
-until curl --insecure --head -fsS https://host.docker.internal:8448/health
+until curl --insecure --head -fsS https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/health
 do
     echo "--> Not yet healthy."
     sleep 5;
@@ -151,23 +153,23 @@ progress_msg "OK - $SYNAPSE_CONTAINER_NAME has started."
 
 if [ $SHOULD_CREATE_USERS -eq 1 ]; then
   progress_msg "Creating admin user in $SYNAPSE_CONTAINER_NAME"
-  podman exec -it kids-e2e-synapse register_new_matrix_user -c /data/homeserver.yaml -u admin -p password -a
+  podman exec -it $SYNAPSE_CONTAINER_NAME register_new_matrix_user -c /data/homeserver.yaml -u admin -p password -a
 
   progress_msg "Creating users in $SYNAPSE_CONTAINER_NAME"
-  export ACCESS_TOKEN=$(curl --insecure -X POST https://host.docker.internal:8448/_matrix/client/v3/login \
+  export ACCESS_TOKEN=$(curl --insecure -X POST -w '\n' https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/_matrix/client/v3/login \
    -d '{"identifier": { "type": "m.id.user", "user": "admin" }, "password": "password", "type": "m.login.password" }' \
    | tee /dev/stderr | jq -r .access_token)
   echo "Bearer $ACCESS_TOKEN"
-  curl --insecure -X PUT https://host.docker.internal:8448/_synapse/admin/v2/users/@testuser:host.docker.internal:8448 \
+  curl --insecure -X PUT -w '\n' https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/_synapse/admin/v2/users/@testuser:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -d '{ "displayname": "Test User", "external_ids":[{ "auth_provider" : "keycloak", "external_id": "123e4567-e89b-12d3-a456-426614174000" } ] }'
-  curl --insecure -X PUT https://host.docker.internal:8448/_synapse/admin/v2/users/@secondtestuser:host.docker.internal:8448 \
+  curl --insecure -X PUT -w '\n' https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/_synapse/admin/v2/users/@secondtestuser:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -d '{ "displayname": "Second Test User", "external_ids":[{ "auth_provider" : "keycloak", "external_id": "39f5a9da-86b1-4c91-94e2-d039c928dbb4" } ] }'
-  echo
 fi
 
 if restart_if_possible $SYNAPSE_ADMIN_CONTAINER_NAME; [ $? -ne 0 ]; then
   progress_msg "Starting $SYNAPSE_ADMIN_CONTAINER_NAME"
+  envsubst < synapse_admin_config.tpl.json > synapse_admin_config.json
   podman run -d --name $SYNAPSE_ADMIN_CONTAINER_NAME -p 8080:80 -v "./synapse_admin_config.json:/app/config.json" ghcr.io/etkecc/synapse-admin
 fi
