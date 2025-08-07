@@ -2,7 +2,6 @@ use crate::target::synapse::dto;
 use crate::{error, types};
 use anyhow::anyhow;
 use reqwest::RequestBuilder;
-use crate::target::synapse::external::SynapseApi;
 
 #[derive(serde::Deserialize, Clone)]
 pub struct SynapseApiConfig {
@@ -436,7 +435,7 @@ impl SynapseApi for SynapseClient {
     async fn delete_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_admin_api_request(
-                "v2",
+                "v1", // We are intentionally using the older, blocking version of the API here.
                 http::Method::DELETE,
                 format!("rooms/{matrix_room_id}"),
                 Some(&serde_json::json!({
@@ -522,7 +521,7 @@ impl SynapseApi for SynapseClient {
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#put_matrixclientv3directoryroomroomalias.
     async fn create_room_alias(&mut self, matrix_room_id: &str, alias: &str) -> Result<(), error::KidsError> {
-        let _: dto::IgnoredResponse = self
+        let res: Result<dto::IgnoredResponse, error::KidsError> = self
             .send_client_api_request(
                 http::Method::PUT,
                 format!("directory/room/{}", url::form_urlencoded::byte_serialize(alias.as_bytes()).collect::<String>()),
@@ -530,8 +529,17 @@ impl SynapseApi for SynapseClient {
                     "room_id": matrix_room_id
                 })),
             )
-            .await?;
-        Ok(())
+            .await;
+
+        if let Err(error::KidsError::ApiOperationFailed(_, 409, ..)) = res {
+            tracing::warn!(matrix_room_id, alias, "Room alias already exists");
+            return Ok(())
+        }
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e)
+        }
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#delete_matrixclientv3directoryroomroomalias

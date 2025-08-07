@@ -17,7 +17,7 @@ pub struct SynapseConfig {
     pub room_deletion_strategy: RoomDeletionStrategy,
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub enum RoomDeletionStrategy {
     /// Do not modify the Matrix room. No users will be removed from it
     /// and no attributes (name, alias, power levels) will be updated.
@@ -99,7 +99,21 @@ impl interface::Target for Connector {
             let source_group_id = match self.synapse_api.get_room_associated_source_group_id(&matrix_room_id).await {
                 Ok(source_group_id) => source_group_id,
                 Err(error) => {
-                    tracing::error!(%error, matrix_room_id, "Could not determine source group for room");
+                    // To reach eventual consistency, we need to delete all rooms the syncer is in
+                    // that have no source groups associated to them.
+                    // This is because such a situation might happen when creation of a room succeeds, but
+                    // the subsequent request to associate the source ID fails. In that case, the syncer would retry
+                    // creating a room for the associated group, but that would fail because the desired alias
+                    // of that room would clash with the one previously created.
+                    if let error::KidsError::ApiOperationFailed(_, 404, ..) = error {
+                        tracing::error!(matrix_room_id, "Encountered a room the syncer has joined that has no source group associated to it. Deleting that room");
+                        if let Err(e) = self.delete_room(&matrix_room_id, RoomDeletionStrategy::Delete).await {
+                            tracing::warn!(matrix_room_id, error=%e, "Could not delete room with no associated source group id");
+                        }
+                    } else {
+                        tracing::error!(%error, matrix_room_id, "Could not determine source group for room");
+                    }
+
                     continue;
                 }
             };
@@ -171,69 +185,7 @@ impl interface::Target for Connector {
         let matrix_room_id = self.group_id_mapping.get(&source_group_id).unwrap();
         tracing::info!(matrix_room_id, "Deleting room with strategy {:?}", self.config.room_deletion_strategy);
 
-        match self.config.room_deletion_strategy {
-            RoomDeletionStrategy::KickAll | RoomDeletionStrategy::Evacuate => {
-                let joined_members = self
-                    .synapse_api
-                    .get_room_joined_users(matrix_room_id)
-                    .await
-                    .map_err(|e| e.with_context("Could not get joined users for room deletion. Could not delete room"))?;
-                tracing::info!(matrix_room_id, ?joined_members, "Kicking members from room");
-
-                let mut all_kicked = true;
-                for member in joined_members.joined.keys() {
-                    tracing::debug!(matrix_room_id, member, "Kicking member from room");
-                    if self.synapse_api.user_is_matrix_syncer(member) {
-                        continue;
-                    }
-                    if let Err(e) = self.synapse_api.kick_user_from_room(matrix_room_id, member).await {
-                        tracing::error!(matrix_room_id, member, %e, "Could not kick member from room");
-                        all_kicked = false;
-                    }
-                }
-
-                if !all_kicked {
-                    // Note: Need to return early here because the syncer should only leave the room
-                    // if all users have been kicked successfully.
-                    return Err(error::KidsError::InternalError(format!(
-                        "Could not kick all members from room {matrix_room_id}"
-                    )));
-                }
-
-                if matches!(self.config.room_deletion_strategy, RoomDeletionStrategy::Evacuate) {
-                    tracing::info!(matrix_room_id, "Syncer leaving room");
-                    self.synapse_api
-                        .syncer_leave_room(matrix_room_id)
-                        .await
-                        .map_err(|e| e.with_context("Could not leave room"))?;
-                }
-            }
-            RoomDeletionStrategy::Delete => {
-                tracing::info!(matrix_room_id, "Deleting room");
-                self.synapse_api
-                    .delete_room(matrix_room_id)
-                    .await
-                    .map_err(|e| e.with_context("Could not delete room"))?;
-            }
-            RoomDeletionStrategy::Ignore => {}
-        }
-
-        // Note: If strategy is delete, alias has already been deleted with the room.
-        if matches!(self.config.room_deletion_strategy, RoomDeletionStrategy::Evacuate) {
-            // Each room should only have one alias at a time when being managed by the syncer.
-            // In order to avoid issues when evacuating a room but trying to recreate it later (which
-            // might use the same alias), make sure to disassociate the alias from the old room.
-            tracing::info!(matrix_room_id, "Deleting old alias for room");
-            let canonical_alias_event = self
-                .synapse_api
-                .get_room_canonical_alias(matrix_room_id)
-                .await
-                .map_err(|e| e.with_context("Could not obtain canonical alias for room"))?;
-            self.synapse_api
-                .delete_room_alias(&canonical_alias_event.alias)
-                .await
-                .map_err(|e| e.with_context("Could not delete canonical alias for room"))?;
-        }
+        self.delete_room(&matrix_room_id.clone(), self.config.room_deletion_strategy.clone()).await?;
 
         self.group_id_mapping.remove(&source_group_id);
 
@@ -508,6 +460,12 @@ impl Connector {
                     }
                 }
 
+                // Note: In the very rare case that above request succeeds and below fails, we will "leak"
+                // room aliases in the sense that we will forget retrying deletion of this alias on the
+                // next invocation of this method.
+                // If you notice a room having multiple aliases, this is probably what has happened
+                // (every room should, by invariant, only have exactly one alias).
+                // We postpone handling of this edge case for now.
                 match self.synapse_api.delete_room_alias(&canonical_alias_event.alias).await {
                     Ok(()) => tracing::debug!(matrix_room_id, old_alias = canonical_alias_event.alias, "Deleted canonical alias from room"),
                     Err(e) => tracing::warn!(
@@ -521,6 +479,74 @@ impl Connector {
             }
             Err(e) => tracing::warn!(?e, matrix_room_id, "Could not determine current room canonical alias"),
         }
+    }
+
+    async fn delete_room(&mut self, matrix_room_id: &str, room_deletion_strategy: RoomDeletionStrategy) -> Result<(), error::KidsError> {
+        match room_deletion_strategy {
+            RoomDeletionStrategy::KickAll | RoomDeletionStrategy::Evacuate => {
+                let joined_members = self
+                    .synapse_api
+                    .get_room_joined_users(matrix_room_id)
+                    .await
+                    .map_err(|e| e.with_context("Could not get joined users for room deletion. Could not delete room"))?;
+                tracing::info!(matrix_room_id, ?joined_members, "Kicking members from room");
+
+                let mut all_kicked = true;
+                for member in joined_members.joined.keys() {
+                    tracing::debug!(matrix_room_id, member, "Kicking member from room");
+                    if self.synapse_api.user_is_matrix_syncer(member) {
+                        continue;
+                    }
+                    if let Err(e) = self.synapse_api.kick_user_from_room(matrix_room_id, member).await {
+                        tracing::error!(matrix_room_id, member, %e, "Could not kick member from room");
+                        all_kicked = false;
+                    }
+                }
+
+                if !all_kicked {
+                    // Note: Need to return early here because the syncer should only leave the room
+                    // if all users have been kicked successfully.
+                    return Err(error::KidsError::InternalError(format!(
+                        "Could not kick all members from room {matrix_room_id}"
+                    )));
+                }
+
+                if matches!(room_deletion_strategy, RoomDeletionStrategy::Evacuate) {
+                    tracing::info!(matrix_room_id, "Syncer leaving room");
+                    self.synapse_api
+                        .syncer_leave_room(matrix_room_id)
+                        .await
+                        .map_err(|e| e.with_context("Could not leave room"))?;
+                }
+            }
+            RoomDeletionStrategy::Delete => {
+                tracing::info!(matrix_room_id, "Deleting room");
+                self.synapse_api
+                    .delete_room(matrix_room_id)
+                    .await
+                    .map_err(|e| e.with_context("Could not delete room"))?;
+            }
+            RoomDeletionStrategy::Ignore => {}
+        }
+
+        // Note: If strategy is delete, alias has already been deleted with the room.
+        if matches!(room_deletion_strategy, RoomDeletionStrategy::Evacuate) {
+            // Each room should only have one alias at a time when being managed by the syncer.
+            // In order to avoid issues when evacuating a room but trying to recreate it later (which
+            // might use the same alias), make sure to disassociate the alias from the old room.
+            tracing::info!(matrix_room_id, "Deleting old alias for room");
+            let canonical_alias_event = self
+                .synapse_api
+                .get_room_canonical_alias(matrix_room_id)
+                .await
+                .map_err(|e| e.with_context("Could not obtain canonical alias for room"))?;
+            self.synapse_api
+                .delete_room_alias(&canonical_alias_event.alias)
+                .await
+                .map_err(|e| e.with_context("Could not delete canonical alias for room"))?;
+        }
+
+        Ok(())
     }
 }
 
