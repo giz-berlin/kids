@@ -99,10 +99,7 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
         }
 
         let users = target_impl.all_users().await.unwrap();
-        for user in users.into_iter() {
-            target_impl.delete_user(user).await.unwrap();
-            break;
-        }
+        target_impl.delete_user(users.into_iter().next().unwrap()).await.unwrap();
     });
 
     Ok(())

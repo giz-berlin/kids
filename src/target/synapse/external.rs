@@ -470,7 +470,9 @@ impl SynapseApi for SynapseClient {
     /// We are using a custom state event type here, which must match the one we created via
     /// [SynapseClient::associate_source_group_id_to_room].
     async fn get_room_associated_source_group_id(&mut self, matrix_room_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError> {
-        let event: dto::RoomGlobalIdEvent = self.client_api_get(format!("rooms/{matrix_room_id}/state/{SYNCER_ROOM_METADATA_EVENT}/") ).await?;
+        let event: dto::RoomGlobalIdEvent = self
+            .client_api_get(format!("rooms/{matrix_room_id}/state/{SYNCER_ROOM_METADATA_EVENT}/"))
+            .await?;
         tracing::debug!(source_id = event.source_id, matrix_room_id, "Found mapping");
         Ok(event.source_id)
     }
@@ -533,12 +535,12 @@ impl SynapseApi for SynapseClient {
 
         if let Err(error::KidsError::ApiOperationFailed(_, 409, ..)) = res {
             tracing::warn!(matrix_room_id, alias, "Room alias already exists");
-            return Ok(())
+            return Ok(());
         }
 
         match res {
             Ok(_) => Ok(()),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 

@@ -106,7 +106,10 @@ impl interface::Target for Connector {
                     // creating a room for the associated group, but that would fail because the desired alias
                     // of that room would clash with the one previously created.
                     if let error::KidsError::ApiOperationFailed(_, 404, ..) = error {
-                        tracing::error!(matrix_room_id, "Encountered a room the syncer has joined that has no source group associated to it. Deleting that room");
+                        tracing::error!(
+                            matrix_room_id,
+                            "Encountered a room the syncer has joined that has no source group associated to it. Deleting that room"
+                        );
                         if let Err(e) = self.delete_room(&matrix_room_id, RoomDeletionStrategy::Delete).await {
                             tracing::warn!(matrix_room_id, error=%e, "Could not delete room with no associated source group id");
                         }
@@ -393,13 +396,7 @@ impl Connector {
             self.synapse_api
                 .associate_source_group_id_to_room(&matrix_room_id, source_group.id())
                 .await
-                .map_err(|e| {
-                    e.with_context(&format!(
-                        "Could not associate source group id {} to room {}",
-                        source_group.id(),
-                        matrix_room_id
-                    ))
-                })?;
+                .map_err(|e| e.with_context(&format!("Could not associate source group id {} to room {}", source_group.id(), matrix_room_id)))?;
             self.group_id_mapping.insert(source_group.id().to_owned(), matrix_room_id.clone());
             tracing::info!(source_id = source_group.id(), group_name = source_group.name(), matrix_room_id, "Room created");
         } else {
@@ -441,7 +438,7 @@ impl Connector {
                 tracing::trace!(?canonical_alias_event, matrix_room_id, "Found canonical alias for room");
 
                 if canonical_alias_event.alias == full_room_alias {
-                    return
+                    return;
                 }
 
                 match self.synapse_api.create_room_alias(matrix_room_id, &full_room_alias).await {
@@ -475,7 +472,6 @@ impl Connector {
                         "Could not delete canonical alias for room"
                     ),
                 };
-
             }
             Err(e) => tracing::warn!(?e, matrix_room_id, "Could not determine current room canonical alias"),
         }
