@@ -43,7 +43,7 @@ const DERIVE_DISPLAY_NAME_FROM_GROUP_NAME: &str = "_name_titlecase";
 /// A connector to Synapse providing the [Target](interface::Target) interface.
 ///
 /// NOTE: We assume that all administrative changes to the Synapse are performed automatically.
-/// If an administrator were do manually perform certain actions (for example, change the
+/// If an administrator were to manually perform certain actions (for example, change the
 /// mapping of a Synapse room to a source group), this might lead to undefined behavior such
 /// as the Syncer creating a second room for the same group, etc.
 /// Being able to fix such a possibly corrupt state automatically under consideration of all
@@ -63,7 +63,7 @@ impl interface::Target for Connector {
         let synapse_api = Box::new(
             external::SynapseClient::new(config.synapse_api.clone())
                 .await
-                .map_err(|e| e.with_context("Failed to create Synapse API client."))?,
+                .map_err(|e| e.with_context("Failed to create Synapse API client"))?,
         );
         Ok(Connector {
             config,
@@ -79,7 +79,7 @@ impl interface::Target for Connector {
 
     async fn full_sync_incoming(&mut self) -> Result<(), error::KidsError> {
         tracing::info!(
-            "To prepare for full sync, rebuilding mapping between source group IDs and matrix room IDs, as well as source user IDs and matrix user IDs."
+            "To prepare for full sync, rebuilding mapping between source group IDs and matrix room IDs, as well as source user IDs and matrix user IDs"
         );
         self.group_id_mapping.clear();
         self.user_id_mapping.clear();
@@ -88,9 +88,9 @@ impl interface::Target for Connector {
             .synapse_api
             .get_joined_rooms_of_syncer()
             .await
-            .map_err(|e| e.with_context("Failed getting rooms syncer has joined."))?;
+            .map_err(|e| e.with_context("Failed getting rooms syncer has joined"))?;
 
-        self._migrate(&matrix_rooms.joined_rooms).await;
+        self.migrate(&matrix_rooms.joined_rooms).await;
 
         for matrix_room_id in matrix_rooms.joined_rooms {
             // If this request fails, we don't want to abort the whole method as it only affects a single room.
@@ -99,7 +99,7 @@ impl interface::Target for Connector {
             let source_group_id = match self.synapse_api.get_room_associated_source_group_id(&matrix_room_id).await {
                 Ok(source_group_id) => source_group_id,
                 Err(error) => {
-                    tracing::error!(%error, matrix_room_id, "Could not determine source group for room.");
+                    tracing::error!(%error, matrix_room_id, "Could not determine source group for room");
                     continue;
                 }
             };
@@ -108,7 +108,7 @@ impl interface::Target for Connector {
                     source_group_id,
                     first_room_id = matrix_room_id,
                     second_room_id = self.group_id_mapping[&source_group_id],
-                    "Found duplicate mapping for source group."
+                    "Found duplicate mapping for source group"
                 );
                 // We don't really know which room really is the better one to use in case of duplicate mapping,
                 // so might as well go with the first one we already encountered earlier.
@@ -124,7 +124,7 @@ impl interface::Target for Connector {
             let source_user_id = match self.synapse_api.get_source_user_id_for_matrix_user_id(&user.name).await {
                 Ok(source_user_id) => source_user_id,
                 Err(error) => {
-                    tracing::warn!(%error, matrix_user_id=user.name, "Could not obtain source user ID for matrix user.");
+                    tracing::warn!(%error, matrix_user_id=user.name, "Could not obtain source user ID for matrix user");
                     continue;
                 }
             };
@@ -135,7 +135,7 @@ impl interface::Target for Connector {
                     source_user_id,
                     first_matrix_user_id = user.name,
                     second_matrix_user_id = self.user_id_mapping[&source_user_id].name,
-                    "Found duplicate mapping for source user."
+                    "Found duplicate mapping for source user"
                 );
                 continue;
             }
@@ -148,7 +148,7 @@ impl interface::Target for Connector {
 
     /// Return the identifiers of all [Source Groups](source::interface::Group) known to Synapse.
     /// These are exactly the ones we managed to obtain a mapping to a Matrix room for earlier.
-    /// There might be additional rooms in Synapse not mapped to a Source group, which will be not considered in the result of this method.
+    /// There might be additional rooms in Synapse not mapped to a Source group, which will not be considered in the result of this method.
     async fn all_groups(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
         Ok(self.group_id_mapping.keys().cloned().collect())
     }
@@ -163,13 +163,13 @@ impl interface::Target for Connector {
             // in the mapping at this point.
             tracing::warn!(
                 source_group_id,
-                "Source group has no known associated room in Synapse that could be deleted. Nothing to be done."
+                "Source group has no known associated room in Synapse that could be deleted. Nothing to be done"
             );
             return Ok(());
         }
 
         let matrix_room_id = self.group_id_mapping.get(&source_group_id).unwrap();
-        tracing::info!(matrix_room_id, "Deleting room with strategy {:?}.", self.config.room_deletion_strategy);
+        tracing::info!(matrix_room_id, "Deleting room with strategy {:?}", self.config.room_deletion_strategy);
 
         match self.config.room_deletion_strategy {
             RoomDeletionStrategy::KickAll | RoomDeletionStrategy::Evacuate => {
@@ -177,17 +177,17 @@ impl interface::Target for Connector {
                     .synapse_api
                     .get_room_joined_users(matrix_room_id)
                     .await
-                    .map_err(|e| e.with_context("Could not get joined users for room deletion. Could not delete room."))?;
-                tracing::info!(matrix_room_id, ?joined_members, "Kicking members from room.");
+                    .map_err(|e| e.with_context("Could not get joined users for room deletion. Could not delete room"))?;
+                tracing::info!(matrix_room_id, ?joined_members, "Kicking members from room");
 
                 let mut all_kicked = true;
                 for member in joined_members.joined.keys() {
-                    tracing::debug!(matrix_room_id, member, "Kicking member from room.");
+                    tracing::debug!(matrix_room_id, member, "Kicking member from room");
                     if self.synapse_api.user_is_matrix_syncer(member) {
                         continue;
                     }
                     if let Err(e) = self.synapse_api.kick_user_from_room(matrix_room_id, member).await {
-                        tracing::error!(matrix_room_id, member, %e, "Could not kick member from room.");
+                        tracing::error!(matrix_room_id, member, %e, "Could not kick member from room");
                         all_kicked = false;
                     }
                 }
@@ -196,24 +196,24 @@ impl interface::Target for Connector {
                     // Note: Need to return early here because the syncer should only leave the room
                     // if all users have been kicked successfully.
                     return Err(error::KidsError::InternalError(format!(
-                        "Could not kick all members from room {matrix_room_id}."
+                        "Could not kick all members from room {matrix_room_id}"
                     )));
                 }
 
                 if matches!(self.config.room_deletion_strategy, RoomDeletionStrategy::Evacuate) {
-                    tracing::info!(matrix_room_id, "Syncer leaving room.");
+                    tracing::info!(matrix_room_id, "Syncer leaving room");
                     self.synapse_api
                         .syncer_leave_room(matrix_room_id)
                         .await
-                        .map_err(|e| e.with_context("Could not leave room."))?;
+                        .map_err(|e| e.with_context("Could not leave room"))?;
                 }
             }
             RoomDeletionStrategy::Delete => {
-                tracing::info!(matrix_room_id, "Deleting room.");
+                tracing::info!(matrix_room_id, "Deleting room");
                 self.synapse_api
                     .delete_room(matrix_room_id)
                     .await
-                    .map_err(|e| e.with_context("Could not delete room."))?;
+                    .map_err(|e| e.with_context("Could not delete room"))?;
             }
             RoomDeletionStrategy::Ignore => {}
         }
@@ -223,16 +223,16 @@ impl interface::Target for Connector {
             // Each room should only have one alias at a time when being managed by the syncer.
             // In order to avoid issues when evacuating a room but trying to recreate it later (which
             // might use the same alias), make sure to disassociate the alias from the old room.
-            tracing::info!(matrix_room_id, "Deleting old alias for room.");
+            tracing::info!(matrix_room_id, "Deleting old alias for room");
             let canonical_alias_event = self
                 .synapse_api
                 .get_room_canonical_alias(matrix_room_id)
                 .await
-                .map_err(|e| e.with_context("Could not obtain canonical alias for room."))?;
+                .map_err(|e| e.with_context("Could not obtain canonical alias for room"))?;
             self.synapse_api
                 .delete_room_alias(&canonical_alias_event.alias)
                 .await
-                .map_err(|e| e.with_context("Could not delete canonical alias for room."))?;
+                .map_err(|e| e.with_context("Could not delete canonical alias for room"))?;
         }
 
         self.group_id_mapping.remove(&source_group_id);
@@ -257,15 +257,15 @@ impl interface::Target for Connector {
         if !self.user_id_mapping.contains_key(&user_id) {
             // This should not happen, as the controller should only attempt to delete users that
             // we told it exists in Matrix before via the `self.all_users` method.
-            tracing::warn!(source_user_id = user_id, "Cannot deactivate source user, because it is not known to Matrix.");
+            tracing::warn!(source_user_id = user_id, "Cannot deactivate source user, because it is not known to Matrix");
         }
 
         let matrix_user_id = &self.user_id_mapping.get(&user_id).unwrap().name;
-        tracing::info!(matrix_user_id, "Deactivating matrix user.");
+        tracing::info!(matrix_user_id, "Deactivating matrix user");
         self.synapse_api
             .deactivate_user(matrix_user_id)
             .await
-            .map_err(|e| e.with_context(&format!("Could not deactivate matrix user {matrix_user_id}.")))?;
+            .map_err(|e| e.with_context(&format!("Could not deactivate matrix user {matrix_user_id}")))?;
         self.user_id_mapping.remove(&user_id);
         Ok(())
     }
@@ -277,21 +277,19 @@ impl interface::Target for Connector {
         // The colon causes issues because it is used as a delimiter in the matrix room alias.
         if source_group.name().contains(":") || source_group.name().contains("/") {
             return Err(error::KidsError::InternalError(format!(
-                "Could not create room for group {}: group name contains invalid character.",
+                "Could not create room for group {}: group name contains invalid character",
                 source_group.id()
             )));
         }
 
         // The target does only care about groups with the domain-specific attribute.
-        if !source_group.attributes().contains_key(&self.config.source_room_name_attr)
-            || source_group.attributes()[&self.config.source_room_name_attr].len() > 1
-        {
+        if !source_group.attributes().contains_key(&self.config.source_room_name_attr) {
             if self.group_id_mapping.contains_key(source_group.id()) {
                 let matrix_room_id = self.group_id_mapping.get(source_group.id()).unwrap();
                 tracing::warn!(
                     source_group_id = source_group.id(),
                     matrix_room_id,
-                    "The source_room_name_attr has been removed from a group that already had a corresponding Matrix room. Deleting that room now."
+                    "The source_room_name_attr has been removed from a group that already had a corresponding Matrix room. Deleting that room now"
                 );
                 // Note that, even though we are in the create_or_update method, we have to delete the group here.
                 // This is because the source_room_name_attr is target-specific and the source knows nothing about it;
@@ -302,7 +300,7 @@ impl interface::Target for Connector {
             } else {
                 tracing::info!(
                     source_group_id = source_group.id(),
-                    "Not creating room for group because it does not have the source_room_name_attr {}.",
+                    "Not creating room for group because it does not have the source_room_name_attr {}",
                     self.config.source_room_name_attr
                 );
             }
@@ -312,9 +310,16 @@ impl interface::Target for Connector {
             return Ok(());
         }
 
-        let matrix_room_id = self._get_or_create_room(&source_group).await?;
-        self._update_display_name(&matrix_room_id, &source_group).await;
-        self._update_canonical_alias(&matrix_room_id, &source_group).await;
+        if source_group.attributes()[&self.config.source_room_name_attr].len() > 1 {
+            tracing::warn!(
+                "Encountered multiple values for source_room_name_attr {}. Will only consider the first one for the room name",
+                self.config.source_room_name_attr
+            );
+        }
+
+        let matrix_room_id = self.get_or_create_room(&source_group).await?;
+        self.update_display_name(&matrix_room_id, &source_group).await;
+        self.update_canonical_alias(&matrix_room_id, &source_group).await;
 
         Ok(())
     }
@@ -323,7 +328,7 @@ impl interface::Target for Connector {
         if !self.user_id_mapping.contains_key(source_user.id()) {
             tracing::debug!(
                 source_user_id = source_user.id(),
-                "Source user is not known to Matrix. Before the syncer can handle them, they need to login to Matrix manually first."
+                "Source user is not known to Matrix. Before the syncer can handle them, they need to login to Matrix manually first"
             );
             // This is not an error condition: The syncer is only supposed to handle users which have logged in before.
             // We are not able to create users directly from the syncer.
@@ -335,12 +340,12 @@ impl interface::Target for Connector {
         let desired_user_groups = source_user
             .groups()
             .await
-            .map_err(|e| e.with_context(&format!("Could not get source groups associated with source user {}.", source_user.id())))?;
+            .map_err(|e| e.with_context(&format!("Could not get source groups associated with source user {}", source_user.id())))?;
         let current_user_rooms = self
             .synapse_api
             .get_user_joined_rooms(matrix_user_id)
             .await
-            .map_err(|e| e.with_context(&format!("Could not get matrix rooms user {matrix_user_id} has currently joined.")))?;
+            .map_err(|e| e.with_context(&format!("Could not get matrix rooms user {matrix_user_id} has currently joined")))?;
         let mut desired_user_rooms: Vec<String> = desired_user_groups
             .iter()
             .filter_map(|group| {
@@ -358,22 +363,22 @@ impl interface::Target for Connector {
             desired_user_rooms = vec![];
 
             if !is_matrix_user_locked {
-                // Note the explicitly want to lock users here, NOT deactivate them.
+                // Note that we explicitly want to lock users here, NOT deactivate them.
                 // Deactivating users appears to delete all keys of that user, so even when a
                 // user is reactivated, they cannot log in with the same identity and lose
                 // all of their direct message rooms.
                 // With locking, this works properly and unlocked users will encounter the same
-                // state the left off with before being locked.
+                // state they left off with before being locked.
                 match self.synapse_api.lock_user(matrix_user_id).await {
-                    Ok(()) => tracing::info!(matrix_user_id, "Locked user."),
-                    Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user."),
+                    Ok(()) => tracing::info!(matrix_user_id, "Locked user"),
+                    Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user"),
                 };
             }
         }
         if source_user.enabled() && is_matrix_user_locked {
             match self.synapse_api.unlock_user(matrix_user_id).await {
-                Ok(()) => tracing::info!(matrix_user_id, "Unlocked user."),
-                Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user."),
+                Ok(()) => tracing::info!(matrix_user_id, "Unlocked user"),
+                Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user"),
             };
         }
 
@@ -381,11 +386,11 @@ impl interface::Target for Connector {
         for matrix_room_id in &desired_user_rooms {
             if !current_user_rooms.joined_rooms.contains(matrix_room_id) {
                 match self.synapse_api.join_user_to_room(matrix_room_id, matrix_user_id).await {
-                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User joined matrix room."),
-                    Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not join user to matrix room."),
+                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User joined matrix room"),
+                    Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not join user to matrix room"),
                 }
             } else {
-                tracing::trace!(matrix_room_id, matrix_user_id, "User has already joined matrix room.");
+                tracing::trace!(matrix_room_id, matrix_user_id, "User has already joined matrix room");
             }
         }
 
@@ -393,11 +398,11 @@ impl interface::Target for Connector {
         for matrix_room_id in &current_user_rooms.joined_rooms {
             if !desired_user_rooms.contains(matrix_room_id) {
                 match self.synapse_api.kick_user_from_room(matrix_room_id, matrix_user_id).await {
-                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User kicked from matrix room."),
-                    Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not kick user from matrix room."),
+                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User kicked from matrix room"),
+                    Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not kick user from matrix room"),
                 };
             } else {
-                tracing::trace!(matrix_room_id, matrix_user_id, "User stays in matrix room.");
+                tracing::trace!(matrix_room_id, matrix_user_id, "User stays in matrix room");
             }
         }
 
@@ -408,24 +413,24 @@ impl interface::Target for Connector {
 impl Connector {
     // The old syncer used a different event to associate matrix rooms to keycloak rooms
     // Once the new syncer was successfully run once, we should be able to delete this method.
-    async fn _migrate(&mut self, rooms: &Vec<String>) {
+    async fn migrate(&mut self, rooms: &Vec<String>) {
         for room in rooms {
             if let Ok(source_id) = self.synapse_api.get_room_associated_source_group_id_v1(room).await {
                 match self.synapse_api.associate_source_group_id_to_room(room, &source_id).await {
-                    Ok(()) => tracing::info!(room, "Migrated room."),
-                    Err(e) => tracing::warn!(?e, room, "Failed to migrate room."),
+                    Ok(()) => tracing::info!(room, "Migrated room"),
+                    Err(e) => tracing::warn!(?e, room, "Failed to migrate room"),
                 };
             }
         }
     }
 
-    async fn _get_or_create_room(&mut self, source_group: &rc::Rc<dyn source::interface::Group>) -> Result<String, error::KidsError> {
+    async fn get_or_create_room(&mut self, source_group: &rc::Rc<dyn source::interface::Group>) -> Result<String, error::KidsError> {
         let matrix_room_id;
         if !self.group_id_mapping.contains_key(source_group.id()) {
             tracing::info!(
                 source_group_id = source_group.id(),
                 source_group_name = source_group.name(),
-                "Creating room for group."
+                "Creating room for group"
             );
             let room_creation_response = self
                 .synapse_api
@@ -438,27 +443,28 @@ impl Connector {
                 .await
                 .map_err(|e| {
                     e.with_context(&format!(
-                        "Could not associate source group id {} to room {}.",
+                        "Could not associate source group id {} to room {}",
                         source_group.id(),
                         matrix_room_id
                     ))
                 })?;
             self.group_id_mapping.insert(source_group.id().to_owned(), matrix_room_id.clone());
-            tracing::info!(source_id = source_group.id(), group_name = source_group.name(), matrix_room_id, "Room created.");
+            tracing::info!(source_id = source_group.id(), group_name = source_group.name(), matrix_room_id, "Room created");
         } else {
-            tracing::debug!(source_id = source_group.id(), "Room already exists.");
+            tracing::debug!(source_id = source_group.id(), "Room already exists");
             matrix_room_id = self.group_id_mapping.get(source_group.id()).unwrap().clone();
         }
         Ok(matrix_room_id)
     }
 
-    async fn _update_display_name(&mut self, matrix_room_id: &str, source_group: &rc::Rc<dyn source::interface::Group>) {
+    async fn update_display_name(&mut self, matrix_room_id: &str, source_group: &rc::Rc<dyn source::interface::Group>) {
         let old_display_name = self.synapse_api.get_room_display_name(matrix_room_id).await;
         match old_display_name {
             Ok(old_display_name) => {
                 let mut new_display_name = source_group.attributes()[&self.config.source_room_name_attr]
                     .first()
-                    // We can unwrap here because we validated that the attribute exists above.
+                    // We can unwrap here because we only process groups that have that attribute set
+                    // when we call this method from create_or_update_group().
                     .unwrap()
                     .to_owned();
                 if new_display_name == DERIVE_DISPLAY_NAME_FROM_GROUP_NAME {
@@ -466,50 +472,54 @@ impl Connector {
                 }
                 if new_display_name != old_display_name {
                     match self.synapse_api.set_room_display_name(matrix_room_id, &new_display_name).await {
-                        Ok(()) => tracing::debug!(old_display_name, new_display_name, matrix_room_id, "Updated display name of room."),
-                        Err(e) => tracing::warn!(?e, matrix_room_id, "Could not update display name of room."),
+                        Ok(()) => tracing::debug!(old_display_name, new_display_name, matrix_room_id, "Updated display name of room"),
+                        Err(e) => tracing::warn!(?e, matrix_room_id, "Could not update display name of room"),
                     }
                 }
             }
-            Err(e) => tracing::warn!(?e, matrix_room_id, "Could not load display name of room.."),
+            Err(e) => tracing::warn!(?e, matrix_room_id, "Could not load display name of room"),
         }
     }
 
-    async fn _update_canonical_alias(&mut self, matrix_room_id: &str, source_group: &rc::Rc<dyn source::interface::Group>) {
+    async fn update_canonical_alias(&mut self, matrix_room_id: &str, source_group: &rc::Rc<dyn source::interface::Group>) {
         let full_room_alias = self.synapse_api.full_room_alias(source_group.path());
         let canonical_alias_event = self.synapse_api.get_room_canonical_alias(matrix_room_id).await;
         match canonical_alias_event {
             Ok(canonical_alias_event) => {
-                tracing::trace!(?canonical_alias_event, matrix_room_id, "Found canonical alias for room.");
+                tracing::trace!(?canonical_alias_event, matrix_room_id, "Found canonical alias for room");
 
-                if canonical_alias_event.alias != full_room_alias {
-                    match self.synapse_api.create_room_alias(matrix_room_id, &full_room_alias).await {
-                        Ok(()) => tracing::debug!(matrix_room_id, full_room_alias, "Created new room alias."),
-                        Err(e) => {
-                            tracing::warn!(?e, matrix_room_id, "Could not create new alias for room. Aborting update of canonical alias.");
-                            return;
-                        }
-                    }
-
-                    match self.synapse_api.set_room_canonical_alias(matrix_room_id, &full_room_alias).await {
-                        Ok(()) => tracing::debug!(matrix_room_id, full_room_alias, "Updated canonical alias for room."),
-                        Err(e) => {
-                            tracing::warn!(?e, matrix_room_id, "Could not update canonical alias for room. Retaining old alias.");
-                            return;
-                        }
-                    }
-                    match self.synapse_api.delete_room_alias(&canonical_alias_event.alias).await {
-                        Ok(()) => tracing::debug!(matrix_room_id, old_alias = canonical_alias_event.alias, "Deleted canonical alias from room."),
-                        Err(e) => tracing::warn!(
-                            ?e,
-                            matrix_room_id,
-                            old_alias = canonical_alias_event.alias,
-                            "Could not delete canonical alias for room."
-                        ),
-                    };
+                if canonical_alias_event.alias == full_room_alias {
+                    return
                 }
+
+                match self.synapse_api.create_room_alias(matrix_room_id, &full_room_alias).await {
+                    Ok(()) => tracing::debug!(matrix_room_id, full_room_alias, "Created new room alias"),
+                    Err(e) => {
+                        tracing::warn!(?e, matrix_room_id, "Could not create new alias for room. Aborting update of canonical alias");
+                        return;
+                    }
+                }
+
+                match self.synapse_api.set_room_canonical_alias(matrix_room_id, &full_room_alias).await {
+                    Ok(()) => tracing::debug!(matrix_room_id, full_room_alias, "Updated canonical alias for room"),
+                    Err(e) => {
+                        tracing::warn!(?e, matrix_room_id, "Could not update canonical alias for room. Retaining old alias");
+                        return;
+                    }
+                }
+
+                match self.synapse_api.delete_room_alias(&canonical_alias_event.alias).await {
+                    Ok(()) => tracing::debug!(matrix_room_id, old_alias = canonical_alias_event.alias, "Deleted canonical alias from room"),
+                    Err(e) => tracing::warn!(
+                        ?e,
+                        matrix_room_id,
+                        old_alias = canonical_alias_event.alias,
+                        "Could not delete canonical alias for room"
+                    ),
+                };
+
             }
-            Err(e) => tracing::warn!(?e, matrix_room_id, "Could not determine current room canonical alias."),
+            Err(e) => tracing::warn!(?e, matrix_room_id, "Could not determine current room canonical alias"),
         }
     }
 }
@@ -528,8 +538,8 @@ mod test {
                     matrix_source_oidc_provider_id: "".to_string(),
                     matrix_syncer_user_id: "".to_string(),
                     matrix_syncer_password: "".to_string(),
-                    matrix_name_space: "".to_string(),
-                    disable_tls_verification: true,
+                    matrix_namespace: "".to_string(),
+                    insecure_disable_tls_verification: true,
                 },
                 room_deletion_strategy: RoomDeletionStrategy::Ignore,
                 source_room_name_attr: "test".to_string(),

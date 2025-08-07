@@ -1,11 +1,12 @@
 [target]
-# Only source groups that have a attribute with this name set will be synced as rooms to
+# Only source groups that have an attribute with this name set will be synced as rooms to
 # Matrix.
 source_room_name_attr = "matrixRoomName"
-# How should the syncer react to rooms that are should be deleted?
+# How should the syncer react to rooms that are deleted in the source?
 # Note that this not only happens when the corresponding group is deleted in the source,
 # but also when a group no longer has an attribute named like the value of
 # `source_room_name_attr` (see above).
+# possible values: Delete, Evacuate, Ignore, KickAll
 room_deletion_strategy = "Evacuate"
 
 [target.synapse_api]
@@ -14,7 +15,7 @@ matrix_homeserver_url = "https://localhost"
 # The ID of the source as an identity provider in the Synapse config at key config['oidc_providers'][X]['idp_id'].
 # In order to map Matrix users to source users, the syncer needs to know how Synapse identifies the source.
 # If directly reading that from the Synapse config file is not possible, an easy way to find the id of the source is this command:
-# `curl https://matrix.example.org/_matrix/client/r0/login | jq '.flows[] | select(.type=="m.login.sso") | .identity_providers[].id`
+# `curl https://matrix.example.org/_matrix/client/r0/login | jq '.flows[] | select(.type=="m.login.sso") | .identity_providers[].id'`
 matrix_source_oidc_provider_id = "keycloak"
 # User ID of a Matrix user that must have administrative access.
 # This user will perform all operations required for syncing users and rooms.
@@ -24,7 +25,7 @@ matrix_syncer_user_id = "@example-syncer:localhost"
 matrix_syncer_password = "syncer-password"
 # Whether to validate the server certificate of the Matrix homeserver.
 # Only disable for local development purposes!
-disable_tls_verification = false
+insecure_disable_tls_verification = false
 # LEGACY: Needed for getting account data events used by old matrix syncer.
 # Only needed while migrating from old syncer, should be removed afterward.
-matrix_name_space = "localhost"
+matrix_namespace = "localhost"

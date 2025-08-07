@@ -94,8 +94,8 @@ pub trait Group {
     fn path(&self) -> &str;
 
     /// A map containing all additional group attributes.
-    /// Many [Targets](crate::target::interface::Target) will make use of custom group attributes to store target-system-specific
-    /// configuration for the group.
+    /// Many [Targets](crate::target::interface::Target) will make use of custom group attributes to
+    /// retrieve target-system-specific configuration for the group.
     fn attributes(&self) -> &collections::HashMap<String, Vec<String>>;
 
     // Note: A reference to the users of a group is only needed if a target::Target wants to propagate

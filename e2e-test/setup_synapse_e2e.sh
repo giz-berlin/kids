@@ -10,7 +10,7 @@ set -a
 #    container /etc/hosts: <host ip> host.docker.internal   [will be automatically inserted by podman, but ONLY if DNS name
 #                                                            not already contained in file previously]
 # See https://github.com/containers/common/blob/main/docs/containers.conf.5.md
-export CONTAINERS_CONF=./containers.conf
+export CONTAINERS_CONF=./config/containers.conf
 
 progress_msg() {
   # Color in blue
@@ -33,7 +33,7 @@ subjectAltName = @alt_names
 DNS.1 = $HOST_NAME
 EOF
 
-    progress_msg "Signing certificate for $SERVICE_NAME and hostname $HOST_NAME using local CA."
+    progress_msg "Signing certificate for $SERVICE_NAME and hostname $HOST_NAME using local CA"
     openssl x509 -req -in "$SERVICE_NAME.csr" -CA "$KIDS_CA_NAME.crt" -CAkey "$KIDS_CA_NAME.key" \
         -CAcreateserial -out "$SERVICE_NAME.crt" -days $CERTIFICATE_VALIDITY -sha256 -extfile "$EXTFILE"
 
@@ -45,7 +45,7 @@ restart_if_possible() {
   CONTAINER_NAME=$1
   # Inspecting the container works iff it exists
   if podman container inspect $CONTAINER_NAME >/dev/null; then
-      progress_msg "(Re)starting $CONTAINER_NAME."
+      progress_msg "(Re)starting $CONTAINER_NAME"
       # Note: Not using restart here, because this sometimes fails to bind the exposed ports (which appear to be still
       # in use by the very container *itself*)...
       podman stop $CONTAINER_NAME
@@ -61,7 +61,7 @@ if grep "^127.0.0.1 $PODMAN_SERVICE_HOSTNAME" /etc/hosts; [ $? -ne 0 ]; then
     echo "a line '127.0.0.1 $PODMAN_SERVICE_HOSTNAME' must be contained in /etc/hosts file!"
     exit 1
 else
-    echo "OK."
+    echo "OK"
 fi
 
 if [ ! -d local_ca ]; then
@@ -85,14 +85,14 @@ if restart_if_possible $KEYCLOAK_CONTAINER_NAME; [ $? -ne 0 ]; then
   cd ..
 
   progress_msg "Starting $KEYCLOAK_CONTAINER_NAME podman container with hostname $PODMAN_SERVICE_HOSTNAME"
-  envsubst < keycloak_realm_config/giz.tpl.json > keycloak_realm_config/giz.json
+  envsubst < config/keycloak_realm_giz.tpl.json > config/keycloak_realm_giz.json
   podman run \
       -d --name $KEYCLOAK_CONTAINER_NAME \
       -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=password \
       -e KC_HEALTH_ENABLED=true -e KC_HOSTNAME_STRICT=false \
       -e KC_HTTPS_CERTIFICATE_FILE=/opt/keycloak/ca/$KEYCLOAK_CONTAINER_NAME.crt \
       -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/keycloak/ca/$KEYCLOAK_CONTAINER_NAME.key \
-      -v "./local_ca:/opt/keycloak/ca" -v "./keycloak_realm_config:/opt/keycloak/data/import" \
+      -v "./local_ca:/opt/keycloak/ca" -v "./config/keycloak_realm_giz.json:/opt/keycloak/data/import/keycloak_realm_giz.json" \
       -p "0.0.0.0:8443:8443" -p "127.0.0.1:9000:9000" \
       quay.io/keycloak/keycloak:26.2 start --import-realm
 fi
@@ -100,10 +100,10 @@ fi
 progress_msg "Awaiting $KEYCLOAK_CONTAINER_NAME to be healthy..."
 until curl --insecure --head -fsS https://$PODMAN_SERVICE_HOSTNAME:9000/health/ready --http1.1
 do
-    echo "--> Not yet healthy."
+    echo "--> Not yet healthy"
     sleep 5;
 done
-progress_msg "OK - $KEYCLOAK_CONTAINER_NAME has started."
+progress_msg "OK - $KEYCLOAK_CONTAINER_NAME has started"
 
 SHOULD_CREATE_USERS=0
 if restart_if_possible $SYNAPSE_CONTAINER_NAME; [ $? -ne 0 ]; then
@@ -146,10 +146,10 @@ fi
 progress_msg "Awaiting $SYNAPSE_CONTAINER_NAME to be healthy..."
 until curl --insecure --head -fsS https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/health
 do
-    echo "--> Not yet healthy."
+    echo "--> Not yet healthy"
     sleep 5;
 done
-progress_msg "OK - $SYNAPSE_CONTAINER_NAME has started."
+progress_msg "OK - $SYNAPSE_CONTAINER_NAME has started"
 
 if [ $SHOULD_CREATE_USERS -eq 1 ]; then
   progress_msg "Creating admin user in $SYNAPSE_CONTAINER_NAME"
@@ -170,6 +170,9 @@ fi
 
 if restart_if_possible $SYNAPSE_ADMIN_CONTAINER_NAME; [ $? -ne 0 ]; then
   progress_msg "Starting $SYNAPSE_ADMIN_CONTAINER_NAME"
-  envsubst < synapse_admin_config.tpl.json > synapse_admin_config.json
-  podman run -d --name $SYNAPSE_ADMIN_CONTAINER_NAME -p 8080:80 -v "./synapse_admin_config.json:/app/config.json" ghcr.io/etkecc/synapse-admin
+  envsubst < config/synapse_admin_config.tpl.json > config/synapse_admin_config.json
+  podman run -d --name $SYNAPSE_ADMIN_CONTAINER_NAME -p 8080:80 -v "./config/synapse_admin_config.json:/app/config.json" ghcr.io/etkecc/synapse-admin
 fi
+
+progress_msg "Creating synapse_e2e_config.toml from environment variables"
+envsubst < config/synapse_e2e_config.tpl.toml > config/synapse_e2e_config.toml

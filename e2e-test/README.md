@@ -34,6 +34,10 @@ You can now access (see [.env](.env) for environment variables)
 - Synapse Admin at `http://$PODMAN_SERVICE_HOSTNAME:8080`
 - Synapse at `http://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_PORT` and `https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT`
 
+### Configuration
+
+The setup script will create a `config/synapse_e2e_config.toml` file that can be used as the `config.toml` for KIDS. This should enable running the `keycloak-synapse` KIDS binary out of the box, but adjust the config to your liking.
+
 ## Manually (re)starting containers
 
 Before running any commands with podman manually, make sure to run `export CONTAINERS_CONF=./containers.conf` in

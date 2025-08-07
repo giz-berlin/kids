@@ -13,4 +13,4 @@ client_secret = "keycloak_identity_syncer_secret"
 realm = "giz"
 # Whether to validate the server certificate of the external API.
 # Only disable for local development purposes!
-disable_tls_verification = false
+insecure_disable_tls_verification = false

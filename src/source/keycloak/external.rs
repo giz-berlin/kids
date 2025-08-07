@@ -16,7 +16,7 @@ pub struct KeycloakApiConfig {
     pub realm: String,
     /// Whether to validate the server certificate of the external API.
     /// Only disable for local development purposes!
-    pub disable_tls_verification: bool,
+    pub insecure_disable_tls_verification: bool,
 }
 
 /// Abstraction of the external Keycloak API, reduced to the set of methods and parameters required for this library.
@@ -38,12 +38,12 @@ pub struct KeycloakServiceAccountClient {
 
 impl KeycloakServiceAccountClient {
     pub fn new(config: KeycloakApiConfig) -> Self {
-        if config.disable_tls_verification {
+        if config.insecure_disable_tls_verification {
             tracing::warn!("Verification of Keycloak server certificate is disabled. Do not use this setting in a production environment!");
         }
 
         let token_retriever_http_client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(config.disable_tls_verification)
+            .danger_accept_invalid_certs(config.insecure_disable_tls_verification)
             .build()
             .unwrap();
         let keycloak_client = keycloak::KeycloakServiceAccountAdminTokenRetriever::create_with_custom_realm(
@@ -54,7 +54,7 @@ impl KeycloakServiceAccountClient {
         );
 
         let api_http_client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(config.disable_tls_verification)
+            .danger_accept_invalid_certs(config.insecure_disable_tls_verification)
             .build()
             .unwrap();
         let keycloak_admin = keycloak::KeycloakAdmin::new(&config.keycloak_address, keycloak_client, api_http_client);

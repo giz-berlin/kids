@@ -1,11 +1,11 @@
 use std::collections;
 
-/// This struct contains to fields. When deserializing to this type, we intentionally throw
+/// This struct contains no fields. When deserializing to this type, we intentionally throw
 /// away all information contained in the original string.
 #[derive(serde::Deserialize)]
 pub struct IgnoredResponse {}
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize)]
 pub struct MatrixAuthentication {
     pub access_token: String,
     pub refresh_token: String,

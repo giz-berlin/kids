@@ -18,10 +18,10 @@ pub struct SynapseApiConfig {
     pub matrix_syncer_password: String,
     /// Whether to validate the server certificate of the Matrix homeserver.
     /// Only disable for local development purposes!
-    pub disable_tls_verification: bool,
+    pub insecure_disable_tls_verification: bool,
     /// LEGACY: Needed for getting account data events used by old matrix syncer.
     /// Only needed while migrating from old syncer, should be removed afterward.
-    pub matrix_name_space: String,
+    pub matrix_namespace: String,
 }
 
 #[mockall::automock]
@@ -78,15 +78,18 @@ const NO_TOKEN: &str = "";
 /// Page size requested when loading users.
 /// Because we don't support pagination, this needs to be large enough to return all users
 /// known to Synapse.
-const ALL_USERS: i32 = 10000;
+const ALL_USERS: u32 = u32::MAX;
+/// The name of the room state event the syncer stores its metadata in
+/// (such as the mapping of room to source group).
+const SYNCER_ROOM_METADATA_EVENT: &str = "m.room.kids.room_sync";
 
 impl SynapseClient {
     pub async fn new(config: SynapseApiConfig) -> Result<Self, error::KidsError> {
         let parsed_homeserver_url = url::Url::parse(&config.matrix_homeserver_url).expect("Homeserver URL should be parseable");
-        tracing::info!("{}", parsed_homeserver_url);
+        tracing::info!(homeserver_url=%parsed_homeserver_url, "Connecting to homeserver");
 
         let mut builder = reqwest::Client::builder();
-        if config.disable_tls_verification {
+        if config.insecure_disable_tls_verification {
             tracing::warn!("Verification of Matrix server certificate is disabled. Do not use this setting in a production environment!");
             builder = builder.danger_accept_invalid_certs(true);
         }
@@ -128,7 +131,7 @@ impl SynapseClient {
         self.authentication.refresh_token = token_response.refresh_token;
         self.authentication.expires_at = chrono::Utc::now() + chrono::Duration::milliseconds(token_response.expires_in_ms);
 
-        tracing::info!("Logged in");
+        tracing::info!(homeserver_url=%self.parsed_homeserver_url, "Logged in to homeserver");
         Ok(())
     }
 
@@ -136,7 +139,7 @@ impl SynapseClient {
         // In order to avoid the access token expiring between this check and the actual request,
         // we also refresh tokens that are not yet expired but will be soon.
         if self.authentication.expires_at - chrono::Duration::seconds(5) < chrono::Utc::now() {
-            tracing::debug!("Refreshing access token.");
+            tracing::debug!("Refreshing access token");
             let token_response: dto::MatrixAuthentication = self
                 .send_client_api_request_unauthenticated(
                     http::Method::POST,
@@ -194,7 +197,7 @@ impl SynapseClient {
                 let error_information = response
                     .text()
                     .await
-                    .unwrap_or_else(|_| "Failed to obtain error information from response text.".to_string());
+                    .unwrap_or_else(|_| "Failed to obtain error information from response text".to_string());
 
                 if status.as_u16() == 401 || status.as_u16() == 403 {
                     return Err(error::KidsError::AuthenticationFailed(
@@ -259,7 +262,7 @@ impl SynapseClient {
         self.send_admin_api_request::<(), T>(api_version, http::Method::GET, path, None).await
     }
 
-    fn _static_room_power_level_content_override(&self) -> serde_json::Value {
+    fn static_room_power_level_content_override(&self) -> serde_json::Value {
         serde_json::json!({
             "users": {
                 self.config.matrix_syncer_user_id.to_owned(): 100,
@@ -290,7 +293,7 @@ impl SynapseClient {
         })
     }
 
-    fn _static_room_initial_state(&self) -> Vec<serde_json::Value> {
+    fn static_room_initial_state(&self) -> Vec<serde_json::Value> {
         let room_encryption_json = serde_json::json!({
             "type": "m.room.encryption",
             "content": {
@@ -314,22 +317,24 @@ impl SynapseClient {
     }
 
     fn room_alias_local_part(&self, group_path: &str) -> String {
-        // Matrix does not explicitly document which characters are valid for room aliases.
-        // The chosen whitelist is the one defined for user ids.
+        // "The localpart of a room alias may contain any valid non-surrogate Unicode codepoints except : and NUL."
+        // See https://spec.matrix.org/v1.15/appendices/#room-aliases
         let sanitized_path = group_path
             .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.' || *c == '=' || *c == '/')
+            // Rust characters cannot be surrogate Unicode codepoints.
+            .filter(|c| *c != ':' && *c != '\0')
             .collect::<String>()
             .to_lowercase()
             .trim_matches('/')
             .replace("/", "-");
 
-        // The complete alias must not exceed 255 characters.
+        // The complete alias must not exceed 255 characters including the leading '#'
+        // and the ':' delimiter between local part and domain.
         // If the generated alias is longer, we use the last characters from our sanitized path
         // so in a deep group hierarchy with long paths, room aliases are still distinct for rooms
         // derived from sibling groups.
         let mut path_start_index = 0;
-        let maximum_allowed_path_length = 253 - self.homeserver_domain().len();
+        let maximum_allowed_path_length = 255 - 1 - 1 - self.homeserver_domain().len();
         if sanitized_path.len() > maximum_allowed_path_length {
             path_start_index = sanitized_path.len() - maximum_allowed_path_length
         }
@@ -411,8 +416,8 @@ impl SynapseApi for SynapseClient {
                 "name": name,
                 "visibility": "private",
                 "preset": "private_chat",
-                "initial_state": self._static_room_initial_state(),
-                "power_level_content_override": self._static_room_power_level_content_override(),
+                "initial_state": self.static_room_initial_state(),
+                "power_level_content_override": self.static_room_power_level_content_override(),
                 "room_alias_name": self.room_alias_local_part(path)
             })),
         )
@@ -425,7 +430,9 @@ impl SynapseApi for SynapseClient {
                 "v2",
                 http::Method::DELETE,
                 format!("rooms/{matrix_room_id}"),
-                Some(&serde_json::json!({"purge": true})), // Deletes all traces of the room from the database.
+                Some(&serde_json::json!({
+                    "purge": true // Deletes all traces of the room from the database.
+                })),
             )
             .await?;
         Ok(())
@@ -439,7 +446,7 @@ impl SynapseApi for SynapseClient {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
                 http::Method::PUT,
-                format!("rooms/{matrix_room_id}/state/m.room.kids.room_sync/kids"),
+                format!("rooms/{matrix_room_id}/state/{SYNCER_ROOM_METADATA_EVENT}/"),
                 Some(serde_json::json!({
                     "source_id": source_group_id
                 })),
@@ -449,7 +456,7 @@ impl SynapseApi for SynapseClient {
     }
 
     async fn get_room_associated_source_group_id(&mut self, matrix_room_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError> {
-        let event: dto::RoomGlobalIdEvent = self.client_api_get(format!("rooms/{matrix_room_id}/state/m.room.kids.room_sync/kids")).await?;
+        let event: dto::RoomGlobalIdEvent = self.client_api_get(format!("rooms/{matrix_room_id}/state/{SYNCER_ROOM_METADATA_EVENT}/") ).await?;
         tracing::debug!(source_id = event.source_id, matrix_room_id, "Found mapping");
         Ok(event.source_id)
     }
@@ -458,10 +465,10 @@ impl SynapseApi for SynapseClient {
         let account_data_event: serde_json::Value = self
             .client_api_get(format!(
                 "user/{}/rooms/{}/account_data/{}.room_sync",
-                self.config.matrix_syncer_user_id, matrix_room_id, self.config.matrix_name_space
+                self.config.matrix_syncer_user_id, matrix_room_id, self.config.matrix_namespace
             ))
             .await?;
-        match account_data_event.get(format!("{}.room_sync.source_id", self.config.matrix_name_space)) {
+        match account_data_event.get(format!("{}.room_sync.source_id", self.config.matrix_namespace)) {
             Some(val) => Ok(val.as_str().unwrap().to_string()),
             None => Err(error::KidsError::InternalError(
                 "Old version of room sync event did not contain expected attribute".to_string(),
