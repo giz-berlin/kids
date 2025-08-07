@@ -2,6 +2,7 @@ use crate::target::synapse::dto;
 use crate::{error, types};
 use anyhow::anyhow;
 use reqwest::RequestBuilder;
+use crate::target::synapse::external::SynapseApi;
 
 #[derive(serde::Deserialize, Clone)]
 pub struct SynapseApiConfig {
@@ -348,10 +349,12 @@ impl SynapseApi for SynapseClient {
         matrix_user_id == self.config.matrix_syncer_user_id
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3joined_rooms
     async fn get_joined_rooms_of_syncer(&mut self) -> Result<dto::JoinedRoomsResponse, error::KidsError> {
         self.client_api_get("joined_rooms".to_string()).await
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3roomsroomidleave
     async fn syncer_leave_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError> {
         let _ = self
             .send_client_api_request::<(), dto::IgnoredResponse>(http::Method::POST, format!("rooms/{matrix_room_id}/leave"), None)
@@ -359,13 +362,15 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#list-accounts-v3
     async fn get_users(&mut self) -> Result<dto::AllUsersResponse, error::KidsError> {
         let users: dto::AllUsersResponse = self
-            .admin_api_get("v2", format!("users?limit={ALL_USERS}&locked=true&deactivated=false"))
+            .admin_api_get("v3", format!("users?limit={ALL_USERS}&locked=true&deactivated=false"))
             .await?;
         Ok(users)
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#deactivate-account
     async fn deactivate_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_admin_api_request(
@@ -380,6 +385,7 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
     async fn lock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_admin_api_request(
@@ -394,6 +400,7 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
     async fn unlock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_admin_api_request(
@@ -408,6 +415,7 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3createroom
     async fn create_room(&mut self, name: &str, path: &str) -> Result<dto::RoomCreationResponse, error::KidsError> {
         self.send_client_api_request(
             http::Method::POST,
@@ -424,6 +432,7 @@ impl SynapseApi for SynapseClient {
         .await
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/rooms.html#version-2-new-version
     async fn delete_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_admin_api_request(
@@ -438,6 +447,9 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#put_matrixclientv3roomsroomidstateeventtypestatekey
+    /// We are using a custom state event type here, and no stateKey
+    /// (note that having an empty stateKey is not unusual, but actually the default)
     async fn associate_source_group_id_to_room(
         &mut self,
         matrix_room_id: &str,
@@ -455,12 +467,18 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomideventeventid
+    /// We are using a custom state event type here, which must match the one we created via
+    /// [SynapseClient::associate_source_group_id_to_room].
     async fn get_room_associated_source_group_id(&mut self, matrix_room_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError> {
         let event: dto::RoomGlobalIdEvent = self.client_api_get(format!("rooms/{matrix_room_id}/state/{SYNCER_ROOM_METADATA_EVENT}/") ).await?;
         tracing::debug!(source_id = event.source_id, matrix_room_id, "Found mapping");
         Ok(event.source_id)
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3useruseridroomsroomidaccount_datatype
+    /// Old version of storing syncer metadata for a room in the account data of the sync user
+    /// instead of in the metadata of a room directly.
     async fn get_room_associated_source_group_id_v1(&mut self, matrix_room_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError> {
         let account_data_event: serde_json::Value = self
             .client_api_get(format!(
@@ -476,6 +494,8 @@ impl SynapseApi for SynapseClient {
         }
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#put_matrixclientv3roomsroomidstateeventtypestatekey
+    /// Event type used is https://spec.matrix.org/v1.15/client-server-api/#mroomname
     async fn set_room_display_name(&mut self, matrix_room_id: &str, display_name: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
@@ -489,6 +509,8 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomideventeventid
+    /// Event type used is https://spec.matrix.org/v1.15/client-server-api/#mroomname
     async fn get_room_display_name(&mut self, matrix_room_id: &str) -> Result<String, error::KidsError> {
         let room_name_event: dto::RoomNameEvent = self.client_api_get(format!("rooms/{matrix_room_id}/state/m.room.name/")).await?;
         Ok(room_name_event.name)
@@ -498,6 +520,7 @@ impl SynapseApi for SynapseClient {
         "#".to_owned() + &self.room_alias_local_part(group_path) + ":" + self.homeserver_domain()
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#put_matrixclientv3directoryroomroomalias.
     async fn create_room_alias(&mut self, matrix_room_id: &str, alias: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
@@ -511,6 +534,7 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#delete_matrixclientv3directoryroomroomalias
     async fn delete_room_alias(&mut self, alias: &str) -> Result<(), error::KidsError> {
         let _ = self
             .send_client_api_request::<(), serde_json::Value>(
@@ -522,6 +546,8 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#put_matrixclientv3roomsroomidstateeventtypestatekey
+    /// Event type used is https://spec.matrix.org/v1.15/client-server-api/#mroomcanonical_alias
     async fn set_room_canonical_alias(&mut self, matrix_room_id: &str, canonical_alias: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
@@ -536,10 +562,13 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomideventeventid
+    /// Event type used is https://spec.matrix.org/v1.15/client-server-api/#mroomcanonical_alias
     async fn get_room_canonical_alias(&mut self, room_id: &str) -> Result<dto::RoomCanonicalAliasEvent, error::KidsError> {
         self.client_api_get(format!("rooms/{room_id}/state/m.room.canonical_alias/")).await
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#query-user-account.
     async fn get_source_user_id_for_matrix_user_id(&mut self, matrix_user_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError> {
         let response: dto::User = self.admin_api_get("v2", format!("users/{matrix_user_id}")).await?;
         // This endpoint returns extended user information guaranteed to contain the external_ids field.
@@ -554,14 +583,17 @@ impl SynapseApi for SynapseClient {
         )))
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#list-joined-rooms-of-a-user
     async fn get_user_joined_rooms(&mut self, matrix_user_id: &str) -> Result<dto::UserJoinedRoomsResponse, error::KidsError> {
         self.admin_api_get("v1", format!("users/{matrix_user_id}/joined_rooms")).await
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomidjoined_members.
     async fn get_room_joined_users(&mut self, matrix_room_id: &str) -> Result<dto::RoomJoinedUsersResponse, error::KidsError> {
         self.client_api_get(format!("rooms/{matrix_room_id}/joined_members")).await
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/room_membership.html.
     async fn join_user_to_room(&mut self, matrix_group_id: &str, matrix_user_id: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_admin_api_request(
@@ -576,6 +608,7 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3roomsroomidkick.
     async fn kick_user_from_room(&mut self, matrix_group_id: &str, matrix_user_id: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
