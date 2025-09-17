@@ -1,0 +1,3 @@
+{
+  "restrictBaseUrl": "http://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_PORT"
+}
