@@ -68,13 +68,11 @@ pub struct SynapseClient {
 }
 
 struct Authentication {
-    access_token: String,
-    refresh_token: String,
+    access_token: Option<String>,
+    refresh_token: Option<String>,
     expires_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Indicates that we have not received an access token yet.
-const NO_TOKEN: &str = "";
 /// Page size requested when loading users.
 /// Because we don't support pagination, this needs to be large enough to return all users
 /// known to Synapse.
@@ -99,8 +97,8 @@ impl SynapseClient {
             config,
             http_client: client,
             authentication: Authentication {
-                access_token: NO_TOKEN.to_string(),
-                refresh_token: NO_TOKEN.to_string(),
+                access_token: None,
+                refresh_token: None,
                 expires_at: chrono::Utc::now(),
             },
             parsed_homeserver_url,
@@ -127,8 +125,8 @@ impl SynapseClient {
                 })),
             )
             .await?;
-        self.authentication.access_token = token_response.access_token;
-        self.authentication.refresh_token = token_response.refresh_token;
+        self.authentication.access_token = Some(token_response.access_token);
+        self.authentication.refresh_token = Some(token_response.refresh_token);
         self.authentication.expires_at = chrono::Utc::now() + chrono::Duration::milliseconds(token_response.expires_in_ms);
 
         tracing::info!(homeserver_url=%self.parsed_homeserver_url, "Logged in to homeserver");
@@ -140,6 +138,9 @@ impl SynapseClient {
         // we also refresh tokens that are not yet expired but will be soon.
         if self.authentication.expires_at - chrono::Duration::seconds(5) < chrono::Utc::now() {
             tracing::debug!("Refreshing access token");
+            if self.authentication.refresh_token.is_none() {
+                panic!("Did not find a refresh token for synapse homeserver in a place where we should have one by invariant!")
+            }
             let token_response: dto::MatrixAuthentication = self
                 .send_client_api_request_unauthenticated(
                     http::Method::POST,
@@ -149,8 +150,8 @@ impl SynapseClient {
                     })),
                 )
                 .await?;
-            self.authentication.access_token = token_response.access_token;
-            self.authentication.refresh_token = token_response.refresh_token;
+            self.authentication.access_token = Some(token_response.access_token);
+            self.authentication.refresh_token = Some(token_response.refresh_token);
             self.authentication.expires_at = chrono::Utc::now() + chrono::Duration::milliseconds(token_response.expires_in_ms);
         }
 
@@ -173,7 +174,8 @@ impl SynapseClient {
     ) -> Result<RequestBuilder, error::KidsError> {
         let mut builder = self.construct_unauthenticated_request(method, url, body);
         self.refresh_access_token_if_necessary().await?;
-        builder = builder.bearer_auth(self.authentication.access_token.clone());
+        // Since we just refreshed the access token above, we can safely access it here.
+        builder = builder.bearer_auth(self.authentication.access_token.clone().unwrap());
         Ok(builder)
     }
 
