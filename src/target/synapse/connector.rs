@@ -406,6 +406,10 @@ impl Connector {
         Ok(matrix_room_id)
     }
 
+    /// Update the display name of the room to match the one specified by the source group.
+    ///
+    /// This method expects the self.config.source_room_name_attr to be set on the source group.
+    /// It should only be called on groups were that's the case (it will panic otherwise).
     async fn update_display_name(&mut self, matrix_room_id: &str, source_group: &rc::Rc<dyn source::interface::Group>) {
         let old_display_name = self.synapse_api.get_room_display_name(matrix_room_id).await;
         match old_display_name {

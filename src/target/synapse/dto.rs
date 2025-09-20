@@ -57,11 +57,6 @@ pub struct RoomCanonicalAliasEvent {
     pub alt_aliases: Option<Vec<String>>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-pub struct AuthProvidersResponse {
-    pub user_id: String,
-}
-
 #[derive(serde::Deserialize, Debug)]
 pub struct UserJoinedRoomsResponse {
     pub joined_rooms: Vec<String>,

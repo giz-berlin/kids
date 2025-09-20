@@ -99,6 +99,13 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
         }
 
         let users = target_impl.all_users().await.unwrap();
+        // Warning: We do that here to validate full functionality of the target implementation.
+        // (Obviously, this is placeholder code and not what the final controller will do - deleting all users.)
+        // However, running the syncer multiple times might eventually cause a panic here,
+        // because users deleted (well, deactivated, see implementation of target method)
+        // in Synapse are gone - they can only be recreated manually.
+        // Eventually, no user is then left to be deleted here.
+        // For this reason, you might want to comment out the next line during repeated manual testing.
         target_impl.delete_user(users.into_iter().next().unwrap()).await.unwrap();
     });
 
