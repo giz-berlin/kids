@@ -12,7 +12,7 @@ Currently, these applications are supported as sync targets:
 
 ## Configuration
 
-We use TOML for our configuration. A config file should be assembled by concatenating the 
+We use TOML for our configuration. A config file should be assembled by concatenating the
 [general configuration options applying to all use cases](default_configs/config.example.toml) as well as the configuration
 required for the used `Source` and `Target` components (see [architecture](#architecture)).
 
@@ -28,17 +28,39 @@ This project consists of three main components:
 
 For just in time sync, there is a fourth component: KIDS event listener. This is a Keycloak event listener issuing web requests to syncer instances if certain objects are modified. This component is only necessary if a near real-time sync is desired.
 
-### Source
+### Sync approaches
+
+The project aims to support two different sync types.
+
+The syncer should ensure, that no parallel syncs are happening on the same object. However, targets should ensure that, even if this happens, no data loss occurs. Targets should also ensure that, on the next sync, a clean state can be reached.
+
+#### Full sync
+
+The syncer will always support a full sync of all users and groups of the source to the target.
+
+This type is intended to be triggered e.g. once a day. During this sync, all caches are emptied and afterwards a clean state should be reached between source and target.
+
+During full sync, targets will get triggered like with an incremental sync, but when it starts, targets will get notified to e.g. clean runtime caches.
+
+#### Incremental sync
+
+By utilizing the Keycloak event listener, the syncer might be notified about changes of specific groups and users. The controller will then trigger the sync to the target accordingly.
+
+As the events are on a fire and forget basis, some changes might not be reflected in (near) real time. Therefore, to be sure, a periodic full sync is still required.
+
+### Components
+
+#### Source
 
 The source (currently only Keycloak) provides the user data. It has the responsibility to provide a common interface to interact with the data source.
 
 In the Keycloak case, we use the Keycloak Admin API to fetch the data transparently.
 
-### Controller
+#### Controller
 
 The controller is responsible to schedule syncs and to receive and process events from the KIDS event listener. It is the central component using the defined interfaces of the [target](#target) and [source](#source).
 
-### Target
+#### Target
 
 This component is responsible to sync the data received via the interface to the target application as well as to fetch the current state of the target application.
 
