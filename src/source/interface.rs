@@ -1,6 +1,5 @@
 use crate::{error, types};
 use std::{collections, fmt, rc};
-
 // WHY WE ARE NOT USING ITERATORS IN THESE INTERFACES:
 // Currently, the traits specified in this file demand that all data is fetched from the source
 // at once (i.e., the methods return vectors of groups and users) instead of allowing for an
@@ -93,6 +92,11 @@ pub trait Group {
     /// *Display* path of the [Group]. Must **not** be used as an identifier, as it might be ambiguous.
     /// For example, both a group named "A/B" and a subgroup B of group A might receive the same path "/A/B".
     fn path(&self) -> &str;
+
+    /// A map containing all additional group attributes.
+    /// Many [Targets](crate::target::interface::Target) will make use of custom group attributes to
+    /// retrieve target-system-specific configuration for the group.
+    fn attributes(&self) -> &collections::HashMap<String, Vec<String>>;
 
     // Note: A reference to the users of a group is only needed if a target::Target wants to propagate
     // group attributes to users in some way.

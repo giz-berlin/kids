@@ -1,4 +1,5 @@
 use crate::error;
+use anyhow::anyhow;
 
 #[derive(serde::Deserialize)]
 pub struct KeycloakApiConfig {
@@ -13,6 +14,9 @@ pub struct KeycloakApiConfig {
     pub client_secret: String,
     /// Keycloak realm to fetch the data from.
     pub realm: String,
+    /// Whether to validate the server certificate of the external API.
+    /// Only disable for local development purposes!
+    pub insecure_disable_tls_verification: bool,
 }
 
 /// Abstraction of the external Keycloak API, reduced to the set of methods and parameters required for this library.
@@ -34,29 +38,56 @@ pub struct KeycloakServiceAccountClient {
 
 impl KeycloakServiceAccountClient {
     pub fn new(config: KeycloakApiConfig) -> Self {
+        if config.insecure_disable_tls_verification {
+            tracing::warn!("Verification of Keycloak server certificate is disabled. Do not use this setting in a production environment!");
+        }
+
+        let token_retriever_http_client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(config.insecure_disable_tls_verification)
+            .build()
+            .unwrap();
         let keycloak_client = keycloak::KeycloakServiceAccountAdminTokenRetriever::create_with_custom_realm(
             &config.client_id,
             &config.client_secret,
             &config.realm,
-            reqwest::Client::new(),
+            token_retriever_http_client,
         );
-        let keycloak_admin = keycloak::KeycloakAdmin::new(&config.keycloak_address, keycloak_client, reqwest::Client::new());
+
+        let api_http_client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(config.insecure_disable_tls_verification)
+            .build()
+            .unwrap();
+        let keycloak_admin = keycloak::KeycloakAdmin::new(&config.keycloak_address, keycloak_client, api_http_client);
 
         KeycloakServiceAccountClient { config, keycloak_admin }
     }
 
     fn convert_error<Resource>(
+        route: &str,
         data: Result<keycloak::types::TypeVec<Resource>, keycloak::KeycloakError>,
     ) -> Result<keycloak::types::TypeVec<Resource>, error::KidsError> {
         match data {
             Ok(resource) => Ok(resource),
-            Err(keycloak::KeycloakError::HttpFailure { status, .. }) => {
+            Err(keycloak::KeycloakError::HttpFailure { status, text, .. }) => {
                 if status == 401 || status == 403 {
-                    return Err(error::KidsError::AuthenticationFailure);
+                    return Err(error::KidsError::AuthenticationFailed(
+                        error::NO_CONTEXT.to_string(),
+                        status,
+                        route.to_string(),
+                        anyhow!(text),
+                    ));
                 }
-                Err(error::KidsError::HttpFailure(status))
+                Err(error::KidsError::ApiOperationFailed(
+                    error::NO_CONTEXT.to_string(),
+                    status,
+                    route.to_string(),
+                    anyhow!(text),
+                ))
             }
-            Err(_) => Err(error::KidsError::RequestFailure),
+            Err(e) => {
+                tracing::error!("{}", e);
+                Err(error::KidsError::RequestFailed(error::NO_CONTEXT.to_string(), anyhow!(e)))
+            }
         }
     }
 }
@@ -74,6 +105,7 @@ const FETCH_ALL_ENTITIES: i32 = -1;
 impl KeycloakApi for KeycloakServiceAccountClient {
     async fn get_users(&self) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(
+            "GET_USERS",
             self.keycloak_admin
                 .realm_users_get(
                     &self.config.realm,
@@ -98,6 +130,7 @@ impl KeycloakApi for KeycloakServiceAccountClient {
 
     async fn get_groups_of_user(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(
+            "GET_GROUPS_OF_USERS",
             self.keycloak_admin
                 .realm_users_with_user_id_groups_get(&self.config.realm, user_id, None, None, Some(FETCH_ALL_ENTITIES), None)
                 .await,
@@ -106,16 +139,18 @@ impl KeycloakApi for KeycloakServiceAccountClient {
 
     async fn get_groups(&self) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(
+            "GET_GROUPS",
             self.keycloak_admin
-                .realm_groups_get(&self.config.realm, None, None, None, Some(FETCH_ALL_ENTITIES), None, None, None)
+                .realm_groups_get(&self.config.realm, Some(false), None, None, Some(FETCH_ALL_ENTITIES), None, None, None)
                 .await,
         )
     }
 
     async fn get_subgroups(&self, group_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(
+            "GET_SUBGROUPS",
             self.keycloak_admin
-                .realm_groups_with_group_id_children_get(&self.config.realm, group_id, None, None, None, Some(FETCH_ALL_ENTITIES), None)
+                .realm_groups_with_group_id_children_get(&self.config.realm, group_id, Some(false), None, None, Some(FETCH_ALL_ENTITIES), None)
                 .await,
         )
     }

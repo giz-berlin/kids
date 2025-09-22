@@ -11,35 +11,39 @@ pub struct Connector {}
 impl interface::Target for Connector {
     type Config = JamesConfig;
 
-    fn new(_: Self::Config) -> Self {
-        Connector {}
+    async fn new(_: Self::Config) -> Result<Self, error::KidsError> {
+        Ok(Connector {})
     }
 
     fn info(&self) -> String {
         "James Connector!".to_string()
     }
 
-    async fn all_groups() -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
+    async fn full_sync_incoming(&mut self) -> Result<(), error::KidsError> {
         todo!()
     }
 
-    async fn all_users() -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
+    async fn all_groups(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
         todo!()
     }
 
-    async fn delete_group(_group: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
+    async fn all_users(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
         todo!()
     }
 
-    async fn delete_user(_user: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
+    async fn delete_group(&mut self, _group_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
         todo!()
     }
 
-    async fn create_or_update_group(_group: rc::Rc<dyn source::interface::Group>) -> Result<(), error::KidsError> {
+    async fn delete_user(&mut self, _user_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
         todo!()
     }
 
-    async fn create_or_update_user(_user: Box<dyn source::interface::User>) -> Result<(), error::KidsError> {
+    async fn create_or_update_group(&mut self, _group: rc::Rc<dyn source::interface::Group>) -> Result<(), error::KidsError> {
+        todo!()
+    }
+
+    async fn create_or_update_user(&mut self, _user: Box<dyn source::interface::User>) -> Result<(), error::KidsError> {
         todo!()
     }
 }

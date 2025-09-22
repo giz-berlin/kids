@@ -48,10 +48,16 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
     // See https://docs.sentry.io/platforms/rust/#async-main-function.
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
         let source_impl = S::new(config.source);
-        let target_impl = T::new(config.target);
+        let mut target_impl = match T::new(config.target).await {
+            Ok(target_impl) => target_impl,
+            Err(e) => {
+                panic!("{}", e)
+            }
+        };
         tracing::info!("Active Source: {}", source_impl.info());
         tracing::info!("Active Target: {}", target_impl.info());
 
+        // Dummy source handling
         let users = source_impl.all_users().await.unwrap();
         for user in users.into_iter() {
             tracing::info!("user: {}", user.username().unwrap());
@@ -68,6 +74,39 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
                 tracing::info!("sub group: {}", sub_group.path());
             }
         }
+
+        // Dummy target handling
+        let _ = target_impl.full_sync_incoming().await;
+
+        tracing::info!("{:?}", target_impl.all_groups().await);
+
+        let groups = source_impl.all_groups().await.unwrap();
+        for group in &groups {
+            target_impl.create_or_update_group(group.clone()).await.unwrap();
+            let sub_groups = group.clone().sub_groups().await.unwrap();
+            for sub_group in sub_groups {
+                target_impl.create_or_update_group(sub_group).await.unwrap();
+            }
+        }
+
+        let users = source_impl.all_users().await.unwrap();
+        for user in users.into_iter() {
+            target_impl.create_or_update_user(user).await.unwrap();
+        }
+
+        for group in &groups {
+            target_impl.delete_group(group.id().to_owned()).await.unwrap();
+        }
+
+        let users = target_impl.all_users().await.unwrap();
+        // Warning: We do that here to validate full functionality of the target implementation.
+        // (Obviously, this is placeholder code and not what the final controller will do - deleting all users.)
+        // However, running the syncer multiple times might eventually cause a panic here,
+        // because users deleted (well, deactivated, see implementation of target method)
+        // in Synapse are gone - they can only be recreated manually.
+        // Eventually, no user is then left to be deleted here.
+        // For this reason, you might want to comment out the next line during repeated manual testing.
+        target_impl.delete_user(users.into_iter().next().unwrap()).await.unwrap();
     });
 
     Ok(())
@@ -81,11 +120,7 @@ fn init_logging() -> anyhow::Result<()> {
         .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
         .from_env_lossy();
 
-    let console_log_layer = tracing_subscriber::fmt::layer()
-        .pretty()
-        .with_target(true)
-        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-        .with_filter(filter);
+    let console_log_layer = tracing_subscriber::fmt::layer().pretty().with_target(true).with_filter(filter);
 
     let sentry_layer = sentry::integrations::tracing::layer()
         .enable_span_attributes()
