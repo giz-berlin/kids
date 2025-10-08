@@ -2,17 +2,16 @@ use crate::source::interface;
 use crate::source::keycloak::external;
 use crate::{error, types};
 use std::collections::HashMap;
-use std::rc;
 
 pub struct KeycloakGroup {
-    pub keycloak_api: rc::Rc<dyn external::KeycloakApi>,
+    pub keycloak_api: std::sync::Arc<dyn external::KeycloakApi>,
     pub group_representation: keycloak::types::GroupRepresentation,
-    pub parent_group: Option<rc::Rc<KeycloakGroup>>,
-    pub root_group: Option<rc::Rc<KeycloakGroup>>,
+    pub parent_group: Option<std::sync::Arc<KeycloakGroup>>,
+    pub root_group: Option<std::sync::Arc<KeycloakGroup>>,
 }
 
 impl KeycloakGroup {
-    pub fn new(keycloak_api: rc::Rc<dyn external::KeycloakApi>, group_representation: keycloak::types::GroupRepresentation) -> Self {
+    pub fn new(keycloak_api: std::sync::Arc<dyn external::KeycloakApi>, group_representation: keycloak::types::GroupRepresentation) -> Self {
         KeycloakGroup {
             keycloak_api,
             group_representation,
@@ -22,9 +21,9 @@ impl KeycloakGroup {
     }
 
     pub fn new_with_parent(
-        keycloak_api: rc::Rc<dyn external::KeycloakApi>,
+        keycloak_api: std::sync::Arc<dyn external::KeycloakApi>,
         group_representation: keycloak::types::GroupRepresentation,
-        parent: rc::Rc<KeycloakGroup>,
+        parent: std::sync::Arc<KeycloakGroup>,
     ) -> KeycloakGroup {
         let mut group = Self::new(keycloak_api, group_representation);
         group.root_group = match &parent.root_group {
@@ -57,25 +56,25 @@ impl interface::Group for KeycloakGroup {
         self.group_representation.attributes.as_ref().unwrap()
     }
 
-    fn root_group(self: rc::Rc<Self>) -> rc::Rc<dyn interface::Group> {
+    fn root_group(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn interface::Group> {
         match &self.root_group {
             Some(root_group) => root_group.clone(),
             None => self,
         }
     }
 
-    fn parent_group(&self) -> Option<rc::Rc<dyn interface::Group>> {
+    fn parent_group(&self) -> Option<std::sync::Arc<dyn interface::Group>> {
         match &self.parent_group {
             Some(parent_group) => Some(parent_group.clone()),
             None => None,
         }
     }
 
-    async fn sub_groups(self: rc::Rc<Self>) -> Result<Vec<rc::Rc<dyn interface::Group>>, error::KidsError> {
+    async fn sub_groups(self: std::sync::Arc<Self>) -> Result<Vec<std::sync::Arc<dyn interface::Group>>, error::KidsError> {
         let sub_groups = self.keycloak_api.get_subgroups(self.id()).await?;
         Ok(sub_groups
             .into_iter()
-            .map(|g| rc::Rc::new(KeycloakGroup::new_with_parent(self.keycloak_api.clone(), g, self.clone())) as rc::Rc<dyn interface::Group>)
+            .map(|g| std::sync::Arc::new(KeycloakGroup::new_with_parent(self.keycloak_api.clone(), g, self.clone())) as std::sync::Arc<dyn interface::Group>)
             .collect())
     }
 }
@@ -95,12 +94,12 @@ mod test {
                 .build_into()])
         });
 
-        let group = rc::Rc::new(KeycloakGroup::new(
-            rc::Rc::new(mock),
+        let group = std::sync::Arc::new(KeycloakGroup::new(
+            std::sync::Arc::new(mock),
             external::test::KeycloakGroupRepresentationBuilder::default()
                 .id(constants::DEFAULT_GROUP_ID)
                 .build_into(),
-        )) as rc::Rc<dyn interface::Group>;
+        )) as std::sync::Arc<dyn interface::Group>;
 
         // when
         let sub_groups = group.clone().sub_groups().await.unwrap();
@@ -109,7 +108,7 @@ mod test {
         assert_eq!(sub_groups.len(), 1);
         assert_eq!(sub_groups[0].id(), constants::ANOTHER_GROUP_ID);
         // also assigns parent relationships
-        assert!(rc::Rc::ptr_eq(&sub_groups[0].parent_group().unwrap(), &group));
-        assert!(rc::Rc::ptr_eq(&sub_groups[0].clone().root_group(), &group));
+        assert!(std::sync::Arc::ptr_eq(&sub_groups[0].parent_group().unwrap(), &group));
+        assert!(std::sync::Arc::ptr_eq(&sub_groups[0].clone().root_group(), &group));
     }
 }

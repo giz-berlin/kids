@@ -1,11 +1,11 @@
 use crate::error;
 use crate::source::interface;
 use crate::source::keycloak::{external, group, user};
-use std::rc;
+use std::sync;
 
 /// A connector to Keycloak providing the [Source](interface::Source) interface.
 pub struct Connector {
-    pub keycloak_api: rc::Rc<dyn external::KeycloakApi>,
+    pub keycloak_api: sync::Arc<dyn external::KeycloakApi + Send + Sync>,
 }
 
 #[derive(serde::Deserialize)]
@@ -13,7 +13,7 @@ pub struct KeycloakConfig {
     pub keycloak_api: external::KeycloakApiConfig,
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl interface::Source for Connector {
     type Config = KeycloakConfig;
 
@@ -23,15 +23,15 @@ impl interface::Source for Connector {
 
     fn new(config: Self::Config) -> Self {
         Connector {
-            keycloak_api: rc::Rc::new(external::KeycloakServiceAccountClient::new(config.keycloak_api)),
+            keycloak_api: sync::Arc::new(external::KeycloakServiceAccountClient::new(config.keycloak_api)),
         }
     }
 
-    async fn all_groups(&self) -> Result<Vec<rc::Rc<dyn interface::Group>>, error::KidsError> {
+    async fn all_groups(&self) -> Result<Vec<sync::Arc<dyn interface::Group>>, error::KidsError> {
         let groups = self.keycloak_api.get_groups().await?;
         Ok(groups
             .into_iter()
-            .map(|group| rc::Rc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), group)) as rc::Rc<dyn interface::Group>)
+            .map(|group| sync::Arc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), group)) as sync::Arc<dyn interface::Group>)
             .collect())
     }
 
@@ -66,7 +66,7 @@ mod test {
         });
 
         let source = Connector {
-            keycloak_api: rc::Rc::new(mock),
+            keycloak_api: std::sync::Arc::new(mock),
         };
 
         // when
@@ -94,7 +94,7 @@ mod test {
         });
 
         let source = Connector {
-            keycloak_api: rc::Rc::new(mock),
+            keycloak_api: std::sync::Arc::new(mock),
         };
 
         // when

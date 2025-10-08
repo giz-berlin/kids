@@ -1,5 +1,5 @@
-use kids::{controller, source, target};
+use kids::{cli, source, target};
 
 fn main() -> anyhow::Result<()> {
-    controller::start_controller::<source::keycloak::Connector, target::james::Connector>()
+    cli::run::<source::keycloak::Connector, target::james::Connector>()
 }

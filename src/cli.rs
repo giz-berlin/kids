@@ -13,7 +13,7 @@ pub struct CliArguments {
     config: std::path::PathBuf,
 }
 
-pub fn start_controller<S: source::interface::Source, T: target::interface::Target>() -> anyhow::Result<()> {
+pub fn run<S: source::interface::Source + Send + Sync + 'static, T: target::interface::Target + Send + Sync + 'static>() -> anyhow::Result<()> {
     let args = CliArguments::parse();
 
     let config = config::Config::<S::Config, T::Config>::try_from(args.config)?;
@@ -48,65 +48,17 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
     // See https://docs.sentry.io/platforms/rust/#async-main-function.
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
         let source_impl = S::new(config.source);
-        let mut target_impl = match T::new(config.target).await {
+        let target_impl = match T::new(config.target).await {
             Ok(target_impl) => target_impl,
             Err(e) => {
                 panic!("{}", e)
             }
         };
+
         tracing::info!("Active Source: {}", source_impl.info());
         tracing::info!("Active Target: {}", target_impl.info());
 
-        // Dummy source handling
-        let users = source_impl.all_users().await.unwrap();
-        for user in users.into_iter() {
-            tracing::info!("user: {}", user.username().unwrap());
-            let user_groups = user.groups().await.unwrap();
-            for group in user_groups.into_iter() {
-                tracing::info!("user group: {}", group.path());
-            }
-        }
-        let groups = source_impl.all_groups().await.unwrap();
-        for group in groups.into_iter() {
-            tracing::info!("group: {}", group.path());
-            let sub_groups = group.sub_groups().await.unwrap();
-            for sub_group in sub_groups.into_iter() {
-                tracing::info!("sub group: {}", sub_group.path());
-            }
-        }
-
-        // Dummy target handling
-        let _ = target_impl.full_sync_incoming().await;
-
-        tracing::info!("{:?}", target_impl.all_groups().await);
-
-        let groups = source_impl.all_groups().await.unwrap();
-        for group in &groups {
-            target_impl.create_or_update_group(group.clone()).await.unwrap();
-            let sub_groups = group.clone().sub_groups().await.unwrap();
-            for sub_group in sub_groups {
-                target_impl.create_or_update_group(sub_group).await.unwrap();
-            }
-        }
-
-        let users = source_impl.all_users().await.unwrap();
-        for user in users.into_iter() {
-            target_impl.create_or_update_user(user).await.unwrap();
-        }
-
-        for group in &groups {
-            target_impl.delete_group(group.id().to_owned()).await.unwrap();
-        }
-
-        let users = target_impl.all_users().await.unwrap();
-        // Warning: We do that here to validate full functionality of the target implementation.
-        // (Obviously, this is placeholder code and not what the final controller will do - deleting all users.)
-        // However, running the syncer multiple times might eventually cause a panic here,
-        // because users deleted (well, deactivated, see implementation of target method)
-        // in Synapse are gone - they can only be recreated manually.
-        // Eventually, no user is then left to be deleted here.
-        // For this reason, you might want to comment out the next line during repeated manual testing.
-        target_impl.delete_user(users.into_iter().next().unwrap()).await.unwrap();
+        crate::controller::api::run(config.http.bind_addr, source_impl, target_impl).await.unwrap();
     });
 
     Ok(())
@@ -129,7 +81,7 @@ fn init_logging() -> anyhow::Result<()> {
             tracing::Level::DEBUG => sentry::integrations::tracing::EventFilter::Breadcrumb,
             tracing::Level::INFO => sentry::integrations::tracing::EventFilter::Breadcrumb,
             tracing::Level::WARN => sentry::integrations::tracing::EventFilter::Event,
-            tracing::Level::ERROR => sentry::integrations::tracing::EventFilter::Exception,
+            tracing::Level::ERROR => sentry::integrations::tracing::EventFilter::Event,
         });
 
     tracing_subscriber::registry()

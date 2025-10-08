@@ -1,7 +1,7 @@
 use crate::error;
 use anyhow::anyhow;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 pub struct KeycloakApiConfig {
     /// Address of the external Keycloak to fetch data from.
     pub keycloak_address: String,
@@ -21,8 +21,8 @@ pub struct KeycloakApiConfig {
 
 /// Abstraction of the external Keycloak API, reduced to the set of methods and parameters required for this library.
 #[mockall::automock]
-#[async_trait::async_trait(?Send)]
-pub trait KeycloakApi {
+#[async_trait::async_trait]
+pub trait KeycloakApi: Send + Sync {
     async fn get_users(&self) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, error::KidsError>;
     async fn get_groups_of_user(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
     async fn get_groups(&self) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
@@ -101,7 +101,7 @@ impl KeycloakServiceAccountClient {
 /// be deleted in the configured [Target](crate::target::interface::Target).
 const FETCH_ALL_ENTITIES: i32 = -1;
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl KeycloakApi for KeycloakServiceAccountClient {
     async fn get_users(&self) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(

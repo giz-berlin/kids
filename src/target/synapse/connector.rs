@@ -1,7 +1,7 @@
 use crate::target::interface;
 use crate::target::synapse::{dto, external};
 use crate::{error, source, types};
-use std::{collections, rc};
+use std::{collections};
 
 #[derive(serde::Deserialize)]
 pub struct SynapseConfig {
@@ -50,7 +50,7 @@ const DERIVE_DISPLAY_NAME_FROM_GROUP_NAME: &str = "_name_titlecase";
 /// edge cases is out of the scope of this implementation.
 pub struct Connector {
     config: SynapseConfig,
-    synapse_api: Box<dyn external::SynapseApi>,
+    synapse_api: Box<dyn external::SynapseApi + Send + Sync>,
     group_id_mapping: Option<collections::HashMap<types::SharedResourceIdentifier, String>>,
     user_id_mapping: Option<collections::HashMap<types::SharedResourceIdentifier, dto::User>>,
 }
@@ -162,7 +162,7 @@ impl Connector {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl interface::Target for Connector {
     type Config = SynapseConfig;
 
@@ -256,7 +256,7 @@ impl interface::Target for Connector {
         Ok(())
     }
 
-    async fn create_or_update_group(&mut self, source_group: rc::Rc<dyn source::interface::Group>) -> Result<(), error::KidsError> {
+    async fn create_or_update_group(&mut self, source_group: std::sync::Arc<dyn source::interface::Group + Send + Sync>) -> Result<(), error::KidsError> {
         // Note that groups containing the below-mentioned characters will lead to ambiguitive group paths,
         // which is why we do not allow them.
         // For example, a subgroup "B" of group "A" will receive the path "/A/B", but so will a group named "A/B" directly.
@@ -310,7 +310,7 @@ impl interface::Target for Connector {
         Ok(())
     }
 
-    async fn create_or_update_user(&mut self, source_user: Box<dyn source::interface::User>) -> Result<(), error::KidsError> {
+    async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn source::interface::User + Send + Sync>) -> Result<(), error::KidsError> {
         if !self.get_user_id_mapping().await?.contains_key(source_user.id()) {
             tracing::debug!(
                 source_user_id = source_user.id(),
@@ -414,7 +414,7 @@ impl Connector {
         }
     }
 
-    async fn get_or_create_room(&mut self, source_group: &rc::Rc<dyn source::interface::Group>) -> Result<String, error::KidsError> {
+    async fn get_or_create_room(&mut self, source_group: &std::sync::Arc<dyn source::interface::Group + Send + Sync>) -> Result<String, error::KidsError> {
         let matrix_room_id;
         if !self.get_group_id_mapping().await?.contains_key(source_group.id()) {
             tracing::info!(
@@ -445,7 +445,7 @@ impl Connector {
     ///
     /// This method expects the self.config.source_room_name_attr to be set on the source group.
     /// It should only be called on groups were that's the case (it will panic otherwise).
-    async fn update_display_name(&mut self, matrix_room_id: &str, source_group: &rc::Rc<dyn source::interface::Group>) {
+    async fn update_display_name(&mut self, matrix_room_id: &str, source_group: &std::sync::Arc<dyn source::interface::Group + Send + Sync>) {
         let old_display_name = self.synapse_api.get_room_display_name(matrix_room_id).await;
         match old_display_name {
             Ok(old_display_name) => {
@@ -469,7 +469,7 @@ impl Connector {
         }
     }
 
-    async fn update_canonical_alias(&mut self, matrix_room_id: &str, source_group: &rc::Rc<dyn source::interface::Group>) {
+    async fn update_canonical_alias(&mut self, matrix_room_id: &str, source_group: &std::sync::Arc<dyn source::interface::Group + Send + Sync>) {
         let full_room_alias = self.synapse_api.full_room_alias(source_group.path());
         let canonical_alias_event = self.synapse_api.get_room_canonical_alias(matrix_room_id).await;
         match canonical_alias_event {

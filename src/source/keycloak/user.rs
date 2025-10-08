@@ -1,15 +1,15 @@
 use crate::source::interface;
 use crate::source::keycloak::{external, group};
 use crate::{error, types};
-use std::{collections, rc};
+use std::{collections};
 
 pub struct KeycloakUser {
-    pub keycloak_api: rc::Rc<dyn external::KeycloakApi>,
+    pub keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>,
     pub user_representation: keycloak::types::UserRepresentation,
 }
 
 impl KeycloakUser {
-    pub fn new(keycloak_api: rc::Rc<dyn external::KeycloakApi>, user_representation: keycloak::types::UserRepresentation) -> Self {
+    pub fn new(keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>, user_representation: keycloak::types::UserRepresentation) -> Self {
         KeycloakUser {
             keycloak_api,
             user_representation,
@@ -17,7 +17,7 @@ impl KeycloakUser {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl interface::User for KeycloakUser {
     fn id(&self) -> &types::SharedResourceIdentifier {
         // We can unwrap here because every Keycloak user has got an ID.
@@ -45,11 +45,11 @@ impl interface::User for KeycloakUser {
         self.user_representation.realm_roles.as_ref().unwrap()
     }
 
-    async fn groups(&self) -> Result<Vec<rc::Rc<dyn interface::Group>>, error::KidsError> {
+    async fn groups(&self) -> Result<Vec<std::sync::Arc<dyn interface::Group + Send + Sync>>, error::KidsError> {
         let users = self.keycloak_api.get_groups_of_user(self.id()).await?;
         Ok(users
             .into_iter()
-            .map(|g| rc::Rc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), g)) as rc::Rc<dyn interface::Group>)
+            .map(|g| std::sync::Arc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), g)) as std::sync::Arc<dyn interface::Group + Send + Sync>)
             .collect())
     }
 }
@@ -77,7 +77,7 @@ mod test {
         });
 
         let user = KeycloakUser::new(
-            rc::Rc::new(mock),
+            std::sync::Arc::new(mock),
             external::test::KeycloakUserRepresentationBuilder::default()
                 .id(constants::DEFAULT_USER_ID)
                 .build_into(),

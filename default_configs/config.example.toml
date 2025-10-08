@@ -1,4 +1,8 @@
 ### General & controller configuration
+[http]
+# Address with port to bind the HTTP server to, e.g. 127.0.0.1:3000
+bind_addr = ""
+
 [sentry]
 # Whether the sentry integration is active.
 active = false

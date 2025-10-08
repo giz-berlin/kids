@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 anyhow = "1"
 clap = { version = "4.5.31", features = ["derive"] }
-sentry = { version = "0.36", features = ["tracing"] }
+sentry = { version = "0.43", features = ["tracing", "tower", "tower-http", "tower-axum-matched-path"] }
 serde = { version = "1.0.218", features = ["serde_derive"] }
 toml = "0.8.20"
 tokio = { version = "1", features = ["full"] }
@@ -20,11 +20,21 @@ derive_builder = "0.20.2"
 mockall = "0.13.1"
 keycloak = "26.2.0"
 reqwest = { version = "0.12.15", features = ["default-tls"] }
-uuid = { version = "1.16.0", features = ["v4"] }
+uuid = { version = "1.16.0", features = ["v4", "serde"] }
 url = "2.5.4"
 serde_json = "1.0.140"
 http = "1.2.0"
-chrono = "0.4.41"
+chrono = { version = "0.4.41", features = ["serde"] }
+aide = { version = "0.15.1", features = [
+  "axum",
+  "axum-json",
+  "axum-query",
+  "redoc",
+  "macros",
+] }
+axum = { version = "0.8.6", features = ["tracing", "macros"] }
+indexmap = "2.11.4"
+schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
 
 [[bin]]
 name = "keycloak-james"
