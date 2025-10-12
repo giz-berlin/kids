@@ -1,5 +1,5 @@
 use crate::{error, source, types};
-use std::{collections};
+use std::collections;
 
 /// A target system to be kept up-to-date by the syncer.
 /// Responsible for determining which users and groups are currently present in the target system
@@ -43,12 +43,12 @@ pub trait Target: Sized {
     ///
     /// When dealing with a group hierarchy, this method should be called for the parent groups
     /// before the child groups.
-    async fn create_or_update_group(&mut self, group: std::sync::Arc<dyn source::interface::Group + Send + Sync>) -> Result<(), error::KidsError>;
+    async fn create_or_update_group(&mut self, group: std::sync::Arc<Box<dyn source::interface::Group + Send + Sync>>) -> Result<(), error::KidsError>;
 
     /// Update user attributes in the target system to match those of the given [source user](source::interface::User).
     /// If the user is not yet present in the target system, create it.
     ///
     /// Will manage group memberships of the user. Therefore, must be called **after** [Self::create_or_update_group]
     /// for the referenced groups.
-    async fn create_or_update_user(&mut self, user: std::sync::Arc<dyn source::interface::User + Send + Sync>) -> Result<(), error::KidsError>;
+    async fn create_or_update_user(&mut self, user: std::sync::Arc<Box<dyn source::interface::User + Send + Sync>>) -> Result<(), error::KidsError>;
 }

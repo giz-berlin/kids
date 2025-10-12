@@ -35,14 +35,41 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
         // Add routes of official API
         .api_route(
             "/v1/health",
-            aide::axum::routing::get_with(crate::controller::handlers::health, crate::controller::handlers::health_desc),
+            aide::axum::routing::get_with(crate::controller::handlers::health::health, crate::controller::handlers::health::health_desc),
         )
         .api_route(
             "/v1/users/{user_id}",
-            aide::axum::routing::delete_with(crate::controller::handlers::delete_user, crate::controller::handlers::delete_user_desc),
+            aide::axum::routing::put_with(
+                crate::controller::handlers::user::create_or_update_user,
+                crate::controller::handlers::user::create_or_update_user_desc,
+            ),
+        )
+        .api_route(
+            "/v1/users/{user_id}",
+            aide::axum::routing::delete_with(
+                crate::controller::handlers::user::delete_user,
+                crate::controller::handlers::user::delete_user_desc,
+            ),
+        )
+        .api_route(
+            "/v1/groups/{group_id}",
+            aide::axum::routing::put_with(
+                crate::controller::handlers::group::create_or_update_group,
+                crate::controller::handlers::group::create_or_update_group_desc,
+            ),
+        )
+        .api_route(
+            "/v1/groups/{group_id}",
+            aide::axum::routing::delete_with(
+                crate::controller::handlers::group::delete_group,
+                crate::controller::handlers::group::delete_group_desc,
+            ),
         )
         .route("/docs/api.json", aide::axum::routing::get(serve_api))
-        .route("/docs", aide::redoc::Redoc::new("/docs/api.json").with_title("Brownie APIv3").axum_route())
+        .route(
+            "/docs",
+            aide::redoc::Redoc::new("/docs/api.json").with_title("Keycloak Identity Syncer").axum_route(),
+        )
         .route("/", aide::axum::routing::get(|| async { axum::response::Redirect::to("/docs") }))
         .with_state(state)
         .finish_api(&mut api)

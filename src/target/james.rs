@@ -1,6 +1,6 @@
 use crate::target::interface;
 use crate::{error, source, types};
-use std::{collections};
+use std::collections;
 
 #[derive(serde::Deserialize)]
 pub struct JamesConfig {}
@@ -39,11 +39,11 @@ impl interface::Target for Connector {
         todo!()
     }
 
-    async fn create_or_update_group(&mut self, _group: std::sync::Arc<dyn source::interface::Group + Sync + Send>) -> Result<(), error::KidsError> {
+    async fn create_or_update_group(&mut self, _group: std::sync::Arc<Box<dyn source::interface::Group + Sync + Send>>) -> Result<(), error::KidsError> {
         todo!()
     }
 
-    async fn create_or_update_user(&mut self, _user: std::sync::Arc<dyn source::interface::User + Sync + Send>) -> Result<(), error::KidsError> {
+    async fn create_or_update_user(&mut self, _user: std::sync::Arc<Box<dyn source::interface::User + Sync + Send>>) -> Result<(), error::KidsError> {
         todo!()
     }
 }

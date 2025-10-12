@@ -33,6 +33,23 @@ impl KeycloakGroup {
         group.parent_group = Some(parent);
         group
     }
+
+    pub fn from_webhook_group(keycloak_api: std::sync::Arc<dyn external::KeycloakApi>, webhook_group: KeycloakWebhookGroup) -> KeycloakGroup {
+        let group_representation = keycloak::types::GroupRepresentation {
+            access: None,
+            attributes: Some(webhook_group.attributes),
+            client_roles: None,
+            id: Some(webhook_group.id),
+            name: Some(webhook_group.name),
+            parent_id: webhook_group.parent_id,
+            path: Some(webhook_group.path),
+            realm_roles: None,
+            sub_group_count: None,
+            sub_groups: None,
+        };
+
+        Self::new(keycloak_api, group_representation)
+    }
 }
 
 #[async_trait::async_trait(?Send)]
@@ -77,6 +94,15 @@ impl interface::Group for KeycloakGroup {
             .map(|g| std::sync::Arc::new(KeycloakGroup::new_with_parent(self.keycloak_api.clone(), g, self.clone())) as std::sync::Arc<dyn interface::Group>)
             .collect())
     }
+}
+
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct KeycloakWebhookGroup {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub path: String,
+    pub attributes: std::collections::HashMap<String, Vec<String>>,
 }
 
 #[cfg(test)]

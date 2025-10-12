@@ -1,5 +1,7 @@
 use crate::error;
 use crate::source::interface;
+use crate::source::keycloak::group::KeycloakGroup;
+use crate::source::keycloak::user::KeycloakUser;
 use crate::source::keycloak::{external, group, user};
 use std::sync;
 
@@ -16,6 +18,8 @@ pub struct KeycloakConfig {
 #[async_trait::async_trait]
 impl interface::Source for Connector {
     type Config = KeycloakConfig;
+    type UserWebhookPayload = user::KeycloakWebhookUser;
+    type GroupWebhookPayload = group::KeycloakWebhookGroup;
 
     fn info(&self) -> String {
         "Keycloak Connector!".to_string()
@@ -41,6 +45,14 @@ impl interface::Source for Connector {
             .into_iter()
             .map(|u| Box::new(user::KeycloakUser::new(self.keycloak_api.clone(), u)) as Box<dyn interface::User>)
             .collect())
+    }
+
+    fn user_from_webhook(&self, webhook_user: Self::UserWebhookPayload) -> Box<dyn interface::User + Send + Sync> {
+        Box::new(KeycloakUser::from_webhook_user(self.keycloak_api.clone(), webhook_user))
+    }
+
+    fn group_from_webhook(&self, webhook_group: Self::GroupWebhookPayload) -> Box<dyn interface::Group + Send + Sync> {
+        Box::new(KeycloakGroup::from_webhook_group(self.keycloak_api.clone(), webhook_group))
     }
 }
 

@@ -63,6 +63,9 @@ mod tests {
             dsn = "https://example@sentry.io/123"
             environment = "production"
 
+            [http]
+            bind_addr = "127.0.0.1:8080"
+
             [source]
 
             [target]
@@ -78,6 +81,9 @@ mod tests {
     fn test_try_from_str_sentry_inactive() {
         let toml_str = r#"
             [source]
+
+            [http]
+            bind_addr = "127.0.0.1:8080"
 
             [target]
         "#;

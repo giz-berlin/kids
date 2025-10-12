@@ -1,7 +1,7 @@
 use crate::source::interface;
 use crate::source::keycloak::{external, group};
 use crate::{error, types};
-use std::{collections};
+use std::collections;
 
 pub struct KeycloakUser {
     pub keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>,
@@ -13,6 +13,41 @@ impl KeycloakUser {
         KeycloakUser {
             keycloak_api,
             user_representation,
+        }
+    }
+
+    pub fn from_webhook_user(keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>, webhook_user: KeycloakWebhookUser) -> Self {
+        KeycloakUser {
+            keycloak_api: keycloak_api,
+            user_representation: keycloak::types::UserRepresentation {
+                access: None,
+                application_roles: None,
+                attributes: Some(webhook_user.attributes),
+                client_consents: None,
+                client_roles: None,
+                created_timestamp: None,
+                credentials: None,
+                disableable_credential_types: None,
+                email: Some(webhook_user.email),
+                email_verified: None,
+                enabled: Some(webhook_user.enabled),
+                federated_identities: None,
+                federation_link: None,
+                first_name: None,
+                groups: None,
+                id: Some(webhook_user.id),
+                last_name: None,
+                not_before: None,
+                origin: None,
+                realm_roles: Some(webhook_user.realm_roles),
+                required_actions: None,
+                self_: None,
+                service_account_client_id: None,
+                social_links: None,
+                totp: None,
+                user_profile_metadata: None,
+                username: Some(webhook_user.username),
+            },
         }
     }
 }
@@ -52,6 +87,16 @@ impl interface::User for KeycloakUser {
             .map(|g| std::sync::Arc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), g)) as std::sync::Arc<dyn interface::Group + Send + Sync>)
             .collect())
     }
+}
+
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct KeycloakWebhookUser {
+    pub id: String,
+    pub enabled: bool,
+    pub username: String,
+    pub email: String,
+    pub attributes: std::collections::HashMap<String, Vec<String>>,
+    pub realm_roles: Vec<String>,
 }
 
 #[cfg(test)]

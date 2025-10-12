@@ -38,6 +38,8 @@ pub trait Source {
     /// Must derive from [serde::de::DeserializeOwned] because it will be deserialized from a
     /// TOML configuration file.
     type Config: serde::de::DeserializeOwned;
+    type UserWebhookPayload: serde::de::DeserializeOwned + Send + Sync + schemars::JsonSchema;
+    type GroupWebhookPayload: serde::de::DeserializeOwned + Send + Sync + schemars::JsonSchema;
 
     fn info(&self) -> String;
 
@@ -48,6 +50,9 @@ pub trait Source {
     async fn all_groups(&self) -> Result<Vec<std::sync::Arc<dyn Group>>, error::KidsError>;
     /// All [User]s present within the [Source] (in a specific context, for example all groups visible to a Keycloak client within a Keycloak realm).
     async fn all_users(&self) -> Result<Vec<Box<dyn User>>, error::KidsError>;
+
+    fn user_from_webhook(&self, payload: Self::UserWebhookPayload) -> Box<dyn User + Send + Sync>;
+    fn group_from_webhook(&self, payload: Self::GroupWebhookPayload) -> Box<dyn Group + Send + Sync>;
 }
 
 /// A user entity within a data [Source].
@@ -70,7 +75,7 @@ pub trait User {
     async fn groups(&self) -> Result<Vec<std::sync::Arc<dyn Group + Send + Sync>>, error::KidsError>;
 }
 
-impl fmt::Debug for dyn User {
+impl fmt::Debug for dyn User + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("dyn User")
             .field("id", &self.id())
@@ -111,7 +116,7 @@ pub trait Group {
     async fn sub_groups(self: std::sync::Arc<Self>) -> Result<Vec<std::sync::Arc<dyn Group>>, error::KidsError>;
 }
 
-impl fmt::Debug for dyn Group {
+impl fmt::Debug for dyn Group + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("dyn Group")
             .field("id", &self.id())
