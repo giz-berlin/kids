@@ -5,49 +5,47 @@ use std::collections;
 
 pub struct KeycloakUser {
     pub keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>,
-    pub user_representation: keycloak::types::UserRepresentation,
+
+    id: String,
+    enabled: bool,
+    username: Option<String>,
+    email: Option<String>,
+    attributes: std::collections::HashMap<String, Vec<String>>,
+    realm_roles: Vec<String>,
 }
 
 impl KeycloakUser {
-    pub fn new(keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>, user_representation: keycloak::types::UserRepresentation) -> Self {
+    pub fn from_user_representation(
+        keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>,
+        user_representation: keycloak::types::UserRepresentation,
+    ) -> Self {
         KeycloakUser {
             keycloak_api,
-            user_representation,
+            // The Keycloak API library defines all attributes as optional, which in reality they shouldn't be.
+            // Each Keycloak user must have an ID and so we expect the ID to be always set.
+            id: user_representation.id.expect("Keycloak user is expected to have an ID"),
+            // We expect the enabled flag for a user to be present as well.
+            // While we could use `unwrap_or_default` here this would silently disable users since the default value of booleans is false.
+            enabled: user_representation.enabled.expect("Keycloak user is expected to have an enabled attribute"),
+            username: user_representation.username,
+            email: user_representation.email,
+            // Users may or may not have attributes so use the default value (an empty map) as the fallback.
+            // Whether the attributes are actually required depends on the target (e.g. if they store additional metadata about
+            // the user mapping in the user's attributes).
+            attributes: user_representation.attributes.unwrap_or_default(),
+            realm_roles: user_representation.realm_roles.unwrap_or_default(),
         }
     }
 
     pub fn from_webhook_user(keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>, webhook_user: KeycloakWebhookUser) -> Self {
         KeycloakUser {
-            keycloak_api: keycloak_api,
-            user_representation: keycloak::types::UserRepresentation {
-                access: None,
-                application_roles: None,
-                attributes: Some(webhook_user.attributes),
-                client_consents: None,
-                client_roles: None,
-                created_timestamp: None,
-                credentials: None,
-                disableable_credential_types: None,
-                email: Some(webhook_user.email),
-                email_verified: None,
-                enabled: Some(webhook_user.enabled),
-                federated_identities: None,
-                federation_link: None,
-                first_name: None,
-                groups: None,
-                id: Some(webhook_user.id),
-                last_name: None,
-                not_before: None,
-                origin: None,
-                realm_roles: Some(webhook_user.realm_roles),
-                required_actions: None,
-                self_: None,
-                service_account_client_id: None,
-                social_links: None,
-                totp: None,
-                user_profile_metadata: None,
-                username: Some(webhook_user.username),
-            },
+            keycloak_api,
+            id: webhook_user.id,
+            enabled: webhook_user.enabled,
+            username: webhook_user.username,
+            email: webhook_user.email,
+            attributes: webhook_user.attributes,
+            realm_roles: webhook_user.realm_roles,
         }
     }
 }
@@ -56,35 +54,38 @@ impl KeycloakUser {
 impl interface::User for KeycloakUser {
     fn id(&self) -> &types::SharedResourceIdentifier {
         // We can unwrap here because every Keycloak user has got an ID.
-        self.user_representation.id.as_ref().unwrap()
+        &self.id
     }
 
     fn enabled(&self) -> bool {
         // We can unwrap here because every Keycloak will always tell us whether users are enabled.
-        self.user_representation.enabled.unwrap()
+        self.enabled
     }
 
     fn username(&self) -> Option<&str> {
-        self.user_representation.username.as_deref()
+        self.username.as_deref()
     }
 
     fn email(&self) -> Option<&str> {
-        self.user_representation.email.as_deref()
+        self.email.as_deref()
     }
 
     fn attributes(&self) -> &collections::HashMap<String, Vec<String>> {
-        self.user_representation.attributes.as_ref().unwrap()
+        &self.attributes
     }
 
     fn roles(&self) -> &Vec<String> {
-        self.user_representation.realm_roles.as_ref().unwrap()
+        &self.realm_roles
     }
 
     async fn groups(&self) -> Result<Vec<std::sync::Arc<dyn interface::Group + Send + Sync>>, error::KidsError> {
         let users = self.keycloak_api.get_groups_of_user(self.id()).await?;
         Ok(users
             .into_iter()
-            .map(|g| std::sync::Arc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), g)) as std::sync::Arc<dyn interface::Group + Send + Sync>)
+            .map(|g| {
+                std::sync::Arc::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), g))
+                    as std::sync::Arc<dyn interface::Group + Send + Sync>
+            })
             .collect())
     }
 }
@@ -93,8 +94,8 @@ impl interface::User for KeycloakUser {
 pub struct KeycloakWebhookUser {
     pub id: String,
     pub enabled: bool,
-    pub username: String,
-    pub email: String,
+    pub username: Option<String>,
+    pub email: Option<String>,
     pub attributes: std::collections::HashMap<String, Vec<String>>,
     pub realm_roles: Vec<String>,
 }
@@ -121,7 +122,7 @@ mod test {
             ])
         });
 
-        let user = KeycloakUser::new(
+        let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
             external::test::KeycloakUserRepresentationBuilder::default()
                 .id(constants::DEFAULT_USER_ID)

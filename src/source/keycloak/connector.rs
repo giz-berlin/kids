@@ -35,7 +35,9 @@ impl interface::Source for Connector {
         let groups = self.keycloak_api.get_groups().await?;
         Ok(groups
             .into_iter()
-            .map(|group| sync::Arc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), group)) as sync::Arc<dyn interface::Group>)
+            .map(|group| {
+                sync::Arc::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), group)) as sync::Arc<dyn interface::Group>
+            })
             .collect())
     }
 
@@ -43,7 +45,7 @@ impl interface::Source for Connector {
         let users = self.keycloak_api.get_users().await?;
         Ok(users
             .into_iter()
-            .map(|u| Box::new(user::KeycloakUser::new(self.keycloak_api.clone(), u)) as Box<dyn interface::User>)
+            .map(|u| Box::new(user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u)) as Box<dyn interface::User>)
             .collect())
     }
 

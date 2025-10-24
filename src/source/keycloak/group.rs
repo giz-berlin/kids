@@ -5,18 +5,32 @@ use std::collections::HashMap;
 
 pub struct KeycloakGroup {
     pub keycloak_api: std::sync::Arc<dyn external::KeycloakApi>,
-    pub group_representation: keycloak::types::GroupRepresentation,
     pub parent_group: Option<std::sync::Arc<KeycloakGroup>>,
     pub root_group: Option<std::sync::Arc<KeycloakGroup>>,
+
+    id: String,
+    name: String,
+    path: String,
+    attributes: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl KeycloakGroup {
-    pub fn new(keycloak_api: std::sync::Arc<dyn external::KeycloakApi>, group_representation: keycloak::types::GroupRepresentation) -> Self {
-        KeycloakGroup {
+    pub fn new_from_group_representation(
+        keycloak_api: std::sync::Arc<dyn external::KeycloakApi>,
+        group_representation: keycloak::types::GroupRepresentation,
+    ) -> Self {
+        Self {
             keycloak_api,
-            group_representation,
             parent_group: None,
             root_group: None,
+
+            // We can unwrap here because every Keycloak group has got an ID.
+            id: group_representation.id.unwrap(),
+            // We can unwrap here because every Keycloak group has got a name.
+            name: group_representation.name.unwrap(),
+            // We can unwrap here because every Keycloak group has got a path.
+            path: group_representation.path.unwrap(),
+            attributes: group_representation.attributes.unwrap_or_default(),
         }
     }
 
@@ -25,7 +39,7 @@ impl KeycloakGroup {
         group_representation: keycloak::types::GroupRepresentation,
         parent: std::sync::Arc<KeycloakGroup>,
     ) -> KeycloakGroup {
-        let mut group = Self::new(keycloak_api, group_representation);
+        let mut group = Self::new_from_group_representation(keycloak_api, group_representation);
         group.root_group = match &parent.root_group {
             Some(root) => Some(root.clone()),
             None => Some(parent.clone()),
@@ -34,21 +48,16 @@ impl KeycloakGroup {
         group
     }
 
-    pub fn from_webhook_group(keycloak_api: std::sync::Arc<dyn external::KeycloakApi>, webhook_group: KeycloakWebhookGroup) -> KeycloakGroup {
-        let group_representation = keycloak::types::GroupRepresentation {
-            access: None,
-            attributes: Some(webhook_group.attributes),
-            client_roles: None,
-            id: Some(webhook_group.id),
-            name: Some(webhook_group.name),
-            parent_id: webhook_group.parent_id,
-            path: Some(webhook_group.path),
-            realm_roles: None,
-            sub_group_count: None,
-            sub_groups: None,
-        };
-
-        Self::new(keycloak_api, group_representation)
+    pub fn from_webhook_group(keycloak_api: std::sync::Arc<dyn external::KeycloakApi>, webhook_group: KeycloakWebhookGroup) -> Self {
+        Self {
+            keycloak_api,
+            parent_group: None,
+            root_group: None,
+            id: webhook_group.id,
+            name: webhook_group.name,
+            path: webhook_group.path,
+            attributes: webhook_group.attributes,
+        }
     }
 }
 
@@ -56,21 +65,21 @@ impl KeycloakGroup {
 impl interface::Group for KeycloakGroup {
     fn id(&self) -> &types::SharedResourceIdentifier {
         // We can unwrap here because every Keycloak group has got an ID.
-        self.group_representation.id.as_ref().unwrap()
+        &self.id
     }
 
     fn name(&self) -> &str {
         // We can unwrap here because every Keycloak group has got a name.
-        self.group_representation.name.as_ref().unwrap()
+        &self.name
     }
 
     fn path(&self) -> &str {
         // We can unwrap here because every Keycloak group has got a path.
-        self.group_representation.path.as_ref().unwrap()
+        &self.path
     }
 
     fn attributes(&self) -> &HashMap<String, Vec<String>> {
-        self.group_representation.attributes.as_ref().unwrap()
+        &self.attributes
     }
 
     fn root_group(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn interface::Group> {
@@ -120,7 +129,7 @@ mod test {
                 .build_into()])
         });
 
-        let group = std::sync::Arc::new(KeycloakGroup::new(
+        let group = std::sync::Arc::new(KeycloakGroup::new_from_group_representation(
             std::sync::Arc::new(mock),
             external::test::KeycloakGroupRepresentationBuilder::default()
                 .id(constants::DEFAULT_GROUP_ID)
