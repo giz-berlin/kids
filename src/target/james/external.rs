@@ -23,12 +23,12 @@ pub trait JamesApi {
     async fn remove_member_from_group(&mut self, group_email: &str, user_email: &str) -> Result<(), error::KidsError>;
     async fn get_aliases_of(&mut self, email: &str) -> Result<Vec<dto::Alias>, error::KidsError>;
     async fn add_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError>;
-    async fn remove_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError>; // TODO: mail-dev.interdea.de is a constant
+    async fn remove_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError>;
     async fn list_teams(&mut self) -> Result<Vec<dto::Team>, error::KidsError>;
     async fn create_team(&mut self, team_id: &str) -> Result<(), error::KidsError>;
     async fn delete_team(&mut self, team_id: &str) -> Result<(), error::KidsError>;
     async fn list_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError>;
-    async fn add_member_to_team(&mut self, team_id: &str, user_email: &str, role: &str) -> Result<(), error::KidsError>;
+    async fn add_member_to_team(&mut self, team_id: &str, user_email: &str) -> Result<(), error::KidsError>;
     async fn remove_member_from_team(&mut self, team_id: &str, user_email: &str) -> Result<(), error::KidsError>;
     async fn list_user_teams(&mut self, user_email: &str) -> Result<Vec<dto::Team>, error::KidsError>;
 
@@ -47,10 +47,6 @@ impl JamesClient {
         tracing::info!(base_url=%parsed_base_url, "Connecting to base URL");
 
         let mut builder = reqwest::Client::builder();
-        // if config.insecure_disable_tls_verification {
-        //     tracing::warn!("Verification of Matrix server certificate is disabled. Do not use this setting in a production environment!");
-        //     builder = builder.danger_accept_invalid_certs(true);
-        // }
         let client = builder.build().unwrap();
 
 
@@ -86,7 +82,7 @@ impl JamesClient {
                 let status = response.status();
                 let url = response.url().to_string();
                 if status.is_success() {
-                    // TODO: handle no return value
+                    // James webadmin API do not return valid json which results in an error when decoding the json afterward
                     if status.as_u16() == 204 {
                         return Ok(serde_json::from_str("null").unwrap());
                     }
@@ -162,7 +158,6 @@ impl JamesApi for JamesClient {
         Ok(())
     }
 
-    // TODO: mailbox should not be empty, nor contain % * characters, nor starting with
     async fn delete_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError> {
         let _ = self.send_api_request::<(), serde_json::Value>(
             http::Method::DELETE,
@@ -254,7 +249,6 @@ impl JamesApi for JamesClient {
         Ok(())
     }
 
-    // TODO: Route returns null, which is not easy to handle
     async fn list_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError> {
         let teams: Vec<dto::Member> = self.send_api_get_request(
             format!("domains/{}/team-mailboxes/{}/members", self.config.initial_group_domain, team_id),
@@ -262,10 +256,10 @@ impl JamesApi for JamesClient {
         Ok(teams)
     }
 
-    async fn add_member_to_team(&mut self, team_id: &str, user_email: &str, role: &str) -> Result<(), error::KidsError> {
+    async fn add_member_to_team(&mut self, team_id: &str, user_email: &str) -> Result<(), error::KidsError> {
         let _ = self.send_api_request::<(), serde_json::Value>(
             http::Method::PUT,
-            format!("domains/{}/team-mailboxes/{}/members/{}?role={}", self.config.initial_group_domain, team_id, user_email, role),
+            format!("domains/{}/team-mailboxes/{}/members/{}?role=member", self.config.initial_group_domain, team_id, user_email),
             None,
         ).await?;
         Ok(())
