@@ -132,7 +132,7 @@ impl KeycloakApi for KeycloakServiceAccountClient {
         KeycloakServiceAccountClient::convert_error(
             "GET_GROUPS_OF_USERS",
             self.keycloak_admin
-                .realm_users_with_user_id_groups_get(&self.config.realm, user_id, None, None, Some(FETCH_ALL_ENTITIES), None)
+                .realm_users_with_user_id_groups_get(&self.config.realm, user_id, Some(false), None, Some(FETCH_ALL_ENTITIES), None)
                 .await,
         )
     }
