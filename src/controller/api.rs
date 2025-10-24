@@ -38,6 +38,13 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
             aide::axum::routing::get_with(crate::controller::handlers::health::health, crate::controller::handlers::health::health_desc),
         )
         .api_route(
+            "/v1/users",
+            aide::axum::routing::get_with(
+                crate::controller::handlers::user::list_users,
+                crate::controller::handlers::user::list_users_desc,
+            ),
+        )
+        .api_route(
             "/v1/users/{user_id}",
             aide::axum::routing::put_with(
                 crate::controller::handlers::user::create_or_update_user,
@@ -49,6 +56,13 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
             aide::axum::routing::delete_with(
                 crate::controller::handlers::user::delete_user,
                 crate::controller::handlers::user::delete_user_desc,
+            ),
+        )
+        .api_route(
+            "/v1/groups",
+            aide::axum::routing::get_with(
+                crate::controller::handlers::group::list_groups,
+                crate::controller::handlers::group::list_groups_desc,
             ),
         )
         .api_route(

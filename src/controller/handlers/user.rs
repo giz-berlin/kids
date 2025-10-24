@@ -1,3 +1,24 @@
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ListUsersDTO {
+    users: std::collections::HashSet<crate::types::SharedResourceIdentifier>,
+}
+
+pub fn list_users_desc(op: aide::transform::TransformOperation) -> aide::transform::TransformOperation {
+    op.description("Lists all users currently known to the target.").id("user/list")
+}
+
+pub async fn list_users<S, T>(
+    axum::extract::State(state): axum::extract::State<crate::controller::state::AppState<S, T>>,
+) -> Result<axum::response::Json<ListUsersDTO>, crate::controller::error::ControllerError>
+where
+    S: crate::source::interface::Source + Send,
+    T: crate::target::interface::Target,
+{
+    let users = state.target.write().await.all_users().await?;
+
+    Ok(axum::response::Json(ListUsersDTO { users }))
+}
+
 pub fn create_or_update_user_desc(op: aide::transform::TransformOperation) -> aide::transform::TransformOperation {
     op.description("Creates or updates the user in the target.").id("user/create_or_update")
 }

@@ -1,3 +1,24 @@
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ListGroupsDTO {
+    groups: std::collections::HashSet<crate::types::SharedResourceIdentifier>,
+}
+
+pub fn list_groups_desc(op: aide::transform::TransformOperation) -> aide::transform::TransformOperation {
+    op.description("Lists all groups currently known to the target.").id("group/list")
+}
+
+pub async fn list_groups<S, T>(
+    axum::extract::State(state): axum::extract::State<crate::controller::state::AppState<S, T>>,
+) -> Result<axum::response::Json<ListGroupsDTO>, crate::controller::error::ControllerError>
+where
+    S: crate::source::interface::Source + Send,
+    T: crate::target::interface::Target,
+{
+    let groups = state.target.write().await.all_groups().await?;
+
+    Ok(axum::response::Json(ListGroupsDTO { groups }))
+}
+
 pub fn create_or_update_group_desc(op: aide::transform::TransformOperation) -> aide::transform::TransformOperation {
     op.description("Creates or updates the group in the target.").id("group/create_or_update")
 }
