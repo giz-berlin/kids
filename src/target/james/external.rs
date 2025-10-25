@@ -1,6 +1,6 @@
-use anyhow::anyhow;
+use crate::error;
 use crate::target::james::dto;
-use crate::{error, types};
+use anyhow::anyhow;
 use reqwest::RequestBuilder;
 
 #[derive(serde::Deserialize, Clone)]
@@ -46,9 +46,8 @@ impl JamesClient {
         let parsed_base_url = url::Url::parse(&config.base_url).expect("Base URL should be parseable");
         tracing::info!(base_url=%parsed_base_url, "Connecting to base URL");
 
-        let mut builder = reqwest::Client::builder();
+        let builder = reqwest::Client::builder();
         let client = builder.build().unwrap();
-
 
         let james_client = JamesClient {
             config,
@@ -69,7 +68,7 @@ impl JamesClient {
         path: String,
         body: Option<B>,
     ) -> Result<T, error::KidsError> {
-        let mut request = self.http_client.request(method, &format!("{}/{}", self.parsed_base_url, path));
+        let mut request = self.http_client.request(method, format!("{}/{}", self.parsed_base_url, path));
         if let Some(body) = body {
             request = request.json(&body)
         }
@@ -131,153 +130,145 @@ impl JamesApi for JamesClient {
     }
 
     async fn create_user(&mut self, user_email: &str, password: &str) -> Result<(), error::KidsError> {
-        self.send_api_request(
-            http::Method::PUT,
-            format!("users/{}", user_email),
-            Some(&serde_json::json!({
-                "password": password
-            })),
-        ).await
+        let _: () = self
+            .send_api_request(
+                http::Method::PUT,
+                format!("users/{}", user_email),
+                Some(&serde_json::json!({
+                    "password": password
+                })),
+            )
+            .await?;
+        Ok(())
     }
 
     async fn delete_user(&mut self, user_email: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::DELETE,
-            format!("users/{}", user_email),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(http::Method::DELETE, format!("users/{}", user_email), None)
+            .await?;
         Ok(())
     }
 
     async fn create_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::PUT,
-            format!("users/{}/mailboxes/{}", user_email, mailbox_name),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(http::Method::PUT, format!("users/{}/mailboxes/{}", user_email, mailbox_name), None)
+            .await?;
         Ok(())
     }
 
     async fn delete_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::DELETE,
-            format!("users/{}/mailboxes/{}", user_email, mailbox_name),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(http::Method::DELETE, format!("users/{}/mailboxes/{}", user_email, mailbox_name), None)
+            .await?;
         Ok(())
     }
 
     async fn list_groups(&mut self) -> Result<Vec<String>, error::KidsError> {
-        let groups: Vec<String> = self.send_api_get_request(
-            "address/groups".to_string()
-        ).await?;
+        let groups: Vec<String> = self.send_api_get_request("address/groups".to_string()).await?;
         Ok(groups)
     }
 
     async fn list_group_members(&mut self, group_email: &str) -> Result<Vec<String>, error::KidsError> {
-        let members: Vec<String> = self.send_api_get_request(
-            format!("address/groups/{}", group_email)
-        ).await?;
+        let members: Vec<String> = self.send_api_get_request(format!("address/groups/{}", group_email)).await?;
         Ok(members)
     }
 
     async fn add_member_to_group(&mut self, group_email: &str, user_email: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::PUT,
-            format!("address/groups/{}/{}", group_email, user_email),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(http::Method::PUT, format!("address/groups/{}/{}", group_email, user_email), None)
+            .await?;
         Ok(())
     }
 
     async fn remove_member_from_group(&mut self, group_email: &str, user_email: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::DELETE,
-            format!("address/groups/{}/{}", group_email, user_email),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(http::Method::DELETE, format!("address/groups/{}/{}", group_email, user_email), None)
+            .await?;
         Ok(())
     }
 
     async fn get_aliases_of(&mut self, email: &str) -> Result<Vec<dto::Alias>, error::KidsError> {
-        let aliases = self.send_api_get_request(
-            format!("address/aliases/{}", email),
-        ).await?;
+        let aliases = self.send_api_get_request(format!("address/aliases/{}", email)).await?;
         Ok(aliases)
     }
 
     async fn add_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::PUT,
-            format!("address/aliases/{}/sources/{}", email, alias_email),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(http::Method::PUT, format!("address/aliases/{}/sources/{}", email, alias_email), None)
+            .await?;
         Ok(())
     }
 
     async fn remove_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::DELETE,
-            format!("address/aliases/{}/sources/{}", email, alias_email),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(http::Method::DELETE, format!("address/aliases/{}/sources/{}", email, alias_email), None)
+            .await?;
         Ok(())
     }
 
     async fn list_teams(&mut self) -> Result<Vec<dto::Team>, error::KidsError> {
-        let teams: Vec<dto::Team> = self.send_api_get_request(
-            format!("/domains/{}/team-mailboxes", self.config.initial_group_domain),
-        ).await?;
+        let teams: Vec<dto::Team> = self
+            .send_api_get_request(format!("/domains/{}/team-mailboxes", self.config.initial_group_domain))
+            .await?;
         Ok(teams)
     }
 
     async fn create_team(&mut self, team_id: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::PUT,
-            format!("domains/{}/team-mailboxes/{}", self.config.initial_group_domain, team_id),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(
+                http::Method::PUT,
+                format!("domains/{}/team-mailboxes/{}", self.config.initial_group_domain, team_id),
+                None,
+            )
+            .await?;
         Ok(())
     }
 
     async fn delete_team(&mut self, team_id: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::DELETE,
-            format!("domains/{}/team-mailboxes/{}", self.config.initial_group_domain, team_id),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(
+                http::Method::DELETE,
+                format!("domains/{}/team-mailboxes/{}", self.config.initial_group_domain, team_id),
+                None,
+            )
+            .await?;
         Ok(())
     }
 
     async fn list_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError> {
-        let teams: Vec<dto::Member> = self.send_api_get_request(
-            format!("domains/{}/team-mailboxes/{}/members", self.config.initial_group_domain, team_id),
-        ).await?;
+        let teams: Vec<dto::Member> = self
+            .send_api_get_request(format!("domains/{}/team-mailboxes/{}/members", self.config.initial_group_domain, team_id))
+            .await?;
         Ok(teams)
     }
 
     async fn add_member_to_team(&mut self, team_id: &str, user_email: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::PUT,
-            format!("domains/{}/team-mailboxes/{}/members/{}?role=member", self.config.initial_group_domain, team_id, user_email),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(
+                http::Method::PUT,
+                format!(
+                    "domains/{}/team-mailboxes/{}/members/{}?role=member",
+                    self.config.initial_group_domain, team_id, user_email
+                ),
+                None,
+            )
+            .await?;
         Ok(())
     }
 
     async fn remove_member_from_team(&mut self, team_id: &str, user_email: &str) -> Result<(), error::KidsError> {
-        let _ = self.send_api_request::<(), serde_json::Value>(
-            http::Method::DELETE,
-            format!("domains/{}/team-mailboxes/{}/members/{}", self.config.initial_group_domain, team_id, user_email),
-            None,
-        ).await?;
+        let _ = self
+            .send_api_request::<(), serde_json::Value>(
+                http::Method::DELETE,
+                format!("domains/{}/team-mailboxes/{}/members/{}", self.config.initial_group_domain, team_id, user_email),
+                None,
+            )
+            .await?;
         Ok(())
     }
 
     async fn list_user_teams(&mut self, user_email: &str) -> Result<Vec<dto::Team>, error::KidsError> {
-        let teams: Vec<dto::Team> = self.send_api_get_request(
-            format!("/users/{}/team-mailboxes", user_email),
-        ).await?;
+        let teams: Vec<dto::Team> = self.send_api_get_request(format!("/users/{}/team-mailboxes", user_email)).await?;
         Ok(teams)
     }
 

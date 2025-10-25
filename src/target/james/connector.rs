@@ -1,8 +1,8 @@
 use crate::target::interface;
-use crate::{error, source, types};
-use std::{collections, rc};
 use crate::target::james::dto;
 use crate::target::james::external;
+use crate::{error, source, types};
+use std::{collections, rc};
 
 #[derive(serde::Deserialize)]
 pub struct JamesConfig {
@@ -59,27 +59,15 @@ impl interface::Target for Connector {
         self.user_id_mapping.clear();
         self.james_domains.clear();
 
-        self.james_domains = self.james_api
-            .list_domains()
-            .await
-            .map_err(|e| e.with_context("Failed to get James domains"))?;
+        self.james_domains = self.james_api.list_domains().await.map_err(|e| e.with_context("Failed to get James domains"))?;
 
-        let james_groups= self
-            .james_api
-            .list_groups()
-            .await
-            .map_err(|e| e.with_context("Failed to get James groups"))?;
+        let james_groups = self.james_api.list_groups().await.map_err(|e| e.with_context("Failed to get James groups"))?;
 
-        let james_teams = self
-            .james_api
-            .list_teams()
-            .await
-            .map_err(|e| e.with_context("Failed to get James teams"))?;
+        let james_teams = self.james_api.list_teams().await.map_err(|e| e.with_context("Failed to get James teams"))?;
 
         for group in james_groups.into_iter() {
             let source_group_id = self.get_source_id(&group);
             let new_group = dto::Group {
-                email: group,
                 has_group: true,
                 has_team: false,
             };
@@ -101,7 +89,6 @@ impl interface::Target for Connector {
         for team in james_teams.into_iter() {
             let source_group_id = team.name.to_string();
             let new_team = dto::Group {
-                email: team.emailAddress,
                 has_group: false,
                 has_team: true,
             };
@@ -116,17 +103,13 @@ impl interface::Target for Connector {
                     );
                 }
                 self.group_id_mapping.get_mut(&source_group_id).unwrap().has_team = true;
-                continue
+                continue;
             }
 
             self.group_id_mapping.insert(source_group_id, new_team);
         }
 
-        let james_users = self
-            .james_api
-            .list_users()
-            .await
-            .map_err(|e| e.with_context("Failed to get James users"))?;
+        let james_users = self.james_api.list_users().await.map_err(|e| e.with_context("Failed to get James users"))?;
 
         for user in james_users.into_iter() {
             let source_user_id = self.get_source_id(&user.username);
@@ -168,7 +151,7 @@ impl interface::Target for Connector {
         let group_uuid_email = self.create_uuid_group_email(&_group_id);
 
         if has_team {
-            self.delete_all_aliases_and_member_from_team(&_group_id, &group_uuid_email, &vec![]).await?;
+            self.delete_all_aliases_and_member_from_team(&_group_id, &group_uuid_email, &[]).await?;
             match self.james_api.delete_team(&_group_id).await {
                 Ok(_) => tracing::info!(group_id = _group_id, "Delete team"),
                 Err(error) => return Err(error.with_context(&format!("group_id = {}, Could not delete team", _group_id))),
@@ -176,7 +159,7 @@ impl interface::Target for Connector {
         }
 
         if has_group {
-            self.delete_all_aliases_and_member_from_group(&group_uuid_email, &vec![]).await?;
+            self.delete_all_aliases_and_member_from_group(&group_uuid_email, &[]).await?;
             tracing::info!(_group_id, "Delete group");
         }
 
@@ -191,7 +174,7 @@ impl interface::Target for Connector {
         }
 
         let uuid_email = self.create_uuid_user_email(&_user_id);
-        self.update_alias(&uuid_email, &vec![]).await?;
+        self.update_alias(&uuid_email, &[]).await?;
         match self.james_api.delete_mailbox(&uuid_email, USER_INBOX_NAME).await {
             Ok(_) => tracing::info!(user_id = _user_id, "Delete initial mailbox of user"),
             Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not delete initial mailbox of user", _user_id))),
@@ -213,12 +196,14 @@ impl interface::Target for Connector {
 
         if !self.group_id_mapping.contains_key(source_group_id) {
             if !has_groups_in_source && !has_teams_in_source {
-                tracing::info!(source_group_id, "Skipping group, because it has no James attribute set and it was not in group mapping");
+                tracing::info!(
+                    source_group_id,
+                    "Skipping group, because it has no James attribute set and it was not in group mapping"
+                );
                 return Ok(());
             };
 
             let new_group = dto::Group {
-                email: group_uuid_email.clone(),
                 has_group: has_groups_in_source,
                 has_team: has_teams_in_source,
             };
@@ -230,7 +215,10 @@ impl interface::Target for Connector {
         let has_teams_in_james = group_info.has_team;
 
         let all_teams = self.james_api.list_teams().await?;
-        let team_exists = all_teams.contains(&dto::Team{ name: source_group_id.clone(), emailAddress: group_uuid_email.clone() });
+        let team_exists = all_teams.contains(&dto::Team {
+            name: source_group_id.clone(),
+            email_address: group_uuid_email.clone(),
+        });
 
         // no need for creating james groups because they are created with adding first or deleting last user
         if has_teams_in_source && !team_exists {
@@ -259,10 +247,10 @@ impl interface::Target for Connector {
         }
         self.update_alias(&group_uuid_email, &desired_aliases).await?;
 
-
         // If james-team attribut is removed, remove all aliases and delete all users from the team
         if !has_teams_in_source && has_teams_in_james {
-            self.delete_all_aliases_and_member_from_team(source_group_id, &group_uuid_email, group_aliases).await?;
+            self.delete_all_aliases_and_member_from_team(source_group_id, &group_uuid_email, group_aliases)
+                .await?;
         }
 
         // If james-mailing-list-receiver attribut is removed, remove all aliases and delete all users from the group
@@ -285,7 +273,12 @@ impl interface::Target for Connector {
                 Ok(_) => tracing::info!(user_id = source_user.id(), "Create initial mailbox for user"),
                 Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not create initial mailbox", source_user.id()))),
             };
-            self.user_id_mapping.insert(source_user.id().to_owned(), dto::User { username: user_uuid_email.clone() });
+            self.user_id_mapping.insert(
+                source_user.id().to_owned(),
+                dto::User {
+                    username: user_uuid_email.clone(),
+                },
+            );
         }
 
         let mut desired_aliases = &vec![];
@@ -293,19 +286,17 @@ impl interface::Target for Connector {
             desired_aliases = source_user.attributes().get(self.config.source_james_alias_attr.as_str()).unwrap();
         }
 
-        self.update_alias(&user_uuid_email, &desired_aliases).await?;
+        self.update_alias(&user_uuid_email, desired_aliases).await?;
 
         // Create email as alias iif domain exists in james
         if let Some(email) = source_user.email() {
             let domain = self.get_domain_from(email);
             let current_aliases: Vec<String> = match self.james_api.get_aliases_of(&user_uuid_email).await {
-                Ok(aliases) => aliases.iter()
-                    .map(|alias| alias.source.clone())
-                    .collect(),
+                Ok(aliases) => aliases.iter().map(|alias| alias.source.clone()).collect(),
                 Err(error) => {
                     tracing::error!(%error, user_id = source_user.id(), "Could not get aliases for user");
                     vec![]
-                },
+                }
             };
             if !current_aliases.contains(&email.to_string()) && self.is_domain_in_james_domain(&domain) {
                 match self.james_api.add_alias(&user_uuid_email, email).await {
@@ -315,9 +306,12 @@ impl interface::Target for Connector {
             }
         }
 
-        let desired_source_groups = source_user.groups().await.map_err(
-            |e| e.with_context(&format!("user_id = {}, Could not get source groups associated with source user", source_user.id()))
-        )?;
+        let desired_source_groups = source_user.groups().await.map_err(|e| {
+            e.with_context(&format!(
+                "user_id = {}, Could not get source groups associated with source user",
+                source_user.id()
+            ))
+        })?;
 
         // update James teams
         let desired_team_ids: Vec<types::SharedResourceIdentifier> = desired_source_groups
@@ -326,9 +320,11 @@ impl interface::Target for Connector {
             .map(|group| group.id().to_owned())
             .collect();
 
-        let current_teams = self.james_api.list_user_teams(&user_uuid_email).await.map_err(
-            |e| e.with_context(&format!("user_id = {}, Could not get current james teams for user", source_user.id())),
-        )?;
+        let current_teams = self
+            .james_api
+            .list_user_teams(&user_uuid_email)
+            .await
+            .map_err(|e| e.with_context(&format!("user_id = {}, Could not get current james teams for user", source_user.id())))?;
         let current_team_ids: Vec<types::SharedResourceIdentifier> = current_teams.into_iter().map(|team| team.name).collect();
 
         for team_id in desired_team_ids.iter() {
@@ -357,9 +353,11 @@ impl interface::Target for Connector {
             .map(|group| self.create_uuid_group_email(group.id()))
             .collect();
 
-        let all_james_groups = self.james_api.list_groups().await.map_err(
-            |e| e.with_context("Could not get all james groups"),
-        )?;
+        let all_james_groups = self
+            .james_api
+            .list_groups()
+            .await
+            .map_err(|e| e.with_context("Could not get all james groups"))?;
         let mut current_groups: Vec<String> = vec![];
 
         for group_email in all_james_groups.iter() {
@@ -370,7 +368,11 @@ impl interface::Target for Connector {
                     }
                 }
                 Err(error) => {
-                    tracing::error!(?error, group_id = self.get_source_id(group_email), "Could not get group members for group to get current user groups")
+                    tracing::error!(
+                        ?error,
+                        group_id = self.get_source_id(group_email),
+                        "Could not get group members for group to get current user groups"
+                    )
                 }
             };
         }
@@ -378,8 +380,17 @@ impl interface::Target for Connector {
         for group_email in desired_groups.iter() {
             if !current_groups.contains(group_email) {
                 match self.james_api.add_member_to_group(group_email, &user_uuid_email).await {
-                    Ok(_) => tracing::info!(source_user_id = source_user.id(), group_id = self.get_source_id(group_email), "Add user to group"),
-                    Err(error) => tracing::error!(?error, source_user_id = source_user.id(), group_id = self.get_source_id(group_email), "Could not add user to group")
+                    Ok(_) => tracing::info!(
+                        source_user_id = source_user.id(),
+                        group_id = self.get_source_id(group_email),
+                        "Add user to group"
+                    ),
+                    Err(error) => tracing::error!(
+                        ?error,
+                        source_user_id = source_user.id(),
+                        group_id = self.get_source_id(group_email),
+                        "Could not add user to group"
+                    ),
                 }
             }
         }
@@ -387,8 +398,17 @@ impl interface::Target for Connector {
         for group_email in current_groups.iter() {
             if !desired_groups.contains(group_email) {
                 match self.james_api.remove_member_from_group(group_email, &user_uuid_email).await {
-                    Ok(_) => tracing::info!(source_user_id = source_user.id(), group_id = self.get_source_id(group_email), "Remove user from group"),
-                    Err(error) => tracing::error!(?error, source_user_id = source_user.id(), group_id = self.get_source_id(group_email), "Could not remove user from group")
+                    Ok(_) => tracing::info!(
+                        source_user_id = source_user.id(),
+                        group_id = self.get_source_id(group_email),
+                        "Remove user from group"
+                    ),
+                    Err(error) => tracing::error!(
+                        ?error,
+                        source_user_id = source_user.id(),
+                        group_id = self.get_source_id(group_email),
+                        "Could not remove user from group"
+                    ),
                 }
             }
         }
@@ -416,13 +436,10 @@ impl Connector {
         self.james_domains.contains(domain)
     }
 
-    async fn update_alias(&mut self, uuid_email: &str, desired_aliases: &Vec<String>) -> Result<(), error::KidsError> {
+    async fn update_alias(&mut self, uuid_email: &str, desired_aliases: &[String]) -> Result<(), error::KidsError> {
         // TODO: Documentation: For testing you need to enable Unmanaged Attributes in Realm Settings in Keycloak (need to update Keycloak Config)
         let current_aliases: Vec<String> = match self.james_api.get_aliases_of(uuid_email).await {
-            Ok(aliases) => aliases
-                .iter()
-                .map(|alias| alias.source.clone())
-                .collect(),
+            Ok(aliases) => aliases.iter().map(|alias| alias.source.clone()).collect(),
             Err(error) => {
                 tracing::warn!(%error, id = self.get_source_id(uuid_email), "Could not get aliases, assuming they have no");
                 vec![]
@@ -430,13 +447,13 @@ impl Connector {
         };
 
         for alias in desired_aliases.iter() {
-            let domain =  self.get_domain_from(alias);
+            let domain = self.get_domain_from(alias);
             if !self.is_domain_in_james_domain(&domain) {
                 tracing::warn!(alias, domain = ?self.james_domains,  "Domain of alias not contained in James domains, no alias created");
                 continue;
             }
-            if !current_aliases.contains(alias)  {
-                match self.james_api.add_alias(uuid_email, &alias).await {
+            if !current_aliases.contains(alias) {
+                match self.james_api.add_alias(uuid_email, alias).await {
                     Ok(_) => tracing::info!(uuid_email, alias, "Add alias"),
                     Err(error) => tracing::error!(%error, uuid_email, alias,  "Could not add alias"),
                 }
@@ -444,7 +461,7 @@ impl Connector {
         }
 
         for alias in current_aliases.iter() {
-            let domain =  self.get_domain_from(alias);
+            let domain = self.get_domain_from(alias);
             if !desired_aliases.contains(alias) && self.is_domain_in_james_domain(&domain) {
                 match self.james_api.remove_alias(uuid_email, alias).await {
                     Ok(_) => tracing::info!(uuid_email, alias, "Delete alias"),
@@ -456,22 +473,40 @@ impl Connector {
         Ok(())
     }
 
-    async fn delete_all_aliases_and_member_from_team(&mut self, source_group_id: &str, group_uuid_email: &str, group_aliases: &Vec<String>) -> Result<(), error::KidsError> {
+    async fn delete_all_aliases_and_member_from_team(
+        &mut self,
+        source_group_id: &str,
+        group_uuid_email: &str,
+        group_aliases: &[String],
+    ) -> Result<(), error::KidsError> {
         self.update_alias(group_uuid_email, group_aliases).await?;
-        let team_members: Vec<dto::Member> = self.james_api.list_team_members(source_group_id).await
+        let team_members: Vec<dto::Member> = self
+            .james_api
+            .list_team_members(source_group_id)
+            .await
             .map_err(|e| e.with_context(&format!("group_id = {}, Could not get team members for team", source_group_id)))?;
         for member in team_members.into_iter() {
             let uuid_user_email = member.username;
             match self.james_api.remove_member_from_team(source_group_id, &uuid_user_email).await {
-                Ok(_) => tracing::info!(user_id = self.get_source_id(&uuid_user_email), group_id = self.get_source_id(group_uuid_email), "Team member removed"),
-                Err(error) => return Err(error.with_context(&format!("user_id = {}, group_id = {}, Could not remove member from team", self.get_source_id(&uuid_user_email), self.get_source_id(group_uuid_email)))),
+                Ok(_) => tracing::info!(
+                    user_id = self.get_source_id(&uuid_user_email),
+                    group_id = self.get_source_id(group_uuid_email),
+                    "Team member removed"
+                ),
+                Err(error) => {
+                    return Err(error.with_context(&format!(
+                        "user_id = {}, group_id = {}, Could not remove member from team",
+                        self.get_source_id(&uuid_user_email),
+                        self.get_source_id(group_uuid_email)
+                    )))
+                }
             };
         }
         Ok(())
     }
 
-    async fn delete_all_aliases_and_member_from_group(&mut self, group_uuid_email: &str, team_aliases: &Vec<String>) -> Result<(), error::KidsError> {
-        self.update_alias(&group_uuid_email, team_aliases).await?;
+    async fn delete_all_aliases_and_member_from_group(&mut self, group_uuid_email: &str, team_aliases: &[String]) -> Result<(), error::KidsError> {
+        self.update_alias(group_uuid_email, team_aliases).await?;
         self.delete_all_member_from_group(group_uuid_email).await?;
         Ok(())
     }
@@ -481,14 +516,24 @@ impl Connector {
             Ok(members) => members,
             Err(error) => {
                 tracing::info!(%error, group_id = self.get_source_id(group_uuid_email), "Group has no members, so no need for deleting them");
-                return Ok(())
+                return Ok(());
             }
         };
 
         for member in members.into_iter() {
             match self.james_api.remove_member_from_group(group_uuid_email, &member).await {
-                Ok(_) => tracing::info!(user_id = self.get_source_id(&member), group_id = self.get_source_id(group_uuid_email), "Group member removed"),
-                Err(error) => return Err(error.with_context(&format!("user_id = {}, group_id = {}, Could not remove member from team", self.get_source_id(&member), self.get_source_id(group_uuid_email)))),
+                Ok(_) => tracing::info!(
+                    user_id = self.get_source_id(&member),
+                    group_id = self.get_source_id(group_uuid_email),
+                    "Group member removed"
+                ),
+                Err(error) => {
+                    return Err(error.with_context(&format!(
+                        "user_id = {}, group_id = {}, Could not remove member from team",
+                        self.get_source_id(&member),
+                        self.get_source_id(group_uuid_email)
+                    )))
+                }
             };
         }
         Ok(())
