@@ -264,8 +264,7 @@ impl interface::Target for Connector {
         let user_uuid_email = self.create_uuid_user_email(source_user.id());
 
         if !self.user_id_mapping.contains_key(source_user.id()) {
-            // TODO: Maybe we will later change the emtyp password with setting passwords via an attribute on user in Keycloak
-            match self.james_api.create_user(&user_uuid_email, "").await {
+            match self.james_api.create_user(&user_uuid_email).await {
                 Ok(_) => tracing::info!(user_id = source_user.id(), "Create new user"),
                 Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not create new user", source_user.id()))),
             };

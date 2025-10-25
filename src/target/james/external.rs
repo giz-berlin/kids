@@ -1,6 +1,7 @@
 use crate::error;
 use crate::target::james::dto;
 use anyhow::anyhow;
+use rand::distr::{Alphanumeric, SampleString};
 use reqwest::RequestBuilder;
 
 #[derive(serde::Deserialize, Clone)]
@@ -13,7 +14,7 @@ pub struct JamesApiConfig {
 #[async_trait::async_trait(?Send)]
 pub trait JamesApi {
     async fn list_users(&mut self) -> Result<Vec<dto::User>, error::KidsError>;
-    async fn create_user(&mut self, user_email: &str, password: &str) -> Result<(), error::KidsError>;
+    async fn create_user(&mut self, user_email: &str) -> Result<(), error::KidsError>;
     async fn delete_user(&mut self, user_email: &str) -> Result<(), error::KidsError>;
     async fn create_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError>;
     async fn delete_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError>;
@@ -129,7 +130,8 @@ impl JamesApi for JamesClient {
         Ok(users)
     }
 
-    async fn create_user(&mut self, user_email: &str, password: &str) -> Result<(), error::KidsError> {
+    async fn create_user(&mut self, user_email: &str) -> Result<(), error::KidsError> {
+        let password = Alphanumeric.sample_string(&mut rand::rng(), 50);
         let _: () = self
             .send_api_request(
                 http::Method::PUT,
