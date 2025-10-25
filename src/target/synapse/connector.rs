@@ -51,39 +51,16 @@ const DERIVE_DISPLAY_NAME_FROM_GROUP_NAME: &str = "_name_titlecase";
 pub struct Connector {
     config: SynapseConfig,
     synapse_api: Box<dyn external::SynapseApi>,
-    group_id_mapping: collections::HashMap<types::SharedResourceIdentifier, String>,
-    user_id_mapping: collections::HashMap<types::SharedResourceIdentifier, dto::User>,
+    group_id_mapping: Option<collections::HashMap<types::SharedResourceIdentifier, String>>,
+    user_id_mapping: Option<collections::HashMap<types::SharedResourceIdentifier, dto::User>>,
 }
 
-#[async_trait::async_trait(?Send)]
-impl interface::Target for Connector {
-    type Config = SynapseConfig;
-
-    async fn new(config: Self::Config) -> Result<Self, error::KidsError> {
-        let synapse_api = Box::new(
-            external::SynapseClient::new(config.synapse_api.clone())
-                .await
-                .map_err(|e| e.with_context("Failed to create Synapse API client"))?,
-        );
-        Ok(Connector {
-            config,
-            synapse_api,
-            group_id_mapping: collections::HashMap::new(),
-            user_id_mapping: collections::HashMap::new(),
-        })
-    }
-
-    fn info(&self) -> String {
-        "Synapse Connector!".to_string()
-    }
-
-    async fn full_sync_incoming(&mut self) -> Result<(), error::KidsError> {
-        tracing::info!(
-            "To prepare for full sync, rebuilding mapping between source group IDs and matrix room IDs, as well as source user IDs and matrix user IDs"
-        );
-        self.group_id_mapping.clear();
-        self.user_id_mapping.clear();
-
+impl Connector {
+    /// This function generates different id mappings requried as user and group ids in
+    /// Keycloak are different than in Synapse
+    ///
+    /// Therefore, we need a mapping between both, which is built in this function.
+    async fn generate_id_mappings(&mut self) -> Result<(), error::KidsError> {
         let matrix_rooms = self
             .synapse_api
             .get_joined_rooms_of_syncer()
@@ -91,6 +68,8 @@ impl interface::Target for Connector {
             .map_err(|e| e.with_context("Failed getting rooms syncer has joined"))?;
 
         self.migrate(&matrix_rooms.joined_rooms).await;
+
+        let mut new_group_id_mapping = collections::HashMap::new();
 
         for matrix_room_id in matrix_rooms.joined_rooms {
             // If this request fails, we don't want to abort the whole method as it only affects a single room.
@@ -120,11 +99,11 @@ impl interface::Target for Connector {
                     continue;
                 }
             };
-            if self.group_id_mapping.contains_key(&source_group_id) {
+            if new_group_id_mapping.contains_key(&source_group_id) {
                 tracing::warn!(
                     source_group_id,
                     first_room_id = matrix_room_id,
-                    second_room_id = self.group_id_mapping[&source_group_id],
+                    second_room_id = new_group_id_mapping[&source_group_id],
                     "Found duplicate mapping for source group"
                 );
                 // We don't really know which room really is the better one to use in case of duplicate mapping,
@@ -132,11 +111,13 @@ impl interface::Target for Connector {
                 continue;
             }
 
-            self.group_id_mapping.insert(source_group_id, matrix_room_id);
+            new_group_id_mapping.insert(source_group_id, matrix_room_id);
         }
+        self.group_id_mapping = Some(new_group_id_mapping);
 
         let matrix_users = self.synapse_api.get_users().await.map_err(|e| e.with_context("Failed getting matrix users"))?;
 
+        let mut new_user_id_mapping: collections::HashMap<String, dto::User> = collections::HashMap::new();
         for user in matrix_users.users {
             let source_user_id = match self.synapse_api.get_source_user_id_for_matrix_user_id(&user.name).await {
                 Ok(source_user_id) => source_user_id,
@@ -145,20 +126,70 @@ impl interface::Target for Connector {
                     continue;
                 }
             };
-            if self.user_id_mapping.contains_key(&source_user_id) {
+            if new_user_id_mapping.contains_key(&source_user_id) {
                 // This should not happen because matrix does not allow creating two users with equal source ids
                 // (otherwise, when logging in via SSO, matrix would not know which user to login).
                 tracing::error!(
                     source_user_id,
                     first_matrix_user_id = user.name,
-                    second_matrix_user_id = self.user_id_mapping[&source_user_id].name,
+                    second_matrix_user_id = new_user_id_mapping[&source_user_id].name,
                     "Found duplicate mapping for source user"
                 );
                 continue;
             }
 
-            self.user_id_mapping.insert(source_user_id, user);
+            new_user_id_mapping.insert(source_user_id, user);
         }
+        self.user_id_mapping = Some(new_user_id_mapping);
+
+        Ok(())
+    }
+
+    async fn get_group_id_mapping(&mut self) -> Result<&mut collections::HashMap<types::SharedResourceIdentifier, String>, error::KidsError> {
+        if self.group_id_mapping.is_none() {
+            self.generate_id_mappings().await?;
+        }
+
+        Ok(self.group_id_mapping.as_mut().unwrap())
+    }
+
+    async fn get_user_id_mapping(&mut self) -> Result<&mut collections::HashMap<types::SharedResourceIdentifier, dto::User>, error::KidsError> {
+        if self.user_id_mapping.is_none() {
+            self.generate_id_mappings().await?;
+        }
+
+        Ok(self.user_id_mapping.as_mut().unwrap())
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl interface::Target for Connector {
+    type Config = SynapseConfig;
+
+    async fn new(config: Self::Config) -> Result<Self, error::KidsError> {
+        let synapse_api = Box::new(
+            external::SynapseClient::new(config.synapse_api.clone())
+                .await
+                .map_err(|e| e.with_context("Failed to create Synapse API client"))?,
+        );
+        Ok(Connector {
+            config,
+            synapse_api,
+            group_id_mapping: None,
+            user_id_mapping: None,
+        })
+    }
+
+    fn info(&self) -> String {
+        "Synapse Connector!".to_string()
+    }
+
+    async fn full_sync_incoming(&mut self) -> Result<(), error::KidsError> {
+        tracing::info!(
+            "To prepare for full sync, cleaning mapping between source group IDs and matrix room IDs, as well as source user IDs and matrix user IDs"
+        );
+        self.group_id_mapping = None;
+        self.user_id_mapping = None;
 
         Ok(())
     }
@@ -166,16 +197,16 @@ impl interface::Target for Connector {
     /// Return the identifiers of all [Source Groups](source::interface::Group) known to Synapse.
     /// These are exactly the ones we managed to obtain a mapping to a Matrix room for earlier.
     /// There might be additional rooms in Synapse not mapped to a Source group, which will not be considered in the result of this method.
-    async fn all_groups(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
-        Ok(self.group_id_mapping.keys().cloned().collect())
+    async fn all_groups(&mut self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
+        Ok(self.get_group_id_mapping().await?.keys().cloned().collect())
     }
 
-    async fn all_users(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
-        Ok(self.user_id_mapping.keys().cloned().collect())
+    async fn all_users(&mut self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
+        Ok(self.get_user_id_mapping().await?.keys().cloned().collect())
     }
 
     async fn delete_group(&mut self, source_group_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
-        if !self.group_id_mapping.contains_key(&source_group_id) {
+        if !self.get_group_id_mapping().await?.contains_key(&source_group_id) {
             // Note: Since rooms are being created before users, all valid rooms must be contained
             // in the mapping at this point.
             tracing::warn!(
@@ -185,12 +216,12 @@ impl interface::Target for Connector {
             return Ok(());
         }
 
-        let matrix_room_id = self.group_id_mapping.get(&source_group_id).unwrap();
+        let matrix_room_id = self.get_group_id_mapping().await?.get(&source_group_id).unwrap().clone();
         tracing::info!(matrix_room_id, "Deleting room with strategy {:?}", self.config.room_deletion_strategy);
 
         self.delete_room(&matrix_room_id.clone(), self.config.room_deletion_strategy.clone()).await?;
 
-        self.group_id_mapping.remove(&source_group_id);
+        self.get_group_id_mapping().await?.remove(&source_group_id);
 
         Ok(())
     }
@@ -209,19 +240,19 @@ impl interface::Target for Connector {
         // so recreating it will actually create a new user in the source, and the user will then
         // also register as a new user in the Synapse.
 
-        if !self.user_id_mapping.contains_key(&user_id) {
+        if !self.get_user_id_mapping().await?.contains_key(&user_id) {
             // This should not happen, as the controller should only attempt to delete users that
             // we told it exists in Matrix before via the `self.all_users` method.
             tracing::warn!(source_user_id = user_id, "Cannot deactivate source user, because it is not known to Matrix");
         }
 
-        let matrix_user_id = &self.user_id_mapping.get(&user_id).unwrap().name;
+        let matrix_user_id = self.get_user_id_mapping().await?.get(&user_id).unwrap().name.clone();
         tracing::info!(matrix_user_id, "Deactivating matrix user");
         self.synapse_api
-            .deactivate_user(matrix_user_id)
+            .deactivate_user(&matrix_user_id)
             .await
             .map_err(|e| e.with_context(&format!("Could not deactivate matrix user {matrix_user_id}")))?;
-        self.user_id_mapping.remove(&user_id);
+        self.get_user_id_mapping().await?.remove(&user_id);
         Ok(())
     }
 
@@ -239,8 +270,8 @@ impl interface::Target for Connector {
 
         // The target does only care about groups with the domain-specific attribute.
         if !source_group.attributes().contains_key(&self.config.source_room_name_attr) {
-            if self.group_id_mapping.contains_key(source_group.id()) {
-                let matrix_room_id = self.group_id_mapping.get(source_group.id()).unwrap();
+            if self.get_group_id_mapping().await?.contains_key(source_group.id()) {
+                let matrix_room_id = self.get_group_id_mapping().await?.get(source_group.id()).unwrap();
                 tracing::warn!(
                     source_group_id = source_group.id(),
                     matrix_room_id,
@@ -280,7 +311,7 @@ impl interface::Target for Connector {
     }
 
     async fn create_or_update_user(&mut self, source_user: Box<dyn source::interface::User>) -> Result<(), error::KidsError> {
-        if !self.user_id_mapping.contains_key(source_user.id()) {
+        if !self.get_user_id_mapping().await?.contains_key(source_user.id()) {
             tracing::debug!(
                 source_user_id = source_user.id(),
                 "Source user is not known to Matrix. Before the syncer can handle them, they need to login to Matrix manually first"
@@ -290,7 +321,7 @@ impl interface::Target for Connector {
             return Ok(());
         }
 
-        let matrix_user_id = &self.user_id_mapping.get(source_user.id()).unwrap().name;
+        let matrix_user_id = self.get_user_id_mapping().await?.get(source_user.id()).unwrap().name.clone();
 
         let desired_user_groups = source_user
             .groups()
@@ -298,20 +329,24 @@ impl interface::Target for Connector {
             .map_err(|e| e.with_context(&format!("Could not get source groups associated with source user {}", source_user.id())))?;
         let current_user_rooms = self
             .synapse_api
-            .get_user_joined_rooms(matrix_user_id)
+            .get_user_joined_rooms(&matrix_user_id)
             .await
             .map_err(|e| e.with_context(&format!("Could not get matrix rooms user {matrix_user_id} has currently joined")))?;
+
+        // clone the mapping to prevent lifetime issues, this is not the most efficient, but most readable solution
+        let desired_user_rooms_group_id_mappings = self.get_group_id_mapping().await?.clone();
+
         let mut desired_user_rooms: Vec<String> = desired_user_groups
             .iter()
             .filter_map(|group| {
                 // We only want to add the user to groups that have a corresponding matrix room.
                 // Note: Since rooms are being created before users, all valid rooms must be contained
                 // in the mapping at this point.
-                self.group_id_mapping.get(group.id()).cloned()
+                desired_user_rooms_group_id_mappings.get(group.id()).cloned()
             })
             .collect();
 
-        let is_matrix_user_locked = self.user_id_mapping.get(source_user.id()).unwrap().locked;
+        let is_matrix_user_locked = self.get_user_id_mapping().await?.get(source_user.id()).unwrap().locked;
         if !source_user.enabled() {
             // If user is not enabled, we want to remove it from all rooms it is in.
             // Simply clearing the desired rooms will have this effect using the logic below.
@@ -324,14 +359,14 @@ impl interface::Target for Connector {
                 // all of their direct message rooms.
                 // With locking, this works properly and unlocked users will encounter the same
                 // state they left off with before being locked.
-                match self.synapse_api.lock_user(matrix_user_id).await {
+                match self.synapse_api.lock_user(&matrix_user_id).await {
                     Ok(()) => tracing::info!(matrix_user_id, "Locked user"),
                     Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user"),
                 };
             }
         }
         if source_user.enabled() && is_matrix_user_locked {
-            match self.synapse_api.unlock_user(matrix_user_id).await {
+            match self.synapse_api.unlock_user(&matrix_user_id).await {
                 Ok(()) => tracing::info!(matrix_user_id, "Unlocked user"),
                 Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user"),
             };
@@ -340,7 +375,7 @@ impl interface::Target for Connector {
         // Add user to all desired groups that they are not already joined to.
         for matrix_room_id in &desired_user_rooms {
             if !current_user_rooms.joined_rooms.contains(matrix_room_id) {
-                match self.synapse_api.join_user_to_room(matrix_room_id, matrix_user_id).await {
+                match self.synapse_api.join_user_to_room(matrix_room_id, &matrix_user_id).await {
                     Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User joined matrix room"),
                     Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not join user to matrix room"),
                 }
@@ -352,7 +387,7 @@ impl interface::Target for Connector {
         // Remove user from all joined groups that are no longer desired.
         for matrix_room_id in &current_user_rooms.joined_rooms {
             if !desired_user_rooms.contains(matrix_room_id) {
-                match self.synapse_api.kick_user_from_room(matrix_room_id, matrix_user_id).await {
+                match self.synapse_api.kick_user_from_room(matrix_room_id, &matrix_user_id).await {
                     Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User kicked from matrix room"),
                     Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not kick user from matrix room"),
                 };
@@ -381,7 +416,7 @@ impl Connector {
 
     async fn get_or_create_room(&mut self, source_group: &rc::Rc<dyn source::interface::Group>) -> Result<String, error::KidsError> {
         let matrix_room_id;
-        if !self.group_id_mapping.contains_key(source_group.id()) {
+        if !self.get_group_id_mapping().await?.contains_key(source_group.id()) {
             tracing::info!(
                 source_group_id = source_group.id(),
                 source_group_name = source_group.name(),
@@ -397,11 +432,11 @@ impl Connector {
                 .associate_source_group_id_to_room(&matrix_room_id, source_group.id())
                 .await
                 .map_err(|e| e.with_context(&format!("Could not associate source group id {} to room {}", source_group.id(), matrix_room_id)))?;
-            self.group_id_mapping.insert(source_group.id().to_owned(), matrix_room_id.clone());
+            self.get_group_id_mapping().await?.insert(source_group.id().to_owned(), matrix_room_id.clone());
             tracing::info!(source_id = source_group.id(), group_name = source_group.name(), matrix_room_id, "Room created");
         } else {
             tracing::debug!(source_id = source_group.id(), "Room already exists");
-            matrix_room_id = self.group_id_mapping.get(source_group.id()).unwrap().clone();
+            matrix_room_id = self.get_group_id_mapping().await?.get(source_group.id()).unwrap().clone();
         }
         Ok(matrix_room_id)
     }
@@ -571,8 +606,8 @@ mod test {
                 source_room_name_attr: "test".to_string(),
             },
             synapse_api: Box::new(external::MockSynapseApi::new()),
-            group_id_mapping: collections::HashMap::new(),
-            user_id_mapping: collections::HashMap::new(),
+            group_id_mapping: None,
+            user_id_mapping: None,
         }
     }
 }
