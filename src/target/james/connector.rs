@@ -148,10 +148,9 @@ impl interface::Target for Connector {
 
         let has_team = self.group_id_mapping.get(&_group_id).unwrap().has_team;
         let has_group = self.group_id_mapping.get(&_group_id).unwrap().has_group;
-        let group_uuid_email = self.create_uuid_group_email(&_group_id);
 
         if has_team {
-            self.delete_all_aliases_and_member_from_team(&_group_id, &group_uuid_email, &[]).await?;
+            self.delete_all_aliases_and_member_from_team(&_group_id, &self.create_uuid_team_email(&_group_id), &[]).await?;
             match self.james_api.delete_team(&_group_id).await {
                 Ok(_) => tracing::info!(group_id = _group_id, "Delete team"),
                 Err(error) => return Err(error.with_context(&format!("group_id = {}, Could not delete team", _group_id))),
@@ -159,7 +158,7 @@ impl interface::Target for Connector {
         }
 
         if has_group {
-            self.delete_all_aliases_and_member_from_group(&group_uuid_email, &[]).await?;
+            self.delete_all_aliases_and_member_from_group(&self.create_uuid_list_email(&_group_id), &[]).await?;
             tracing::info!(_group_id, "Delete group");
         }
 
@@ -192,7 +191,8 @@ impl interface::Target for Connector {
         let source_group_id = source_group.id();
         let has_groups_in_source = source_group.attributes().contains_key(&self.config.source_james_group_attr);
         let has_teams_in_source = source_group.attributes().contains_key(&self.config.source_james_team_attr);
-        let group_uuid_email = self.create_uuid_group_email(source_group_id);
+        let team_uuid_email = self.create_uuid_team_email(&source_group_id);
+        let list_uuid_email = self.create_uuid_list_email(&source_group_id);
 
         if !self.group_id_mapping.contains_key(source_group_id) {
             if !has_groups_in_source && !has_teams_in_source {
@@ -217,17 +217,17 @@ impl interface::Target for Connector {
         let all_teams = self.james_api.list_teams().await?;
         let team_exists = all_teams.contains(&dto::Team {
             name: source_group_id.clone(),
-            email_address: group_uuid_email.clone(),
+            email_address: team_uuid_email.clone(),
         });
 
         // no need for creating james groups because they are created with adding first or deleting last user
         if has_teams_in_source && !team_exists {
-            // we cannot create a james team if a group exist with the same address exist
-            // so we need to empty the group here, in order to create the team
-            // group would be created again with adding users in create_or_update_user
-            if has_groups_in_james {
-                self.delete_all_member_from_group(&group_uuid_email).await?;
-            }
+            // // we cannot create a james team if a group exist with the same address exist
+            // // so we need to empty the group here, in order to create the team
+            // // group would be created again with adding users in create_or_update_user
+            // if has_groups_in_james {
+            //     self.delete_all_member_from_group(&group_uuid_email).await?;
+            // }
             match self.james_api.create_team(source_group_id).await {
                 Ok(_) => tracing::info!(source_group_id, "Create new team"),
                 Err(error) => return Err(error.with_context(&format!("group_id = {}, Could not create new team for", source_group_id))),
@@ -239,23 +239,22 @@ impl interface::Target for Connector {
         let mut group_aliases: &Vec<String> = &vec![];
         if has_teams_in_source {
             team_aliases = source_group.attributes().get(&self.config.source_james_team_attr).unwrap();
-            team_aliases.iter().for_each(|attr| desired_aliases.push(attr.clone()));
+            self.update_alias(&team_uuid_email, &team_aliases).await?;
         }
         if has_groups_in_source {
             group_aliases = source_group.attributes().get(&self.config.source_james_group_attr).unwrap();
-            group_aliases.iter().for_each(|attr| desired_aliases.push(attr.clone()));
+            self.update_alias(&list_uuid_email, &group_aliases).await?;
         }
-        self.update_alias(&group_uuid_email, &desired_aliases).await?;
 
         // If james-team attribut is removed, remove all aliases and delete all users from the team
         if !has_teams_in_source && has_teams_in_james {
-            self.delete_all_aliases_and_member_from_team(source_group_id, &group_uuid_email, group_aliases)
+            self.delete_all_aliases_and_member_from_team(source_group_id, &team_uuid_email, group_aliases)
                 .await?;
         }
 
         // If james-mailing-list-receiver attribut is removed, remove all aliases and delete all users from the group
         if !has_groups_in_source && has_groups_in_james {
-            self.delete_all_aliases_and_member_from_group(&group_uuid_email, team_aliases).await?;
+            self.delete_all_aliases_and_member_from_group(&list_uuid_email, team_aliases).await?;
         }
         Ok(())
     }
@@ -349,7 +348,7 @@ impl interface::Target for Connector {
         let desired_groups: Vec<String> = desired_source_groups
             .iter()
             .filter(|group| group.attributes().contains_key(&self.config.source_james_group_attr))
-            .map(|group| self.create_uuid_group_email(group.id()))
+            .map(|group| self.create_uuid_list_email(group.id()))
             .collect();
 
         let all_james_groups = self
@@ -420,8 +419,11 @@ impl Connector {
     fn create_uuid_user_email(&self, source_user_id: &str) -> String {
         source_user_id.to_string() + "@" + self.config.james_api.initial_user_domain.as_str()
     }
-    fn create_uuid_group_email(&self, source_group_id: &str) -> String {
-        source_group_id.to_string() + "@" + self.config.james_api.initial_group_domain.as_str()
+    fn create_uuid_list_email(&self, source_group_id: &str) -> String {
+        source_group_id.to_string() + "@" + self.config.james_api.initial_list_domain.as_str()
+    }
+    fn create_uuid_team_email(&self, source_group_id: &str) -> String {
+        source_group_id.to_string() + "@" + self.config.james_api.initial_team_domain.as_str()
     }
     fn get_source_id(&self, username: &str) -> String {
         username.split("@").collect::<Vec<&str>>()[0].to_string()

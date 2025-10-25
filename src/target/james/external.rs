@@ -7,7 +7,8 @@ use reqwest::RequestBuilder;
 #[derive(serde::Deserialize, Clone)]
 pub struct JamesApiConfig {
     pub initial_user_domain: String,
-    pub initial_group_domain: String,
+    pub initial_list_domain: String,
+    pub initial_team_domain: String,
     pub base_url: String,
 }
 
@@ -210,7 +211,7 @@ impl JamesApi for JamesClient {
 
     async fn list_teams(&mut self) -> Result<Vec<dto::Team>, error::KidsError> {
         let teams: Vec<dto::Team> = self
-            .send_api_get_request(format!("/domains/{}/team-mailboxes", self.config.initial_group_domain))
+            .send_api_get_request(format!("/domains/{}/team-mailboxes", self.config.initial_team_domain))
             .await?;
         Ok(teams)
     }
@@ -219,7 +220,7 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::PUT,
-                format!("domains/{}/team-mailboxes/{}", self.config.initial_group_domain, team_id),
+                format!("domains/{}/team-mailboxes/{}", self.config.initial_team_domain, team_id),
                 None,
             )
             .await?;
@@ -230,7 +231,7 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::DELETE,
-                format!("domains/{}/team-mailboxes/{}", self.config.initial_group_domain, team_id),
+                format!("domains/{}/team-mailboxes/{}", self.config.initial_team_domain, team_id),
                 None,
             )
             .await?;
@@ -239,7 +240,7 @@ impl JamesApi for JamesClient {
 
     async fn list_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError> {
         let teams: Vec<dto::Member> = self
-            .send_api_get_request(format!("domains/{}/team-mailboxes/{}/members", self.config.initial_group_domain, team_id))
+            .send_api_get_request(format!("domains/{}/team-mailboxes/{}/members", self.config.initial_team_domain, team_id))
             .await?;
         Ok(teams)
     }
@@ -250,7 +251,7 @@ impl JamesApi for JamesClient {
                 http::Method::PUT,
                 format!(
                     "domains/{}/team-mailboxes/{}/members/{}?role=member",
-                    self.config.initial_group_domain, team_id, user_email
+                    self.config.initial_team_domain, team_id, user_email
                 ),
                 None,
             )
@@ -262,7 +263,7 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::DELETE,
-                format!("domains/{}/team-mailboxes/{}/members/{}", self.config.initial_group_domain, team_id, user_email),
+                format!("domains/{}/team-mailboxes/{}/members/{}", self.config.initial_team_domain, team_id, user_email),
                 None,
             )
             .await?;
