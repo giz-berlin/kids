@@ -78,8 +78,16 @@ impl interface::Target for Connector {
             return Ok(());
         }
 
-        let has_team = self.get_group_id_mapping().await?.get(&_group_id).unwrap().has_team;
-        let has_group = self.get_group_id_mapping().await?.get(&_group_id).unwrap().has_group;
+        let has_team;
+        let has_group;
+        if let Some(group) = self.get_group_id_mapping().await?.get(&_group_id) {
+            has_team = group.has_team;
+            has_group = group.has_group;
+        } else {
+            return Err(error::KidsError::InternalError(
+                "Source group should be in group id mapping due to previous check, but we cannot get it".to_string(),
+            ));
+        }
 
         if has_team {
             self.delete_all_aliases_and_member_from_team(&_group_id, &self.create_uuid_team_email(&_group_id), &[])
@@ -145,9 +153,16 @@ impl interface::Target for Connector {
             self.get_group_id_mapping().await?.insert(source_group_id.to_string(), new_group);
         }
 
-        let group_info = self.get_group_id_mapping().await?.get(source_group_id).unwrap();
-        let has_groups_in_james = group_info.has_group;
-        let has_teams_in_james = group_info.has_team;
+        let has_groups_in_james;
+        let has_teams_in_james;
+        if let Some(group) = self.get_group_id_mapping().await?.get(source_group_id) {
+            has_teams_in_james = group.has_team;
+            has_groups_in_james = group.has_group;
+        } else {
+            return Err(error::KidsError::InternalError(
+                "Source group should be in group id mapping due to previous check, but we cannot get it".to_string(),
+            ));
+        }
 
         let all_teams = self.james_api.list_teams().await?;
         let team_exists = all_teams.contains(&dto::Team {
@@ -166,23 +181,27 @@ impl interface::Target for Connector {
         let mut team_aliases: &Vec<String> = &vec![];
         let mut group_aliases: &Vec<String> = &vec![];
         if has_teams_in_source {
-            team_aliases = source_group.attributes().get(&self.config.source_james_team_attr).unwrap();
-            self.update_alias(&team_uuid_email, team_aliases).await?;
+            if let Some(aliases) = source_group.attributes().get(&self.config.source_james_team_attr) {
+                team_aliases = aliases
+            }
         }
+        self.update_alias(&team_uuid_email, team_aliases).await?;
+
         if has_groups_in_source {
-            group_aliases = source_group.attributes().get(&self.config.source_james_group_attr).unwrap();
-            self.update_alias(&list_uuid_email, group_aliases).await?;
+            if let Some(aliases) = source_group.attributes().get(&self.config.source_james_group_attr) {
+                group_aliases = aliases
+            }
         }
+        self.update_alias(&list_uuid_email, group_aliases).await?;
 
         // If james-team attribut is removed, remove all aliases and delete all users from the team
         if !has_teams_in_source && has_teams_in_james {
-            self.delete_all_aliases_and_member_from_team(source_group_id, &team_uuid_email, group_aliases)
-                .await?;
+            self.delete_all_aliases_and_member_from_team(source_group_id, &team_uuid_email, &[]).await?;
         }
 
         // If james-mailing-list-receiver attribut is removed, remove all aliases and delete all users from the group
         if !has_groups_in_source && has_groups_in_james {
-            self.delete_all_aliases_and_member_from_group(&list_uuid_email, team_aliases).await?;
+            self.delete_all_aliases_and_member_from_group(&list_uuid_email, &[]).await?;
         }
         Ok(())
     }
@@ -203,10 +222,9 @@ impl interface::Target for Connector {
         }
 
         let mut desired_aliases = &vec![];
-        if source_user.attributes().contains_key(self.config.source_james_alias_attr.as_str()) {
-            desired_aliases = source_user.attributes().get(self.config.source_james_alias_attr.as_str()).unwrap();
+        if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
+            desired_aliases = attributes;
         }
-
         self.update_alias(&user_uuid_email, desired_aliases).await?;
 
         // Create email as alias iif domain exists in james
@@ -403,16 +421,15 @@ impl Connector {
                 has_team: true,
             };
 
-            if new_group_id_mapping.contains_key(&source_group_id) {
-                if new_group_id_mapping.get_mut(&source_group_id).unwrap().has_team {
-                    // This shouldn't be possible, because it is not possible to create 2 teams with the same name.
+            if let Some(mapping) = new_group_id_mapping.get_mut(&source_group_id) {
+                if mapping.has_team {
                     tracing::error!(
                         source_group_id,
-                        team_in_mapping = ?new_group_id_mapping[&source_group_id],
+                        team_in_mapping = ?mapping,
                         "Found duplicate James team"
                     );
                 }
-                new_group_id_mapping.get_mut(&source_group_id).unwrap().has_team = true;
+                mapping.has_team = true;
                 continue;
             }
 
@@ -427,14 +444,17 @@ impl Connector {
         if self.user_ids.is_none() {
             self.update_caches().await?;
         }
-        Ok(self.user_ids.as_mut().unwrap())
+        Ok(self.user_ids.as_mut().expect("User ids should be there, as we have just updated them"))
     }
 
     async fn get_group_id_mapping(&mut self) -> Result<&mut collections::HashMap<types::SharedResourceIdentifier, dto::Group>, error::KidsError> {
         if self.group_id_mapping.is_none() {
             self.update_caches().await?;
         }
-        Ok(self.group_id_mapping.as_mut().unwrap())
+        Ok(self
+            .group_id_mapping
+            .as_mut()
+            .expect("Group if mapping should be there, as we have just updated them"))
     }
 
     async fn update_alias(&mut self, uuid_email: &str, desired_aliases: &[String]) -> Result<(), error::KidsError> {

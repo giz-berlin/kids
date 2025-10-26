@@ -49,7 +49,7 @@ impl JamesClient {
         tracing::info!(base_url=%parsed_base_url, "Connecting to base URL");
 
         let builder = reqwest::Client::builder();
-        let client = builder.build().unwrap();
+        let client = builder.build().expect("Client should be built");
 
         let james_client = JamesClient {
             config,
