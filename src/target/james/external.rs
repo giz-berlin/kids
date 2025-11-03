@@ -70,7 +70,8 @@ impl JamesClient {
         path: String,
         body: Option<B>,
     ) -> Result<T, error::KidsError> {
-        let mut request = self.http_client.request(method, format!("{}/{}", self.parsed_base_url, path));
+        let joined_url = self.parsed_base_url.join(&path).expect("Path should be joinable with parsed base URL");
+        let mut request = self.http_client.request(method, joined_url);
         if let Some(body) = body {
             request = request.json(&body)
         }
