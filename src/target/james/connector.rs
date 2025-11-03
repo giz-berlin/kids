@@ -221,29 +221,39 @@ impl interface::Target for Connector {
             self.get_user_ids().await?.insert(source_user.id().clone());
         }
 
-        let mut desired_aliases = &vec![];
-        if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
-            desired_aliases = attributes;
-        }
-        self.update_alias(&user_uuid_email, desired_aliases).await?;
+        let mut desired_aliases: Vec<String> = vec![];
 
-        // Create email as alias iif domain exists in james
+        if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
+            desired_aliases = attributes.clone();
+        }
         if let Some(email) = source_user.email() {
-            let domain = self.get_domain_from(email);
-            let current_aliases: Vec<String> = match self.james_api.get_aliases_of(&user_uuid_email).await {
-                Ok(aliases) => aliases.iter().map(|alias| alias.alias_email.clone()).collect(),
-                Err(error) => {
-                    tracing::error!(%error, user_id = source_user.id(), "Could not get aliases for user");
-                    vec![]
-                }
-            };
-            if !current_aliases.contains(&email.to_string()) && self.domain_contained_in_james(&domain).await? {
-                match self.james_api.add_alias(&user_uuid_email, email).await {
-                    Ok(_) => tracing::info!(user_id = source_user.id(), alias = email, "Create alias for user"),
-                    Err(_) => tracing::error!(user_id = source_user.id(), alias = email, "Could not create alias for user"),
-                };
+            if !desired_aliases.contains(&email.to_string()) {
+                desired_aliases.push(email.to_string());
             }
         }
+        self.update_alias(&user_uuid_email, &desired_aliases).await?;
+
+        // // Create email as alias iif domain exists in james
+        // if let Some(email) = source_user.email() {
+        //     let domain = self.get_domain_from(email);
+        //     let current_aliases: Vec<String> = match self.james_api.get_aliases_of(&user_uuid_email).await {
+        //         Ok(aliases) => aliases.iter().map(|alias| alias.alias_email.clone()).collect(),
+        //         Err(error) => {
+        //             tracing::error!(%error, user_id = source_user.id(), "Could not get aliases for user");
+        //             vec![]
+        //         }
+        //     };
+        //     if !current_aliases.contains(&email.to_string())
+        //         && self.domain_contained_in_james(&domain).await?
+        //         && domain != self.config.james_api.james_user_domain
+        //         && domain != self.config.james_api.james_team_domain
+        //         && domain != self.config.james_api.james_list_domain {
+        //         match self.james_api.add_alias(&user_uuid_email, email).await {
+        //             Ok(_) => tracing::info!(user_id = source_user.id(), alias = email, "Create alias for user"),
+        //             Err(_) => tracing::error!(user_id = source_user.id(), alias = email, "Could not create alias for user"),
+        //         };
+        //     }
+        // }
 
         let desired_source_groups = source_user.groups().await.map_err(|e| {
             e.with_context(&format!(
@@ -292,11 +302,7 @@ impl interface::Target for Connector {
             .map(|group| self.create_uuid_list_email(group.id()))
             .collect();
 
-        let all_james_lists = self
-            .james_api
-            .get_lists()
-            .await
-            .map_err(|e| e.with_context("Could not get all james lists"))?;
+        let all_james_lists = self.james_api.get_lists().await.map_err(|e| e.with_context("Could not get all james lists"))?;
         let mut current_lists: Vec<String> = vec![];
 
         for list_email in all_james_lists.iter() {
@@ -319,11 +325,7 @@ impl interface::Target for Connector {
         for list_email in desired_lists.iter() {
             if !current_lists.contains(list_email) {
                 match self.james_api.add_member_to_list(list_email, &user_uuid_email).await {
-                    Ok(_) => tracing::info!(
-                        source_user_id = source_user.id(),
-                        group_id = self.get_source_id(list_email),
-                        "Add user to list"
-                    ),
+                    Ok(_) => tracing::info!(source_user_id = source_user.id(), group_id = self.get_source_id(list_email), "Add user to list"),
                     Err(error) => tracing::error!(
                         ?error,
                         source_user_id = source_user.id(),
@@ -470,7 +472,22 @@ impl Connector {
         for alias in desired_aliases.iter() {
             let domain = self.get_domain_from(alias);
             if !self.domain_contained_in_james(&domain).await? {
-                tracing::warn!(alias, "Domain of alias not contained in James domains, no alias created");
+                tracing::warn!(
+                    alias,
+                    user_id = self.get_source_id(uuid_email),
+                    "Domain of alias not contained in James domains, no alias created"
+                );
+                continue;
+            }
+            if domain == self.config.james_api.james_user_domain
+                || domain == self.config.james_api.james_team_domain
+                || domain == self.config.james_api.james_list_domain
+            {
+                tracing::warn!(
+                    alias,
+                    user_id = self.get_source_id(uuid_email),
+                    "Domain of alias should not be one of james user, list or team domain, no alias created"
+                );
                 continue;
             }
             if !current_aliases.contains(alias) {
