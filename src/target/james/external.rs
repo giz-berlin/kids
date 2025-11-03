@@ -6,35 +6,35 @@ use reqwest::RequestBuilder;
 
 #[derive(serde::Deserialize, Clone)]
 pub struct JamesApiConfig {
-    pub initial_user_domain: String,
-    pub initial_list_domain: String,
-    pub initial_team_domain: String,
+    pub james_user_domain: String,
+    pub james_list_domain: String,
+    pub james_team_domain: String,
     pub base_url: String,
 }
 
 #[async_trait::async_trait(?Send)]
 pub trait JamesApi {
-    async fn list_users(&mut self) -> Result<Vec<dto::User>, error::KidsError>;
+    async fn get_users(&mut self) -> Result<Vec<dto::User>, error::KidsError>;
     async fn create_user(&mut self, user_email: &str) -> Result<(), error::KidsError>;
     async fn delete_user(&mut self, user_email: &str) -> Result<(), error::KidsError>;
     async fn create_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError>;
     async fn delete_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError>;
-    async fn list_groups(&mut self) -> Result<Vec<String>, error::KidsError>;
-    async fn list_group_members(&mut self, group_email: &str) -> Result<Vec<String>, error::KidsError>;
-    async fn add_member_to_group(&mut self, group_email: &str, user_email: &str) -> Result<(), error::KidsError>;
-    async fn remove_member_from_group(&mut self, group_email: &str, user_email: &str) -> Result<(), error::KidsError>;
+    async fn get_lists(&mut self) -> Result<Vec<String>, error::KidsError>;
+    async fn get_list_members(&mut self, list_email: &str) -> Result<Vec<String>, error::KidsError>;
+    async fn add_member_to_list(&mut self, list_email: &str, user_email: &str) -> Result<(), error::KidsError>;
+    async fn remove_member_from_list(&mut self, list_email: &str, user_email: &str) -> Result<(), error::KidsError>;
     async fn get_aliases_of(&mut self, email: &str) -> Result<Vec<dto::Alias>, error::KidsError>;
     async fn add_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError>;
     async fn remove_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError>;
-    async fn list_teams(&mut self) -> Result<Vec<dto::Team>, error::KidsError>;
+    async fn get_teams(&mut self) -> Result<Vec<dto::Team>, error::KidsError>;
     async fn create_team(&mut self, team_id: &str) -> Result<(), error::KidsError>;
     async fn delete_team(&mut self, team_id: &str) -> Result<(), error::KidsError>;
-    async fn list_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError>;
+    async fn get_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError>;
     async fn add_member_to_team(&mut self, team_id: &str, user_email: &str) -> Result<(), error::KidsError>;
     async fn remove_member_from_team(&mut self, team_id: &str, user_email: &str) -> Result<(), error::KidsError>;
-    async fn list_user_teams(&mut self, user_email: &str) -> Result<Vec<dto::Team>, error::KidsError>;
+    async fn get_user_teams(&mut self, user_email: &str) -> Result<Vec<dto::Team>, error::KidsError>;
 
-    async fn list_domains(&mut self) -> Result<Vec<String>, error::KidsError>;
+    async fn get_domains(&mut self) -> Result<Vec<String>, error::KidsError>;
 }
 
 pub struct JamesClient {
@@ -126,7 +126,7 @@ impl JamesClient {
 
 #[async_trait::async_trait(?Send)]
 impl JamesApi for JamesClient {
-    async fn list_users(&mut self) -> Result<Vec<dto::User>, error::KidsError> {
+    async fn get_users(&mut self) -> Result<Vec<dto::User>, error::KidsError> {
         let users: Vec<dto::User> = self.send_api_get_request("users".to_owned()).await?;
         Ok(users)
     }
@@ -166,26 +166,26 @@ impl JamesApi for JamesClient {
         Ok(())
     }
 
-    async fn list_groups(&mut self) -> Result<Vec<String>, error::KidsError> {
-        let groups: Vec<String> = self.send_api_get_request("address/groups".to_string()).await?;
-        Ok(groups)
+    async fn get_lists(&mut self) -> Result<Vec<String>, error::KidsError> {
+        let lists: Vec<String> = self.send_api_get_request("address/groups".to_string()).await?;
+        Ok(lists)
     }
 
-    async fn list_group_members(&mut self, group_email: &str) -> Result<Vec<String>, error::KidsError> {
-        let members: Vec<String> = self.send_api_get_request(format!("address/groups/{}", group_email)).await?;
+    async fn get_list_members(&mut self, list_email: &str) -> Result<Vec<String>, error::KidsError> {
+        let members: Vec<String> = self.send_api_get_request(format!("address/groups/{}", list_email)).await?;
         Ok(members)
     }
 
-    async fn add_member_to_group(&mut self, group_email: &str, user_email: &str) -> Result<(), error::KidsError> {
+    async fn add_member_to_list(&mut self, list_email: &str, user_email: &str) -> Result<(), error::KidsError> {
         let _ = self
-            .send_api_request::<(), serde_json::Value>(http::Method::PUT, format!("address/groups/{}/{}", group_email, user_email), None)
+            .send_api_request::<(), serde_json::Value>(http::Method::PUT, format!("address/groups/{}/{}", list_email, user_email), None)
             .await?;
         Ok(())
     }
 
-    async fn remove_member_from_group(&mut self, group_email: &str, user_email: &str) -> Result<(), error::KidsError> {
+    async fn remove_member_from_list(&mut self, list_email: &str, user_email: &str) -> Result<(), error::KidsError> {
         let _ = self
-            .send_api_request::<(), serde_json::Value>(http::Method::DELETE, format!("address/groups/{}/{}", group_email, user_email), None)
+            .send_api_request::<(), serde_json::Value>(http::Method::DELETE, format!("address/groups/{}/{}", list_email, user_email), None)
             .await?;
         Ok(())
     }
@@ -209,9 +209,9 @@ impl JamesApi for JamesClient {
         Ok(())
     }
 
-    async fn list_teams(&mut self) -> Result<Vec<dto::Team>, error::KidsError> {
+    async fn get_teams(&mut self) -> Result<Vec<dto::Team>, error::KidsError> {
         let teams: Vec<dto::Team> = self
-            .send_api_get_request(format!("/domains/{}/team-mailboxes", self.config.initial_team_domain))
+            .send_api_get_request(format!("/domains/{}/team-mailboxes", self.config.james_team_domain))
             .await?;
         Ok(teams)
     }
@@ -220,7 +220,7 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::PUT,
-                format!("domains/{}/team-mailboxes/{}", self.config.initial_team_domain, team_id),
+                format!("domains/{}/team-mailboxes/{}", self.config.james_team_domain, team_id),
                 None,
             )
             .await?;
@@ -231,16 +231,16 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::DELETE,
-                format!("domains/{}/team-mailboxes/{}", self.config.initial_team_domain, team_id),
+                format!("domains/{}/team-mailboxes/{}", self.config.james_team_domain, team_id),
                 None,
             )
             .await?;
         Ok(())
     }
 
-    async fn list_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError> {
+    async fn get_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError> {
         let teams: Vec<dto::Member> = self
-            .send_api_get_request(format!("domains/{}/team-mailboxes/{}/members", self.config.initial_team_domain, team_id))
+            .send_api_get_request(format!("domains/{}/team-mailboxes/{}/members", self.config.james_team_domain, team_id))
             .await?;
         Ok(teams)
     }
@@ -251,7 +251,7 @@ impl JamesApi for JamesClient {
                 http::Method::PUT,
                 format!(
                     "domains/{}/team-mailboxes/{}/members/{}?role=member",
-                    self.config.initial_team_domain, team_id, user_email
+                    self.config.james_team_domain, team_id, user_email
                 ),
                 None,
             )
@@ -263,19 +263,19 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::DELETE,
-                format!("domains/{}/team-mailboxes/{}/members/{}", self.config.initial_team_domain, team_id, user_email),
+                format!("domains/{}/team-mailboxes/{}/members/{}", self.config.james_team_domain, team_id, user_email),
                 None,
             )
             .await?;
         Ok(())
     }
 
-    async fn list_user_teams(&mut self, user_email: &str) -> Result<Vec<dto::Team>, error::KidsError> {
+    async fn get_user_teams(&mut self, user_email: &str) -> Result<Vec<dto::Team>, error::KidsError> {
         let teams: Vec<dto::Team> = self.send_api_get_request(format!("/users/{}/team-mailboxes", user_email)).await?;
         Ok(teams)
     }
 
-    async fn list_domains(&mut self) -> Result<Vec<String>, error::KidsError> {
+    async fn get_domains(&mut self) -> Result<Vec<String>, error::KidsError> {
         let domains: Vec<String> = self.send_api_get_request("/domains".to_string()).await?;
         Ok(domains)
     }

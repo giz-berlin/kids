@@ -26,6 +26,6 @@ pub struct Member {
 
 #[derive(serde::Deserialize, Debug)]
 pub struct Group {
-    pub has_group: bool,
+    pub has_list: bool,
     pub has_team: bool,
 }
