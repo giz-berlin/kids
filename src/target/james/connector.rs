@@ -441,7 +441,7 @@ impl Connector {
         for uuid_email in lists_with_aliases {
             let uuid = self.get_source_id(uuid_email).clone();
             if !self.get_group_id_mapping().await?.contains_key(&uuid) {
-                self.update_alias(uuid_email, &vec![]).await?;
+                self.update_alias(uuid_email, &[]).await?;
             }
         }
         Ok(())
