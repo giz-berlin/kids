@@ -23,6 +23,7 @@ pub trait JamesApi {
     async fn get_list_members(&mut self, list_email: &str) -> Result<Vec<String>, error::KidsError>;
     async fn add_member_to_list(&mut self, list_email: &str, user_email: &str) -> Result<(), error::KidsError>;
     async fn remove_member_from_list(&mut self, list_email: &str, user_email: &str) -> Result<(), error::KidsError>;
+    async fn get_aliases(&mut self) -> Result<Vec<String>, error::KidsError>;
     async fn get_aliases_of(&mut self, email: &str) -> Result<Vec<dto::Alias>, error::KidsError>;
     async fn add_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError>;
     async fn remove_alias(&mut self, email: &str, alias_email: &str) -> Result<(), error::KidsError>;
@@ -189,6 +190,11 @@ impl JamesApi for JamesClient {
             .send_api_request::<(), serde_json::Value>(http::Method::DELETE, format!("address/groups/{}/{}", list_email, user_email), None)
             .await?;
         Ok(())
+    }
+
+    async fn get_aliases(&mut self) -> Result<Vec<String>, error::KidsError> {
+        let aliases = self.send_api_get_request("address/aliases".to_string()).await?;
+        Ok(aliases)
     }
 
     async fn get_aliases_of(&mut self, email: &str) -> Result<Vec<dto::Alias>, error::KidsError> {

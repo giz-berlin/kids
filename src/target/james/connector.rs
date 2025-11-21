@@ -58,6 +58,7 @@ impl interface::Target for Connector {
         self.group_id_mapping.take();
         self.user_ids.take();
         self.james_domains.take();
+        self.remove_old_list_aliases().await?;
         Ok(())
     }
 
@@ -232,28 +233,6 @@ impl interface::Target for Connector {
             }
         }
         self.update_alias(&user_uuid_email, &desired_aliases).await?;
-
-        // // Create email as alias iif domain exists in james
-        // if let Some(email) = source_user.email() {
-        //     let domain = self.get_domain_from(email);
-        //     let current_aliases: Vec<String> = match self.james_api.get_aliases_of(&user_uuid_email).await {
-        //         Ok(aliases) => aliases.iter().map(|alias| alias.alias_email.clone()).collect(),
-        //         Err(error) => {
-        //             tracing::error!(%error, user_id = source_user.id(), "Could not get aliases for user");
-        //             vec![]
-        //         }
-        //     };
-        //     if !current_aliases.contains(&email.to_string())
-        //         && self.domain_contained_in_james(&domain).await?
-        //         && domain != self.config.james_api.james_user_domain
-        //         && domain != self.config.james_api.james_team_domain
-        //         && domain != self.config.james_api.james_list_domain {
-        //         match self.james_api.add_alias(&user_uuid_email, email).await {
-        //             Ok(_) => tracing::info!(user_id = source_user.id(), alias = email, "Create alias for user"),
-        //             Err(_) => tracing::error!(user_id = source_user.id(), alias = email, "Could not create alias for user"),
-        //         };
-        //     }
-        // }
 
         let desired_source_groups = source_user.groups().await.map_err(|e| {
             e.with_context(&format!(
@@ -439,6 +418,32 @@ impl Connector {
         }
         self.group_id_mapping = Some(new_group_id_mapping);
 
+        Ok(())
+    }
+
+    /// Function to remove aliases of list, that could not be removed by deleting a source group.
+    /// If a source group has no members but the james-list attribut is set, the syncer removes all users or not creates a list in James
+    /// for this source group in one run because list are created with adding first user and deleted with removing the last user. The delete method
+    /// for groups check if the list group id exists via the group id mapping. After a second syncer run the group id mapping will not contain the
+    /// id for such a group because the get_list API method will not return the list anymore (after removing last user, the list will be deleted).
+    /// If we want to delete in the second syncer run this list would not be deleted because it is not in the group id mapping and therefor is considered as deleted.
+    /// We have deleted the list by removing the last user, but there could still be aliases set, which will remain forever.
+    /// Because of that we need to delete these old aliases manually.
+    async fn remove_old_list_aliases(&mut self) -> Result<(), error::KidsError> {
+        let alias_owners = self.james_api.get_aliases().await.unwrap_or_else(|error| {
+            tracing::error!(%error, "Could not get all aliases");
+            vec![]
+        });
+        let lists_with_aliases = alias_owners
+            .iter()
+            .filter(|alias| alias.contains(&self.config.james_api.james_list_domain))
+            .collect::<Vec<_>>();
+        for uuid_email in lists_with_aliases {
+            let uuid = self.get_source_id(uuid_email).clone();
+            if !self.get_group_id_mapping().await?.contains_key(&uuid) {
+                self.update_alias(uuid_email, &vec![]).await?;
+            }
+        }
         Ok(())
     }
 
