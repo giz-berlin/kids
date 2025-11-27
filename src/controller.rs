@@ -18,16 +18,16 @@ pub fn start_controller<S: source::interface::Source, T: target::interface::Targ
 
     let config = config::Config::<S::Config, T::Config>::try_from(args.config)?;
 
-    let _guard = if config.sentry.active {
-        let dsn = sentry::types::Dsn::from_str(config.sentry.dsn.as_ref().unwrap()).map_err(|err| {
-            tracing::error!("Invalid Sentry DSN {}: {}", &config.sentry.dsn.unwrap(), err);
+    let _guard = if let Some(sentry_config) = config.sentry.as_ref() {
+        let dsn = sentry::types::Dsn::from_str(&sentry_config.dsn).map_err(|err| {
+            tracing::error!("Invalid Sentry DSN {}: {}", &sentry_config.dsn, err);
             err
         })?;
 
         let guard = sentry::init(sentry::ClientOptions {
             dsn: Some(dsn),
             release: sentry::release_name!(),
-            environment: Some(config.sentry.environment.unwrap().into()),
+            environment: Some(sentry_config.environment.clone().into()),
             attach_stacktrace: true,
             trim_backtraces: true,
             // TODO: We may not want to have all transactions and thus set this to a lower value.

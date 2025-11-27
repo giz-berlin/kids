@@ -3,7 +3,7 @@ use anyhow::Context;
 #[derive(serde::Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Config<S, T> {
-    pub sentry: SentryConfig,
+    pub sentry: Option<SentryConfig>,
     pub source: S,
     pub target: T,
 }
@@ -13,14 +13,12 @@ pub struct EmptyConfig {}
 
 #[derive(serde::Deserialize, Debug)]
 pub struct SentryConfig {
-    /// Whether the sentry integration is active.
-    pub active: bool,
     /// Sentry Data Source Name (DSN). Tells Sentry where to send events to so they're associated with the correct project.
     /// Must be specified if Sentry is `active`.
-    pub dsn: Option<String>,
+    pub dsn: String,
     /// Tag specifying which context the service is running in (for example, development, production, ...).
     /// Must be specified if Sentry is `active`.
-    pub environment: Option<String>,
+    pub environment: String,
 }
 
 impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> Config<S, T> {
@@ -55,34 +53,29 @@ mod tests {
     fn test_try_from_str_valid() {
         let toml_str = r#"
             [sentry]
-            active = true
             dsn = "https://example@sentry.io/123"
             environment = "production"
-            
+
             [source]
-            
+
             [target]
         "#;
         let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
         let sentry = config.sentry;
-        assert!(sentry.active);
-        assert_eq!(sentry.dsn.unwrap(), "https://example@sentry.io/123");
-        assert_eq!(sentry.environment.unwrap(), "production");
+        assert!(sentry.is_some());
+        assert_eq!(sentry.as_ref().unwrap().dsn, "https://example@sentry.io/123");
+        assert_eq!(sentry.as_ref().unwrap().environment, "production");
     }
 
     #[test]
     fn test_try_from_str_sentry_inactive() {
         let toml_str = r#"
-            [sentry]
-            active = false
-            # other fields may be left out.
-            
             [source]
-            
+
             [target]
         "#;
         let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
-        assert!(!config.sentry.active);
+        assert!(config.sentry.is_none());
     }
 
     #[test]
