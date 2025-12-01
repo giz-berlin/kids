@@ -35,6 +35,7 @@ aide = { version = "0.15.1", features = [
 axum = { version = "0.8.6", features = ["tracing", "macros"] }
 indexmap = "2.11.4"
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
+urlencoding = "2.1.3"
 
 [[bin]]
 name = "keycloak-james"
