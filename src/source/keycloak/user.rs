@@ -11,7 +11,6 @@ pub struct KeycloakUser {
     username: Option<String>,
     email: Option<String>,
     attributes: std::collections::HashMap<String, Vec<String>>,
-    realm_roles: Vec<String>,
 }
 
 impl KeycloakUser {
@@ -33,7 +32,6 @@ impl KeycloakUser {
             // Whether the attributes are actually required depends on the target (e.g. if they store additional metadata about
             // the user mapping in the user's attributes).
             attributes: user_representation.attributes.unwrap_or_default(),
-            realm_roles: user_representation.realm_roles.unwrap_or_default(),
         }
     }
 
@@ -45,7 +43,6 @@ impl KeycloakUser {
             username: webhook_user.username,
             email: webhook_user.email,
             attributes: webhook_user.attributes,
-            realm_roles: webhook_user.realm_roles,
         }
     }
 }
@@ -74,10 +71,6 @@ impl interface::User for KeycloakUser {
         &self.attributes
     }
 
-    fn roles(&self) -> &Vec<String> {
-        &self.realm_roles
-    }
-
     async fn groups(&self) -> Result<Vec<std::sync::Arc<dyn interface::Group + Send + Sync>>, error::KidsError> {
         let users = self.keycloak_api.get_groups_of_user(self.id()).await?;
         Ok(users
@@ -97,7 +90,6 @@ pub struct KeycloakWebhookUser {
     pub username: Option<String>,
     pub email: Option<String>,
     pub attributes: std::collections::HashMap<String, Vec<String>>,
-    pub realm_roles: Vec<String>,
 }
 
 #[cfg(test)]

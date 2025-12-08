@@ -69,7 +69,6 @@ pub trait User {
     /// Many [Targets](crate::target::interface::Target) will make use of custom user attributes to store target-system-specific
     /// configuration for the user.
     fn attributes(&self) -> &collections::HashMap<String, Vec<String>>;
-    fn roles(&self) -> &Vec<String>; // client_roles, realm_role;
 
     /// All [Group]s the [User] is in.
     async fn groups(&self) -> Result<Vec<std::sync::Arc<dyn Group + Send + Sync>>, error::KidsError>;
@@ -83,7 +82,6 @@ impl fmt::Debug for dyn User + Send + Sync {
             .field("username", &self.username())
             .field("email", &self.email())
             .field("attributes", &self.attributes())
-            .field("roles", &self.roles())
             .finish()
     }
 }
