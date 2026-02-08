@@ -26,11 +26,11 @@ pub trait Target: Sized {
     /// Set of groups present in the target system.
     /// Only returns [identifiers](types::SharedResourceIdentifier) because the ground truth for the
     /// group attributes is the [Source](source::interface::Source).
-    async fn all_groups(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError>;
+    async fn all_groups(&mut self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError>;
     /// Set of users present in the target system.
     /// Only returns [identifiers](types::SharedResourceIdentifier) because the ground truth for the
     /// user attributes is the [Source](source::interface::Source).
-    async fn all_users(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError>;
+    async fn all_users(&mut self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError>;
 
     /// Delete the group with the given identifier from the target system.
     async fn delete_group(&mut self, group_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError>;

@@ -23,11 +23,11 @@ impl interface::Target for Connector {
         todo!()
     }
 
-    async fn all_groups(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
+    async fn all_groups(&mut self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
         todo!()
     }
 
-    async fn all_users(&self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
+    async fn all_users(&mut self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError> {
         todo!()
     }
 
