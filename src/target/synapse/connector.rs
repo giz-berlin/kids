@@ -56,8 +56,8 @@ pub struct Connector {
 }
 
 impl Connector {
-    /// This function generates different id mappings requried as user and group ids in
-    /// Keycloak are different than in Synapse
+    /// This function generates different id mappings required as user and group ids in
+    /// Keycloak are different than in Synapse.
     ///
     /// Therefore, we need a mapping between both, which is built in this function.
     async fn generate_id_mappings(&mut self) -> Result<(), error::KidsError> {

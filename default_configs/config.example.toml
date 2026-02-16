@@ -1,7 +1,10 @@
 ### General & controller configuration
-[http]
+[controller]
 # Address with port to bind the HTTP server to, e.g. 127.0.0.1:3000
 bind_addr = ""
+# Interval in seconds to perform the full sync from source to target.
+# Defaults to 24h.
+# full_sync_interval_seconds = 86400
 
 # This section can be omitted to disable Sentry.
 [sentry]

@@ -6,14 +6,17 @@ async fn serve_api(axum::Extension(api): axum::Extension<aide::openapi::OpenApi>
 
 pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target::interface::Target + Send + Sync + 'static>(
     bind_addr: String,
-    source: S,
-    target: T,
+    app_state: state::AppState<S, T>,
 ) -> anyhow::Result<()> {
     // create metadata for API docs
     let mut api = aide::openapi::OpenApi {
         info: aide::openapi::Info {
             title: "Keycloak Identity Syncer".to_string(),
-            description: Some(format!("Synchronizes users and groups. Source: {}, Target: {}", source.info(), target.info())),
+            description: Some(format!(
+                "Synchronizes users and groups. Source: {}, Target: {}",
+                app_state.source.info(),
+                app_state.target.read().await.info()
+            )),
             contact: Some(aide::openapi::Contact {
                 name: Some("Leonard Marschke".to_string()),
                 url: Some("https://rechenknecht.net/giz/keycloak/kids".to_string()),
@@ -24,11 +27,6 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
             ..aide::openapi::Info::default()
         },
         ..aide::openapi::OpenApi::default()
-    };
-
-    let state = state::AppState {
-        source: std::sync::Arc::new(source),
-        target: std::sync::Arc::new(tokio::sync::RwLock::new(target)),
     };
 
     let app = aide::axum::ApiRouter::new()
@@ -85,12 +83,20 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
             aide::redoc::Redoc::new("/docs/api.json").with_title("Keycloak Identity Syncer").axum_route(),
         )
         .route("/", aide::axum::routing::get(|| async { axum::response::Redirect::to("/docs") }))
-        .with_state(state)
+        // Spawn each handler as an independent task so it runs to completion even if the client
+        // disconnects mid-request. The write lock on AppState::target serializes concurrent
+        // handlers with the periodic full sync.
+        .route_layer(axum::middleware::from_fn(
+            |req: axum::extract::Request, next: axum::middleware::Next| async move { tokio::task::spawn(next.run(req)).await.unwrap() },
+        ))
+        .with_state(app_state)
         .finish_api(&mut api)
         // Add aide (open API) extension layer
         .layer(axum::Extension(api))
         .layer(sentry::integrations::tower::SentryLayer::new_from_top())
         .layer(sentry::integrations::tower::SentryHttpLayer::new().enable_transaction());
+
+    tracing::info!(bind = bind_addr, "Starting API");
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     axum::serve(listener, app).await?;
