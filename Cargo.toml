@@ -44,6 +44,9 @@ name = "keycloak-james"
 name = "keycloak-synapse"
 
 [[bin]]
+name = "keycloak-memory"
+
+[[bin]]
 name = "webhook-cli"
 
 [dev-dependencies]
