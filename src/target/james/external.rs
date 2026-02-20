@@ -158,7 +158,7 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::PUT,
-                format!("users/{}/mailboxes/{}", urlencoding::encode(user_email), mailbox_name),
+                format!("users/{}/mailboxes/{}", urlencoding::encode(user_email), urlencoding::encode(mailbox_name)),
                 None,
             )
             .await?;
@@ -169,7 +169,7 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::DELETE,
-                format!("users/{}/mailboxes/{}", urlencoding::encode(user_email), mailbox_name),
+                format!("users/{}/mailboxes/{}", urlencoding::encode(user_email), urlencoding::encode(mailbox_name)),
                 None,
             )
             .await?;
@@ -237,7 +237,7 @@ impl JamesApi for JamesClient {
 
     async fn get_teams(&mut self) -> Result<Vec<dto::Team>, error::KidsError> {
         let teams: Vec<dto::Team> = self
-            .send_api_get_request(format!("/domains/{}/team-mailboxes", self.config.james_team_domain))
+            .send_api_get_request(format!("/domains/{}/team-mailboxes", urlencoding::encode(&self.config.james_team_domain)))
             .await?;
         Ok(teams)
     }
@@ -246,7 +246,7 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::PUT,
-                format!("domains/{}/team-mailboxes/{}", self.config.james_team_domain, team_id),
+                format!("domains/{}/team-mailboxes/{}", urlencoding::encode(&self.config.james_team_domain), urlencoding::encode(team_id)),
                 None,
             )
             .await?;
@@ -257,7 +257,7 @@ impl JamesApi for JamesClient {
         let _ = self
             .send_api_request::<(), serde_json::Value>(
                 http::Method::DELETE,
-                format!("domains/{}/team-mailboxes/{}", self.config.james_team_domain, team_id),
+                format!("domains/{}/team-mailboxes/{}", urlencoding::encode(&self.config.james_team_domain), urlencoding::encode(team_id)),
                 None,
             )
             .await?;
@@ -266,7 +266,7 @@ impl JamesApi for JamesClient {
 
     async fn get_team_members(&mut self, team_id: &str) -> Result<Vec<dto::Member>, error::KidsError> {
         let teams: Vec<dto::Member> = self
-            .send_api_get_request(format!("domains/{}/team-mailboxes/{}/members", self.config.james_team_domain, team_id))
+            .send_api_get_request(format!("domains/{}/team-mailboxes/{}/members", urlencoding::encode(&self.config.james_team_domain), urlencoding::encode(team_id)))
             .await?;
         Ok(teams)
     }
@@ -277,8 +277,8 @@ impl JamesApi for JamesClient {
                 http::Method::PUT,
                 format!(
                     "domains/{}/team-mailboxes/{}/members/{}?role=member",
-                    self.config.james_team_domain,
-                    team_id,
+                    urlencoding::encode(&self.config.james_team_domain),
+                    urlencoding::encode(team_id),
                     urlencoding::encode(user_email)
                 ),
                 None,
@@ -293,8 +293,8 @@ impl JamesApi for JamesClient {
                 http::Method::DELETE,
                 format!(
                     "domains/{}/team-mailboxes/{}/members/{}",
-                    self.config.james_team_domain,
-                    team_id,
+                    urlencoding::encode(&self.config.james_team_domain),
+                    urlencoding::encode(team_id),
                     urlencoding::encode(user_email)
                 ),
                 None,
