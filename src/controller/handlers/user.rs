@@ -55,9 +55,9 @@ where
     S: crate::source::interface::Source + Send,
     T: crate::target::interface::Target,
 {
-    tracing::info!(user_id = tracing::field::display(user_id.clone()), "Deleting user");
-
     let mut target = state.target.write().await;
+
+    tracing::info!(user_id = tracing::field::display(user_id.clone()), "Deleting user");
 
     if !target.all_users().await?.contains(&user_id) {
         return Err(crate::controller::error::ControllerError::new(
