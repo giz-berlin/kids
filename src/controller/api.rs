@@ -99,7 +99,29 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
     tracing::info!(bind = bind_addr, "Starting API");
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received CTRL+C, shutting down");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM, shutting down")
+        },
+    }
 }
