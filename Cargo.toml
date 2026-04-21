@@ -42,6 +42,9 @@ name = "keycloak-james"
 [[bin]]
 name = "keycloak-synapse"
 
+[[bin]]
+name = "webhook-cli"
+
 [dev-dependencies]
 rstest = "0.25.0"
 

@@ -4,3 +4,5 @@ mod group;
 mod user;
 
 pub use connector::Connector;
+pub use group::KeycloakWebhookGroup;
+pub use user::KeycloakWebhookUser;

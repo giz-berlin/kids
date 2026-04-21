@@ -105,7 +105,7 @@ impl interface::Group for KeycloakGroup {
     }
 }
 
-#[derive(serde::Deserialize, schemars::JsonSchema)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct KeycloakWebhookGroup {
     pub id: String,
     pub name: String,

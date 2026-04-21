@@ -83,7 +83,7 @@ impl interface::User for KeycloakUser {
     }
 }
 
-#[derive(serde::Deserialize, schemars::JsonSchema)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct KeycloakWebhookUser {
     pub id: String,
     pub enabled: bool,
