@@ -4,6 +4,7 @@ use anyhow::Context;
 #[serde(deny_unknown_fields)]
 pub struct Config<S, T> {
     pub sentry: Option<SentryConfig>,
+    pub http: HTTPConfig,
     pub source: S,
     pub target: T,
 }
@@ -19,6 +20,12 @@ pub struct SentryConfig {
     /// Tag specifying which context the service is running in (for example, development, production, ...).
     /// Must be specified if Sentry is `active`.
     pub environment: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct HTTPConfig {
+    /// Address with port to bind the HTTP server to.
+    pub bind_addr: String,
 }
 
 impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> Config<S, T> {
@@ -56,6 +63,9 @@ mod tests {
             dsn = "https://example@sentry.io/123"
             environment = "production"
 
+            [http]
+            bind_addr = "127.0.0.1:8080"
+
             [source]
 
             [target]
@@ -71,6 +81,9 @@ mod tests {
     fn test_try_from_str_sentry_inactive() {
         let toml_str = r#"
             [source]
+
+            [http]
+            bind_addr = "127.0.0.1:8080"
 
             [target]
         "#;

@@ -1,11 +1,13 @@
 use crate::error;
 use crate::source::interface;
+use crate::source::keycloak::group::KeycloakGroup;
+use crate::source::keycloak::user::KeycloakUser;
 use crate::source::keycloak::{external, group, user};
-use std::rc;
+use std::sync;
 
 /// A connector to Keycloak providing the [Source](interface::Source) interface.
 pub struct Connector {
-    pub keycloak_api: rc::Rc<dyn external::KeycloakApi>,
+    pub keycloak_api: sync::Arc<dyn external::KeycloakApi + Send + Sync>,
 }
 
 #[derive(serde::Deserialize)]
@@ -13,9 +15,11 @@ pub struct KeycloakConfig {
     pub keycloak_api: external::KeycloakApiConfig,
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl interface::Source for Connector {
     type Config = KeycloakConfig;
+    type UserWebhookPayload = user::KeycloakWebhookUser;
+    type GroupWebhookPayload = group::KeycloakWebhookGroup;
 
     fn info(&self) -> String {
         "Keycloak Connector!".to_string()
@@ -23,15 +27,17 @@ impl interface::Source for Connector {
 
     fn new(config: Self::Config) -> Self {
         Connector {
-            keycloak_api: rc::Rc::new(external::KeycloakServiceAccountClient::new(config.keycloak_api)),
+            keycloak_api: sync::Arc::new(external::KeycloakServiceAccountClient::new(config.keycloak_api)),
         }
     }
 
-    async fn all_groups(&self) -> Result<Vec<rc::Rc<dyn interface::Group>>, error::KidsError> {
+    async fn all_groups(&self) -> Result<Vec<sync::Arc<dyn interface::Group>>, error::KidsError> {
         let groups = self.keycloak_api.get_groups().await?;
         Ok(groups
             .into_iter()
-            .map(|group| rc::Rc::new(group::KeycloakGroup::new(self.keycloak_api.clone(), group)) as rc::Rc<dyn interface::Group>)
+            .map(|group| {
+                sync::Arc::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), group)) as sync::Arc<dyn interface::Group>
+            })
             .collect())
     }
 
@@ -39,8 +45,16 @@ impl interface::Source for Connector {
         let users = self.keycloak_api.get_users().await?;
         Ok(users
             .into_iter()
-            .map(|u| Box::new(user::KeycloakUser::new(self.keycloak_api.clone(), u)) as Box<dyn interface::User>)
+            .map(|u| Box::new(user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u)) as Box<dyn interface::User>)
             .collect())
+    }
+
+    fn user_from_webhook(&self, webhook_user: Self::UserWebhookPayload) -> Box<dyn interface::User + Send + Sync> {
+        Box::new(KeycloakUser::from_webhook_user(self.keycloak_api.clone(), webhook_user))
+    }
+
+    fn group_from_webhook(&self, webhook_group: Self::GroupWebhookPayload) -> Box<dyn interface::Group + Send + Sync> {
+        Box::new(KeycloakGroup::from_webhook_group(self.keycloak_api.clone(), webhook_group))
     }
 }
 
@@ -66,7 +80,7 @@ mod test {
         });
 
         let source = Connector {
-            keycloak_api: rc::Rc::new(mock),
+            keycloak_api: std::sync::Arc::new(mock),
         };
 
         // when
@@ -94,7 +108,7 @@ mod test {
         });
 
         let source = Connector {
-            keycloak_api: rc::Rc::new(mock),
+            keycloak_api: std::sync::Arc::new(mock),
         };
 
         // when

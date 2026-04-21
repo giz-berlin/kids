@@ -25,7 +25,7 @@ pub struct SynapseApiConfig {
 }
 
 #[mockall::automock]
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 pub trait SynapseApi {
     fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool;
     async fn get_joined_rooms_of_syncer(&mut self) -> Result<dto::JoinedRoomsResponse, error::KidsError>;
@@ -344,7 +344,7 @@ impl SynapseClient {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl SynapseApi for SynapseClient {
     fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool {
         matrix_user_id == self.config.matrix_syncer_user_id

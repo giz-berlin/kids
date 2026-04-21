@@ -1,6 +1,9 @@
 # For documentation on the configuration parameters, refer to the default_configs directory.
 # This file does intentionally not contain any parameter comments, as those could get out of sync quite easily.
 
+[http]
+bind_addr = "127.0.0.1:3000"
+
 [sentry]
 active = false
 dsn = "https://2b259ab7638c4a71ab3fca497e2c5295@sentry.giz.berlin/22"

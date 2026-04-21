@@ -1,13 +1,13 @@
 use crate::target::interface;
 use crate::{error, source, types};
-use std::{collections, rc};
+use std::collections;
 
 #[derive(serde::Deserialize)]
 pub struct JamesConfig {}
 
 pub struct Connector {}
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl interface::Target for Connector {
     type Config = JamesConfig;
 
@@ -39,11 +39,11 @@ impl interface::Target for Connector {
         todo!()
     }
 
-    async fn create_or_update_group(&mut self, _group: rc::Rc<dyn source::interface::Group>) -> Result<(), error::KidsError> {
+    async fn create_or_update_group(&mut self, _group: std::sync::Arc<Box<dyn source::interface::Group + Sync + Send>>) -> Result<(), error::KidsError> {
         todo!()
     }
 
-    async fn create_or_update_user(&mut self, _user: Box<dyn source::interface::User>) -> Result<(), error::KidsError> {
+    async fn create_or_update_user(&mut self, _user: std::sync::Arc<Box<dyn source::interface::User + Sync + Send>>) -> Result<(), error::KidsError> {
         todo!()
     }
 }

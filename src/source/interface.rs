@@ -1,5 +1,5 @@
 use crate::{error, types};
-use std::{collections, fmt, rc};
+use std::{collections, fmt};
 // WHY WE ARE NOT USING ITERATORS IN THESE INTERFACES:
 // Currently, the traits specified in this file demand that all data is fetched from the source
 // at once (i.e., the methods return vectors of groups and users) instead of allowing for an
@@ -32,12 +32,14 @@ use std::{collections, fmt, rc};
 /// synchronize the data to a [Target](crate::target::interface::Target).
 /// Note that this trait only provides methods for obtaining full lists of [User]s and [Group]s present in the source, as the data
 /// entities directly provide methods for accessing related ones (for example, [Group::sub_groups]).
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 pub trait Source {
     /// The configuration struct to use for a specific [Source].
     /// Must derive from [serde::de::DeserializeOwned] because it will be deserialized from a
     /// TOML configuration file.
     type Config: serde::de::DeserializeOwned;
+    type UserWebhookPayload: serde::de::DeserializeOwned + Send + Sync + schemars::JsonSchema;
+    type GroupWebhookPayload: serde::de::DeserializeOwned + Send + Sync + schemars::JsonSchema;
 
     fn info(&self) -> String;
 
@@ -45,13 +47,16 @@ pub trait Source {
     fn new(config: Self::Config) -> Self;
 
     /// All [Group]s present within the [Source] (in a specific context, for example all groups visible to a Keycloak client within a Keycloak realm).
-    async fn all_groups(&self) -> Result<Vec<rc::Rc<dyn Group>>, error::KidsError>;
+    async fn all_groups(&self) -> Result<Vec<std::sync::Arc<dyn Group>>, error::KidsError>;
     /// All [User]s present within the [Source] (in a specific context, for example all groups visible to a Keycloak client within a Keycloak realm).
     async fn all_users(&self) -> Result<Vec<Box<dyn User>>, error::KidsError>;
+
+    fn user_from_webhook(&self, payload: Self::UserWebhookPayload) -> Box<dyn User + Send + Sync>;
+    fn group_from_webhook(&self, payload: Self::GroupWebhookPayload) -> Box<dyn Group + Send + Sync>;
 }
 
 /// A user entity within a data [Source].
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 pub trait User {
     /// Identifier of the [User].
     fn id(&self) -> &types::SharedResourceIdentifier;
@@ -64,13 +69,12 @@ pub trait User {
     /// Many [Targets](crate::target::interface::Target) will make use of custom user attributes to store target-system-specific
     /// configuration for the user.
     fn attributes(&self) -> &collections::HashMap<String, Vec<String>>;
-    fn roles(&self) -> &Vec<String>; // client_roles, realm_role;
 
     /// All [Group]s the [User] is in.
-    async fn groups(&self) -> Result<Vec<rc::Rc<dyn Group>>, error::KidsError>;
+    async fn groups(&self) -> Result<Vec<std::sync::Arc<dyn Group + Send + Sync>>, error::KidsError>;
 }
 
-impl fmt::Debug for dyn User {
+impl fmt::Debug for dyn User + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("dyn User")
             .field("id", &self.id())
@@ -78,7 +82,6 @@ impl fmt::Debug for dyn User {
             .field("username", &self.username())
             .field("email", &self.email())
             .field("attributes", &self.attributes())
-            .field("roles", &self.roles())
             .finish()
     }
 }
@@ -104,14 +107,14 @@ pub trait Group {
     // fn users(&self) -> Vec<Box<dyn User>>;
 
     /// Farthest ancestor of this [Group]. If this group itself is a root group, returns this group.
-    fn root_group(self: rc::Rc<Self>) -> rc::Rc<dyn Group>;
+    fn root_group(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn Group>;
     /// The direct parent of this [Group]. Will return [None] if this group is a root group.
-    fn parent_group(&self) -> Option<rc::Rc<dyn Group>>;
+    fn parent_group(&self) -> Option<std::sync::Arc<dyn Group>>;
     /// All direct subgroups of this [Group]. Will not contain transitive subgroups (i.e. grandchildren or deeper).
-    async fn sub_groups(self: rc::Rc<Self>) -> Result<Vec<rc::Rc<dyn Group>>, error::KidsError>;
+    async fn sub_groups(self: std::sync::Arc<Self>) -> Result<Vec<std::sync::Arc<dyn Group>>, error::KidsError>;
 }
 
-impl fmt::Debug for dyn Group {
+impl fmt::Debug for dyn Group + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("dyn Group")
             .field("id", &self.id())
