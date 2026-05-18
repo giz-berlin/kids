@@ -3,7 +3,7 @@ use crate::target::james::dto;
 use crate::target::james::external;
 use crate::{error, source, types};
 use anyhow::anyhow;
-use std::{collections, rc};
+use std::{collections};
 
 #[derive(serde::Deserialize)]
 pub struct JamesConfig {
@@ -21,7 +21,7 @@ const USER_INBOX_NAME: &str = "INBOX";
 /// A connector to James providing the [Target](interface::Target) interface.
 pub struct Connector {
     config: JamesConfig,
-    james_api: Box<dyn external::JamesApi>,
+    james_api: Box<dyn external::JamesApi  + Send + Sync>,
     group_id_mapping: Option<collections::HashMap<types::SharedResourceIdentifier, dto::Group>>,
     user_ids: Option<collections::HashSet<types::SharedResourceIdentifier>>,
     /// Domains that are set up in James. Only team, list, user and alias addresses with these domains will be created.
@@ -220,7 +220,7 @@ impl interface::Target for Connector {
         Ok(())
     }
 
-    async fn create_or_update_user(&mut self, source_user: Box<dyn source::interface::User>) -> Result<(), error::KidsError> {
+    async fn create_or_update_user(&mut self, source_user: std::sync::Arc<Box<dyn source::interface::User + Sync + Send>>) -> Result<(), error::KidsError> {
         let user_uuid_email = self
             .create_uuid_user_email(source_user.id())
             .map_err(|error| error.with_context(&format!("user_id = {}, Could not create or update user", source_user.id())))?;

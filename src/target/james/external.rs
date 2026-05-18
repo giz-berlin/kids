@@ -13,7 +13,7 @@ pub struct JamesApiConfig {
     pub base_url: String,
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 pub trait JamesApi {
     async fn get_users(&mut self) -> Result<Vec<dto::User>, error::KidsError>;
     async fn create_user(&mut self, user_email: &str) -> Result<(), error::KidsError>;
@@ -126,7 +126,7 @@ impl JamesClient {
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl JamesApi for JamesClient {
     async fn get_users(&mut self) -> Result<Vec<dto::User>, error::KidsError> {
         let users: Vec<dto::User> = self.send_api_get_request("users".to_owned()).await?;

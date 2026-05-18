@@ -4,7 +4,6 @@ use anyhow::Context;
 use clap::Parser;
 use tracing_subscriber::Layer;
 
-use crate::types::SharedResourceIdentifier;
 use crate::{config, source, target};
 
 #[derive(clap::Parser, Debug)]
