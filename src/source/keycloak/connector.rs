@@ -31,7 +31,7 @@ impl interface::Source for Connector {
         }
     }
 
-    async fn all_groups(&self) ->  Result<Vec<sync::Arc<Box<dyn interface::Group + Send + Sync>>>, error::KidsError> {
+    async fn all_groups(&self) -> Result<Vec<sync::Arc<Box<dyn interface::Group + Send + Sync>>>, error::KidsError> {
         let groups = self.keycloak_api.get_groups().await?;
         Ok(groups
             .into_iter()
@@ -47,7 +47,9 @@ impl interface::Source for Connector {
         let users = self.keycloak_api.get_users().await?;
         Ok(users
             .into_iter()
-            .map(|u| sync::Arc::new(Box::new(user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u)) as Box<dyn interface::User + Send + Sync>))
+            .map(|u| {
+                sync::Arc::new(Box::new(user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u)) as Box<dyn interface::User + Send + Sync>)
+            })
             .collect())
     }
 

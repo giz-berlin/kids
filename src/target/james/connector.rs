@@ -3,7 +3,7 @@ use crate::target::james::dto;
 use crate::target::james::external;
 use crate::{error, source, types};
 use anyhow::anyhow;
-use std::{collections};
+use std::collections;
 
 #[derive(serde::Deserialize)]
 pub struct JamesConfig {
@@ -21,7 +21,7 @@ const USER_INBOX_NAME: &str = "INBOX";
 /// A connector to James providing the [Target](interface::Target) interface.
 pub struct Connector {
     config: JamesConfig,
-    james_api: Box<dyn external::JamesApi  + Send + Sync>,
+    james_api: Box<dyn external::JamesApi + Send + Sync>,
     group_id_mapping: Option<collections::HashMap<types::SharedResourceIdentifier, dto::Group>>,
     user_ids: Option<collections::HashSet<types::SharedResourceIdentifier>>,
     /// Domains that are set up in James. Only team, list, user and alias addresses with these domains will be created.
@@ -587,7 +587,7 @@ impl Connector {
 
         for alias in current_aliases.iter() {
             let domain = self.get_domain_from(alias);
-            if !desired_aliases.contains(alias) && self.domain_contained_in_cached_james_domains(&domain).await? {
+            if !(self.domain_contained_in_cached_james_domains(&domain).await? && desired_aliases.contains(alias)) {
                 match self.james_api.remove_alias(uuid_email, alias).await {
                     Ok(_) => tracing::info!(uuid_email, alias, "Delete alias"),
                     Err(error) => tracing::error!(%error, uuid_email, alias,  "Could not delete alias"),
