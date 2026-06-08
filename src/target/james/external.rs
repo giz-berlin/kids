@@ -18,8 +18,6 @@ pub trait JamesApi {
     async fn get_users(&mut self) -> Result<Vec<dto::User>, error::KidsError>;
     async fn create_user(&mut self, user_email: &str) -> Result<(), error::KidsError>;
     async fn delete_user(&mut self, user_email: &str) -> Result<(), error::KidsError>;
-    async fn create_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError>;
-    async fn delete_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError>;
     async fn get_lists(&mut self) -> Result<Vec<String>, error::KidsError>;
     async fn get_list_members(&mut self, list_email: &str) -> Result<Vec<String>, error::KidsError>;
     async fn add_member_to_list(&mut self, list_email: &str, user_email: &str) -> Result<(), error::KidsError>;
@@ -150,28 +148,6 @@ impl JamesApi for JamesClient {
     async fn delete_user(&mut self, user_email: &str) -> Result<(), error::KidsError> {
         let _ = self
             .send_api_request::<(), serde_json::Value>(http::Method::DELETE, format!("users/{}", urlencoding::encode(user_email)), None)
-            .await?;
-        Ok(())
-    }
-
-    async fn create_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError> {
-        let _ = self
-            .send_api_request::<(), serde_json::Value>(
-                http::Method::PUT,
-                format!("users/{}/mailboxes/{}", urlencoding::encode(user_email), urlencoding::encode(mailbox_name)),
-                None,
-            )
-            .await?;
-        Ok(())
-    }
-
-    async fn delete_mailbox(&mut self, user_email: &str, mailbox_name: &str) -> Result<(), error::KidsError> {
-        let _ = self
-            .send_api_request::<(), serde_json::Value>(
-                http::Method::DELETE,
-                format!("users/{}/mailboxes/{}", urlencoding::encode(user_email), urlencoding::encode(mailbox_name)),
-                None,
-            )
             .await?;
         Ok(())
     }

@@ -24,7 +24,7 @@ If a source group is removed we will do the same. Additionally, we will remove t
 
 ### User syncing
 
-All source users will be synced to James. Each user in the source has an uuid. Initially we create for each source user a user in James with an email source-uuid@DOMAIN.The domain takes the value of the `james_user_domain` config variable. Additionally, there the Syncer will create a mailbox for this address named "INBOX".
+All source users will be synced to James. Each user in the source has an uuid. Initially we create for each source user a user in James with an email source-uuid@DOMAIN.The domain takes the value of the `james_user_domain` config variable.
 
 A source user can have attributes that are key value pairs. The key `james-alias` should have an email as value. If this key is set for a source user, we create for this user in James an alias email address with the email specified in the value. There could be multiple attributes with the `james-alias` key, resulting in multiple alias addresses for a user in James. 
 

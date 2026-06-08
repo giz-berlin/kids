@@ -15,9 +15,6 @@ pub struct JamesConfig {
     pub source_james_alias_attr: String,
 }
 
-/// Name of the initial mailbox created for a user
-const USER_INBOX_NAME: &str = "INBOX";
-
 /// A connector to James providing the [Target](interface::Target) interface.
 pub struct Connector {
     config: JamesConfig,
@@ -125,10 +122,6 @@ impl interface::Target for Connector {
             .create_uuid_user_email(&_user_id)
             .map_err(|error| error.with_context(&format!("user_id = {}, Could not delete user", _user_id)))?;
         self.update_alias(&uuid_user_email, &[]).await?;
-        match self.james_api.delete_mailbox(&uuid_user_email, USER_INBOX_NAME).await {
-            Ok(_) => tracing::info!(user_id = _user_id, "Delete initial mailbox of user"),
-            Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not delete initial mailbox of user", _user_id))),
-        };
         match self.james_api.delete_user(&uuid_user_email).await {
             Ok(_) => tracing::info!(user_id = _user_id, "Delete user"),
             Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not delete user", _user_id))),
@@ -230,10 +223,6 @@ impl interface::Target for Connector {
                 Ok(_) => tracing::info!(user_id = source_user.id(), "Create new user"),
                 Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not create new user", source_user.id()))),
             };
-            match self.james_api.create_mailbox(&user_uuid_email, USER_INBOX_NAME).await {
-                Ok(_) => tracing::info!(user_id = source_user.id(), "Create initial mailbox for user"),
-                Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not create initial mailbox", source_user.id()))),
-            };
             self.get_cached_user_ids().await?.insert(source_user.id().clone());
         }
 
@@ -272,7 +261,6 @@ impl interface::Target for Connector {
 
         for team_id in desired_team_ids.iter() {
             if !current_team_ids.contains(team_id) {
-                // TODO: What is with roles
                 match self.james_api.add_member_to_team(team_id, &user_uuid_email).await {
                     Ok(_) => tracing::info!(source_user_id = source_user.id(), team_id, "Add user to team"),
                     Err(error) => tracing::error!(?error, source_user_id = source_user.id(), team_id, "Could not add user to team"),
