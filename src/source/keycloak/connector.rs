@@ -31,21 +31,25 @@ impl interface::Source for Connector {
         }
     }
 
-    async fn all_groups(&self) -> Result<Vec<sync::Arc<dyn interface::Group>>, error::KidsError> {
+    async fn all_groups(&self) -> Result<Vec<sync::Arc<Box<dyn interface::Group + Send + Sync>>>, error::KidsError> {
         let groups = self.keycloak_api.get_groups().await?;
         Ok(groups
             .into_iter()
             .map(|group| {
-                sync::Arc::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), group)) as sync::Arc<dyn interface::Group>
+                sync::Arc::new(
+                    Box::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), group)) as Box<dyn interface::Group + Send + Sync>
+                )
             })
             .collect())
     }
 
-    async fn all_users(&self) -> Result<Vec<Box<dyn interface::User>>, error::KidsError> {
+    async fn all_users(&self) -> Result<Vec<std::sync::Arc<Box<dyn interface::User + Send + Sync>>>, error::KidsError> {
         let users = self.keycloak_api.get_users().await?;
         Ok(users
             .into_iter()
-            .map(|u| Box::new(user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u)) as Box<dyn interface::User>)
+            .map(|u| {
+                sync::Arc::new(Box::new(user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u)) as Box<dyn interface::User + Send + Sync>)
+            })
             .collect())
     }
 

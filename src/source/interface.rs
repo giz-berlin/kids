@@ -47,9 +47,9 @@ pub trait Source {
     fn new(config: Self::Config) -> Self;
 
     /// All [Group]s present within the [Source] (in a specific context, for example all groups visible to a Keycloak client within a Keycloak realm).
-    async fn all_groups(&self) -> Result<Vec<std::sync::Arc<dyn Group>>, error::KidsError>;
+    async fn all_groups(&self) -> Result<Vec<std::sync::Arc<Box<dyn Group + Send + Sync>>>, error::KidsError>;
     /// All [User]s present within the [Source] (in a specific context, for example all groups visible to a Keycloak client within a Keycloak realm).
-    async fn all_users(&self) -> Result<Vec<Box<dyn User>>, error::KidsError>;
+    async fn all_users(&self) -> Result<Vec<std::sync::Arc<Box<dyn User + Send + Sync>>>, error::KidsError>;
 
     fn user_from_webhook(&self, payload: Self::UserWebhookPayload) -> Box<dyn User + Send + Sync>;
     fn group_from_webhook(&self, payload: Self::GroupWebhookPayload) -> Box<dyn Group + Send + Sync>;

@@ -1,0 +1,22 @@
+[target]
+# Both attributes can be set on groups in the source. They define a list or team email address for a James group.
+# Only source groups that have at least one list or team attribute with this name set will be synced as group to James.
+# It is possible that multiple list or team attributes are set on a source group.
+source_james_list_attr = "james-list"
+source_james_team_attr = "james-team"
+
+# This attribute can be set on users at the source. It defines an alias email address for a user in James.
+# It is possible that in a source user multiple aliases are set.
+source_james_alias_attr = "james-alias"
+
+[target.james_api]
+# In order to identify users, lists and teams, we initially create for each an email address with an ID. Afterward we
+# set default email addresses for users, list and teams as well as aliases defined by source attributes above. These
+# addresses are created as aliases in James. For each ID email address we specify a special domain. These domains are
+# defined with the following attributes. The domains should be only used for the ID email address creation and are
+# not allowed to be used for alias addresses in James.
+james_user_domain = "user.marie.email.interdea.de"
+james_list_domain = "list.marie.email.interdea.de"
+james_team_domain = "team.marie.email.interdea.de"
+# Base adress of James webadmin API to fetch data from.
+base_url = "http://localhost:8000"
