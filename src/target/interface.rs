@@ -33,8 +33,10 @@ pub trait Target: Sized {
     async fn all_users(&mut self) -> Result<collections::HashSet<types::SharedResourceIdentifier>, error::KidsError>;
 
     /// Delete the group with the given identifier from the target system.
+    /// When the group doesn't exist the operation should be considered successful and no error should be returned.
     async fn delete_group(&mut self, group_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError>;
     /// Delete the user with the given identifier from the target system.
+    /// When the user doesn't exist the operation should be considered successful and no error should be returned.
     async fn delete_user(&mut self, user_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError>;
 
     /// Update group attributes in the target system to match those of the given [source group](source::interface::Group).
