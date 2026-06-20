@@ -3,7 +3,7 @@ image: dr.rechenknecht.net/bauhelfer/container/main/rust:ubuntu-jammy
 stages:
   - build
   - test
-  - pack
+  - build-container
 
 variables:
   # This will instruct Docker not to start over TLS.
@@ -80,35 +80,36 @@ test-debug:
     - build-debug
 
 ############
-# Pack
+# Build Container
 ############
 
-docker-image:
-  stage: pack
+.docker-image-build: &docker-image-build
+  stage: build-container
   image: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/library/docker:latest
   needs:
     - job: build-release
       artifacts: true
   tags:
-    # Use a privileged runner for building Docker container
+    # Use a privileged runner for building Docker containers.
     - privileged
   services:
     - name: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/library/docker:dind
       alias: docker
   variables:
+    IMAGE_NAME: $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG/$TARGET_BINARY
     # This will instruct Docker not to start over TLS.
     DOCKER_TLS_CERTDIR: ""
   script:
+    - export COMMIT_COUNT=`git rev-list --count HEAD`
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - |+
-      build() {
-        TARGET_BINARY=$1
-        IMAGE_NAME=$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG/$TARGET_BINARY
-        docker build \
-          --build-arg "BINARY=$TARGET_BINARY" \
-          -t "$IMAGE_NAME:latest" \
-          -t "$IMAGE_NAME:$CI_PIPELINE_IID" \
-          --push .
-      }
-    - build keycloak-james
-    - build keycloak-synapse
+    - docker build --build-arg "BINARY=${TARGET_BINARY}" -t "${IMAGE_NAME}:latest" -t "${IMAGE_NAME}:${COMMIT_COUNT}-${CI_PIPELINE_IID}" --push .
+
+kids-james-container:
+  extends: .docker-image-build
+  variables:
+    TARGET_BINARY: keycloak-james
+
+kids-synapse-container:
+  extends: .docker-image-build
+  variables:
+    TARGET_BINARY: keycloak-synapse
