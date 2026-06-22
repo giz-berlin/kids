@@ -8,7 +8,8 @@ If there is a LDAP backend available, please take a look on [Keycloak LDAP serve
 
 Currently, these applications are supported as sync targets:
 
-* None, see issues
+* [James email server](https://github.com/apache/james-project)
+* [Synapse matrix server](https://github.com/element-hq/synapse)
 
 ## Configuration
 
