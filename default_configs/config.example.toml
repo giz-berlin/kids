@@ -3,15 +3,14 @@
 # Address with port to bind the HTTP server to, e.g. 127.0.0.1:3000
 bind_addr = ""
 
+# This section can be omitted to disable Sentry.
 [sentry]
-# Whether the sentry integration is active.
-active = false
 # Sentry Data Source Name (DSN). Tells Sentry where to send events to so they're associated with the correct project.
-# Must be specified if Sentry is `active`.
+# Must be specified if this section is present.
 # See https://docs.sentry.io/platforms/rust/#configure
 dsn = ""
 # Tag specifying which context the service is running in (for example, alice-develop, production, ...)
-# Must be specified if Sentry is `active`.
+# Must be present if this section is present.
 # See https://docs.sentry.io/platforms/rust/configuration/environments/
 environment = ""
 
