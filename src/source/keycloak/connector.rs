@@ -1,5 +1,5 @@
 use crate::error;
-use crate::source::interface;
+use crate::source::interface::{self, Group};
 use crate::source::keycloak::group::KeycloakGroup;
 use crate::source::keycloak::user::KeycloakUser;
 use crate::source::keycloak::{external, group, user};
@@ -31,25 +31,34 @@ impl interface::Source for Connector {
         }
     }
 
-    async fn all_groups(&self) -> Result<Vec<sync::Arc<Box<dyn interface::Group + Send + Sync>>>, error::KidsError> {
-        let groups = self.keycloak_api.get_groups().await?;
-        Ok(groups
-            .into_iter()
-            .map(|group| {
-                sync::Arc::new(
-                    Box::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), group)) as Box<dyn interface::Group + Send + Sync>
-                )
-            })
-            .collect())
+    async fn all_groups(&self) -> Result<Vec<sync::Arc<dyn interface::Group + Send + Sync>>, error::KidsError> {
+        let root_groups = self.keycloak_api.get_groups().await?;
+
+        let mut result: Vec<sync::Arc<dyn interface::Group + Send + Sync>> = Vec::new();
+        let mut queue: std::collections::VecDeque<sync::Arc<group::KeycloakGroup>> = std::collections::VecDeque::new();
+
+        for root_group in root_groups {
+            let group_instance = sync::Arc::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), root_group));
+            queue.push_back(group_instance.clone());
+            result.push(group_instance);
+        }
+
+        while let Some(parent) = queue.pop_front() {
+            for subgroup in self.keycloak_api.get_subgroups(parent.id()).await? {
+                let group_instance = sync::Arc::new(group::KeycloakGroup::new_with_parent(self.keycloak_api.clone(), subgroup, parent.clone()));
+                queue.push_back(group_instance.clone());
+                result.push(group_instance);
+            }
+        }
+
+        Ok(result)
     }
 
-    async fn all_users(&self) -> Result<Vec<std::sync::Arc<Box<dyn interface::User + Send + Sync>>>, error::KidsError> {
+    async fn all_users(&self) -> Result<Vec<std::sync::Arc<dyn interface::User + Send + Sync>>, error::KidsError> {
         let users = self.keycloak_api.get_users().await?;
         Ok(users
             .into_iter()
-            .map(|u| {
-                sync::Arc::new(Box::new(user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u)) as Box<dyn interface::User + Send + Sync>)
-            })
+            .map(|u| sync::Arc::new(user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u)) as sync::Arc<dyn interface::User + Send + Sync>)
             .collect())
     }
 
@@ -67,6 +76,7 @@ mod test {
     use super::*;
     use crate::source::interface::Source;
     use crate::test_util::constants;
+    use mockall::predicate;
 
     #[tokio::test]
     async fn test_all_users() {
@@ -110,6 +120,38 @@ mod test {
                     .build_into(),
             ])
         });
+        mock.expect_get_subgroups().returning(|_| Ok(vec![]));
+
+        let source = Connector {
+            keycloak_api: std::sync::Arc::new(mock),
+        };
+
+        // when
+        let groups = source.all_groups().await.unwrap();
+
+        // then
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].id(), constants::DEFAULT_GROUP_ID);
+        assert_eq!(groups[1].id(), constants::ANOTHER_GROUP_ID);
+    }
+
+    #[tokio::test]
+    async fn test_all_groups_recursive() {
+        // given
+        let mut mock = external::MockKeycloakApi::new();
+        mock.expect_get_groups().returning(|| {
+            Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
+                .id(constants::DEFAULT_GROUP_ID)
+                .build_into()])
+        });
+        mock.expect_get_subgroups().with(predicate::eq(constants::DEFAULT_GROUP_ID)).returning(|_| {
+            Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
+                .id(constants::ANOTHER_GROUP_ID)
+                .build_into()])
+        });
+        mock.expect_get_subgroups()
+            .with(predicate::eq(constants::ANOTHER_GROUP_ID))
+            .returning(|_| Ok(vec![]));
 
         let source = Connector {
             keycloak_api: std::sync::Arc::new(mock),

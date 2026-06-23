@@ -9,8 +9,8 @@ pub struct InMemoryConfig {}
 /// The memory connector provides a target implementation which stores users and groups entirely in-memory.
 /// This enables easy testing of core functionality without having to spin up an external service.
 pub struct Connector {
-    users: HashMap<types::SharedResourceIdentifier, Arc<Box<dyn source::interface::User + Sync + Send>>>,
-    groups: HashMap<types::SharedResourceIdentifier, Arc<Box<dyn source::interface::Group + Sync + Send>>>,
+    users: HashMap<types::SharedResourceIdentifier, Arc<dyn source::interface::User + Sync + Send>>,
+    groups: HashMap<types::SharedResourceIdentifier, Arc<dyn source::interface::Group + Sync + Send>>,
 }
 
 #[async_trait::async_trait]
@@ -52,12 +52,12 @@ impl interface::Target for Connector {
         Ok(())
     }
 
-    async fn create_or_update_group(&mut self, group: Arc<Box<dyn source::interface::Group + Sync + Send>>) -> Result<(), error::KidsError> {
+    async fn create_or_update_group(&mut self, group: Arc<dyn source::interface::Group + Sync + Send>) -> Result<(), error::KidsError> {
         self.groups.insert(group.id().to_owned(), group);
         Ok(())
     }
 
-    async fn create_or_update_user(&mut self, user: Arc<Box<dyn source::interface::User + Sync + Send>>) -> Result<(), error::KidsError> {
+    async fn create_or_update_user(&mut self, user: Arc<dyn source::interface::User + Sync + Send>) -> Result<(), error::KidsError> {
         self.users.insert(user.id().to_owned(), user);
         Ok(())
     }

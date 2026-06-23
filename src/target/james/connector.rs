@@ -132,7 +132,7 @@ impl interface::Target for Connector {
         Ok(())
     }
 
-    async fn create_or_update_group(&mut self, source_group: std::sync::Arc<Box<dyn source::interface::Group + Sync + Send>>) -> Result<(), error::KidsError> {
+    async fn create_or_update_group(&mut self, source_group: std::sync::Arc<dyn source::interface::Group + Sync + Send>) -> Result<(), error::KidsError> {
         let source_group_id = source_group.id();
         let has_lists_in_source = source_group.attributes().contains_key(&self.config.source_james_list_attr);
         let has_teams_in_source = source_group.attributes().contains_key(&self.config.source_james_team_attr);
@@ -213,7 +213,7 @@ impl interface::Target for Connector {
         Ok(())
     }
 
-    async fn create_or_update_user(&mut self, source_user: std::sync::Arc<Box<dyn source::interface::User + Sync + Send>>) -> Result<(), error::KidsError> {
+    async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn source::interface::User + Sync + Send>) -> Result<(), error::KidsError> {
         let user_uuid_email = self
             .create_uuid_user_email(source_user.id())
             .map_err(|error| error.with_context(&format!("user_id = {}, Could not create or update user", source_user.id())))?;
