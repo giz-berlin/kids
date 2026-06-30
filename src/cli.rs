@@ -48,7 +48,7 @@ pub fn run<S: source::interface::Source + Send + Sync + 'static, T: target::inte
     // See https://docs.sentry.io/platforms/rust/#async-main-function.
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
         let source_impl = S::new(config.source);
-        let mut target_impl = match T::new(config.target).await {
+        let target_impl = match T::new(config.target).await {
             Ok(target_impl) => target_impl,
             Err(e) => {
                 panic!("{}", e)
@@ -58,11 +58,14 @@ pub fn run<S: source::interface::Source + Send + Sync + 'static, T: target::inte
         tracing::info!("Active Source: {}", source_impl.info());
         tracing::info!("Active Target: {}", target_impl.info());
 
-        // Initialize target mapping.
-        // In the future, the controller would perform a proper full-sync on startup.
-        target_impl.full_sync_incoming().await.unwrap();
-
-        crate::controller::api::run(config.http.bind_addr, source_impl, target_impl).await.unwrap();
+        crate::controller::run(
+            config.controller.bind_addr,
+            config.controller.full_sync_interval_seconds,
+            source_impl,
+            target_impl,
+        )
+        .await
+        .unwrap();
     });
 
     Ok(())

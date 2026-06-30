@@ -31,12 +31,14 @@ where
     S: crate::source::interface::Source + Send,
     T: crate::target::interface::Target,
 {
-    let group = std::sync::Arc::new(state.source.group_from_webhook(payload));
+    let group: std::sync::Arc<dyn crate::source::interface::Group + Send + Sync> = std::sync::Arc::from(state.source.group_from_webhook(payload));
+
+    let mut target = state.target.write().await;
 
     tracing::info!(group_id = tracing::field::display(group.id()), "Creating or updating group");
     tracing::debug!(group = tracing::field::debug(group.clone()));
 
-    state.target.write().await.create_or_update_group(group).await?;
+    target.create_or_update_group(group).await?;
 
     Ok(axum::response::NoContent)
 }
@@ -53,9 +55,9 @@ where
     S: crate::source::interface::Source + Send + Sync,
     T: crate::target::interface::Target + Send + Sync,
 {
-    tracing::info!(group_id = tracing::field::display(group_id.clone()), "Deleting group");
-
     let mut target = state.target.write().await;
+
+    tracing::info!(group_id = tracing::field::display(group_id.clone()), "Deleting group");
 
     if !target.all_groups().await?.contains(&group_id) {
         return Err(crate::controller::error::ControllerError::new(

@@ -4,7 +4,7 @@ use anyhow::Context;
 #[serde(deny_unknown_fields)]
 pub struct Config<S, T> {
     pub sentry: Option<SentryConfig>,
-    pub http: HTTPConfig,
+    pub controller: ControllerConfig,
     pub source: S,
     pub target: T,
 }
@@ -23,9 +23,17 @@ pub struct SentryConfig {
 }
 
 #[derive(serde::Deserialize, Debug)]
-pub struct HTTPConfig {
+pub struct ControllerConfig {
     /// Address with port to bind the HTTP server to.
     pub bind_addr: String,
+    /// Interval in seconds to perform the full sync from source to target.
+    #[serde(default = "default_full_sync_interval")]
+    pub full_sync_interval_seconds: u64,
+}
+
+fn default_full_sync_interval() -> u64 {
+    // Default to every 24h for performing a full sync from source to target.
+    24 * 60 * 60
 }
 
 impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> Config<S, T> {
@@ -63,7 +71,7 @@ mod tests {
             dsn = "https://example@sentry.io/123"
             environment = "production"
 
-            [http]
+            [controller]
             bind_addr = "127.0.0.1:8080"
 
             [source]
@@ -82,7 +90,7 @@ mod tests {
         let toml_str = r#"
             [source]
 
-            [http]
+            [controller]
             bind_addr = "127.0.0.1:8080"
 
             [target]

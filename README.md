@@ -49,6 +49,13 @@ By utilizing the Keycloak event listener, the syncer might be notified about cha
 
 As the events are on a fire and forget basis, some changes might not be reflected in (near) real time. Therefore, to be sure, a periodic full sync is still required.
 
+#### Group hierarchy
+
+When a parent group is deleted in Keycloak, we don't get webhook events for all subgroup and its former subgroup relationships are also no longer accessible.
+We therefore cannot guarantee that subgroups are deleted before their parent group in the target.
+Targets that implement group hierarchies must handle cascading deletes internally.
+Any remaining subgroups will be cleaned up on the next full sync.
+
 ### Components
 
 #### Source

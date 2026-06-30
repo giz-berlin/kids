@@ -31,7 +31,7 @@ where
     S: crate::source::interface::Source + Send,
     T: crate::target::interface::Target,
 {
-    let user = std::sync::Arc::new(state.source.user_from_webhook(payload));
+    let user: std::sync::Arc<dyn crate::source::interface::User + Send + Sync> = std::sync::Arc::from(state.source.user_from_webhook(payload));
 
     let mut target = state.target.write().await;
 
@@ -55,9 +55,9 @@ where
     S: crate::source::interface::Source + Send,
     T: crate::target::interface::Target,
 {
-    tracing::info!(user_id = tracing::field::display(user_id.clone()), "Deleting user");
-
     let mut target = state.target.write().await;
+
+    tracing::info!(user_id = tracing::field::display(user_id.clone()), "Deleting user");
 
     if !target.all_users().await?.contains(&user_id) {
         return Err(crate::controller::error::ControllerError::new(
