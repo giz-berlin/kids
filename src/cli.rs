@@ -20,7 +20,7 @@ pub fn run<S: source::interface::Source + Send + Sync + 'static, T: target::inte
 
     let _guard = if let Some(sentry_config) = config.sentry.as_ref() {
         let dsn = sentry::types::Dsn::from_str(&sentry_config.dsn).map_err(|err| {
-            tracing::error!("Invalid Sentry DSN {}: {}", &sentry_config.dsn, err);
+            tracing::error!(error = ?err, "Invalid Sentry DSN {}", &sentry_config.dsn);
             err
         })?;
 

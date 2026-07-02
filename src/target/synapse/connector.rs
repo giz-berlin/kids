@@ -93,7 +93,7 @@ impl Connector {
                             tracing::warn!(matrix_room_id, error=%e, "Could not delete room with no associated source group id");
                         }
                     } else {
-                        tracing::error!(%error, matrix_room_id, "Could not determine source group for room");
+                        tracing::error!(?error, matrix_room_id, "Could not determine source group for room");
                     }
 
                     continue;
@@ -533,7 +533,7 @@ impl Connector {
                         continue;
                     }
                     if let Err(e) = self.synapse_api.kick_user_from_room(matrix_room_id, member).await {
-                        tracing::error!(matrix_room_id, member, %e, "Could not kick member from room");
+                        tracing::error!(matrix_room_id, member, error = ?e, "Could not kick member from room");
                         all_kicked = false;
                     }
                 }

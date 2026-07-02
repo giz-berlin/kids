@@ -568,7 +568,7 @@ impl Connector {
             if !current_aliases.contains(alias) {
                 match self.james_api.add_alias(uuid_email, alias).await {
                     Ok(_) => tracing::info!(uuid_email, alias, "Add alias"),
-                    Err(error) => tracing::error!(%error, uuid_email, alias,  "Could not add alias"),
+                    Err(error) => tracing::error!(?error, uuid_email, alias, "Could not add alias"),
                 }
             }
         }
@@ -578,7 +578,7 @@ impl Connector {
             if !(self.domain_contained_in_cached_james_domains(&domain).await? && desired_aliases.contains(alias)) {
                 match self.james_api.remove_alias(uuid_email, alias).await {
                     Ok(_) => tracing::info!(uuid_email, alias, "Delete alias"),
-                    Err(error) => tracing::error!(%error, uuid_email, alias,  "Could not delete alias"),
+                    Err(error) => tracing::error!(?error, uuid_email, alias, "Could not delete alias"),
                 }
             }
         }

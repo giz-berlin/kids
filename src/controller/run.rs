@@ -69,7 +69,7 @@ pub async fn periodic_full_sync<S: source::interface::Source + Send + Sync + 'st
                 return Err(e);
             }
 
-            tracing::error!("Periodic full sync failed: {e:?}");
+            tracing::error!(error = ?e, "Periodic full sync failed");
         }
 
         is_initial_sync = false;

@@ -85,7 +85,7 @@ impl KeycloakServiceAccountClient {
                 ))
             }
             Err(e) => {
-                tracing::error!("{}", e);
+                tracing::error!(error = ?e, "Unknown Keycloak error");
                 Err(error::KidsError::RequestFailed(error::NO_CONTEXT.to_string(), anyhow!(e)))
             }
         }
