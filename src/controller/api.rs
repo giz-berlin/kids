@@ -1,4 +1,8 @@
-use crate::{controller::state, source, target};
+use crate::{
+    config,
+    controller::{state, tls},
+    source, target,
+};
 
 async fn serve_api(axum::Extension(api): axum::Extension<aide::openapi::OpenApi>) -> impl aide::axum::IntoApiResponse {
     axum::Json(api)
@@ -6,6 +10,7 @@ async fn serve_api(axum::Extension(api): axum::Extension<aide::openapi::OpenApi>
 
 pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target::interface::Target + Send + Sync + 'static>(
     bind_addr: String,
+    tls: Option<config::TlsConfig>,
     app_state: state::AppState<S, T>,
 ) -> anyhow::Result<()> {
     // create metadata for API docs
@@ -29,12 +34,21 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
         ..aide::openapi::OpenApi::default()
     };
 
-    let app = aide::axum::ApiRouter::new()
-        // Add routes of official API
+    // Reachable by any client that, when enabled, completed the mTLS handshake.
+    let public_routes = aide::axum::ApiRouter::new()
         .api_route(
             "/v1/health",
             aide::axum::routing::get_with(crate::controller::handlers::health::health, crate::controller::handlers::health::health_desc),
         )
+        .route("/docs/api.json", aide::axum::routing::get(serve_api))
+        .route(
+            "/docs",
+            aide::redoc::Redoc::new("/docs/api.json").with_title("Keycloak Identity Syncer").axum_route(),
+        )
+        .route("/", aide::axum::routing::get(|| async { axum::response::Redirect::to("/docs") }));
+
+    // Webhook routes that require `allow_webhook_access` enabled for the certificate when mTLS is enabled.
+    let mut protected_routes = aide::axum::ApiRouter::new()
         .api_route(
             "/v1/users",
             aide::axum::routing::get_with(
@@ -76,13 +90,14 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
                 crate::controller::handlers::group::delete_group,
                 crate::controller::handlers::group::delete_group_desc,
             ),
-        )
-        .route("/docs/api.json", aide::axum::routing::get(serve_api))
-        .route(
-            "/docs",
-            aide::redoc::Redoc::new("/docs/api.json").with_title("Keycloak Identity Syncer").axum_route(),
-        )
-        .route("/", aide::axum::routing::get(|| async { axum::response::Redirect::to("/docs") }))
+        );
+
+    if tls.as_ref().is_some_and(|tls| tls.client_auth.is_some()) {
+        protected_routes = protected_routes.route_layer(axum::middleware::from_fn(tls::require_webhook_access));
+    }
+
+    let app = public_routes
+        .merge(protected_routes)
         // Spawn each handler as an independent task so it runs to completion even if the client
         // disconnects mid-request. The write lock on AppState::target serializes concurrent
         // handlers with the periodic full sync.
@@ -96,10 +111,16 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
         .layer(sentry::integrations::tower::SentryLayer::new_from_top())
         .layer(sentry::integrations::tower::SentryHttpLayer::new().enable_transaction());
 
-    tracing::info!(bind = bind_addr, "Starting API");
-
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
+    match tls {
+        None => {
+            tracing::info!(bind = bind_addr, "Starting API");
+            let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+            axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
+        }
+        Some(tls_config) => {
+            tls::serve(bind_addr, tls_config, app, shutdown_signal()).await?;
+        }
+    }
 
     Ok(())
 }

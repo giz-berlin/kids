@@ -19,6 +19,26 @@ required for the used `Source` and `Target` components (see [architecture](#arch
 
 All default configurations can be found in the [default config folder](default_configs).
 
+### TLS
+
+To serve the API over HTTPS configure the `[controller.tls]` section in the config file.
+The certificate and key files are inlined in PEM format and can be generated like this:
+
+```shell
+./scripts/generate-cert.sh server kids 127.0.0.1
+```
+
+Modern TLS clients verify the server certificate against its `subjectAltName` (SAN) entries so make sure to include every IP clients will actually connect through.
+
+### mTLS
+
+To require client certificates for authentication set the `[controller.tls.client_auth]` section with one or more pinned `[[clients]]`.
+Generate the certificate and key using the following command and make sure to store the private key somewhere accessible to the client.
+
+```shell
+./scripts/generate-cert.sh client keycloak
+```
+
 ## Architecture
 
 This project consists of three main components:

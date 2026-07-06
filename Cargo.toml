@@ -19,7 +19,7 @@ rand = "0.9.0"
 derive_builder = "0.20.2"
 mockall = "0.13.1"
 keycloak = "~26.2.0"
-reqwest = { version = "0.12.15", features = ["default-tls"] }
+reqwest = { version = "0.12.15", features = ["default-tls", "native-tls"] }
 uuid = { version = "1.16.0", features = ["v4", "serde"] }
 url = "2.5.4"
 serde_json = "1.0.140"
@@ -36,6 +36,12 @@ axum = { version = "0.8.6", features = ["tracing", "macros"] }
 indexmap = "2.11.4"
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
 urlencoding = "2.1.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
+axum-server = { version = "0.8", features = ["tls-rustls"] }
+sha2 = "0.11"
+tower-http = { version = "0.7", features = ["add-extension"] }
 
 [[bin]]
 name = "keycloak-james"
@@ -50,6 +56,7 @@ name = "keycloak-memory"
 name = "webhook-cli"
 
 [dev-dependencies]
+rcgen = { version = "0.14.8", features = ["ring"] }
 rstest = "0.25.0"
 
 [profile.test.package."*"]

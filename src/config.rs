@@ -29,11 +29,45 @@ pub struct ControllerConfig {
     /// Interval in seconds to perform the full sync from source to target.
     #[serde(default = "default_full_sync_interval")]
     pub full_sync_interval_seconds: u64,
+    /// If present, serve the API over HTTPS using this certificate/key.
+    /// If absent, the API is served over plain HTTP.
+    #[serde(default)]
+    pub tls: Option<TlsConfig>,
 }
 
 fn default_full_sync_interval() -> u64 {
     // Default to every 24h for performing a full sync from source to target.
     24 * 60 * 60
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct TlsConfig {
+    /// PEM-encoded server certificate to present to clients.
+    pub cert_pem: String,
+    /// PEM-encoded private key belonging to `cert_pem`.
+    pub key_pem: String,
+    /// If present, enables mandatory mTLS: every connection must present one of the
+    /// pinned client certificates below, or the TLS handshake is rejected.
+    #[serde(default)]
+    pub client_auth: Option<ClientAuthConfig>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct ClientAuthConfig {
+    /// Pinned client certificates, each identifying one named client allowed to connect.
+    pub clients: Vec<ClientCertConfig>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct ClientCertConfig {
+    /// Identifies this client in logs/tracing.
+    pub name: String,
+    /// PEM-encoded client certificate to pin.
+    pub cert_pem: String,
+    /// Whether this client may additionally reach the webhook routes (/v1/users, /v1/groups).
+    /// If false, the client can only reach the health and docs routes.
+    #[serde(default)]
+    pub allow_webhook_access: bool,
 }
 
 impl<S: serde::de::DeserializeOwned, T: serde::de::DeserializeOwned> Config<S, T> {
@@ -97,6 +131,76 @@ mod tests {
         "#;
         let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
         assert!(config.sentry.is_none());
+    }
+
+    #[test]
+    fn test_try_from_str_tls_absent() {
+        let toml_str = r#"
+            [controller]
+            bind_addr = "127.0.0.1:8080"
+
+            [source]
+
+            [target]
+        "#;
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
+        assert!(config.controller.tls.is_none());
+    }
+
+    #[test]
+    fn test_try_from_str_tls_server_only() {
+        let toml_str = r#"
+            [controller]
+            bind_addr = "127.0.0.1:8080"
+
+            [controller.tls]
+            cert_pem = "-----BEGIN CERTIFICATE-----\nserver-cert\n-----END CERTIFICATE-----"
+            key_pem = "-----BEGIN PRIVATE KEY-----\nserver-key\n-----END PRIVATE KEY-----"
+
+            [source]
+
+            [target]
+        "#;
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
+        let tls = config.controller.tls.unwrap();
+        assert!(tls.cert_pem.contains("server-cert"));
+        assert!(tls.key_pem.contains("server-key"));
+        assert!(tls.client_auth.is_none());
+    }
+
+    #[test]
+    fn test_try_from_str_tls_client_auth() {
+        let toml_str = r#"
+            [controller]
+            bind_addr = "127.0.0.1:8080"
+
+            [controller.tls]
+            cert_pem = "-----BEGIN CERTIFICATE-----\nserver-cert\n-----END CERTIFICATE-----"
+            key_pem = "-----BEGIN PRIVATE KEY-----\nserver-key\n-----END PRIVATE KEY-----"
+
+            [controller.tls.client_auth]
+
+            [[controller.tls.client_auth.clients]]
+            name = "keycloak"
+            cert_pem = "-----BEGIN CERTIFICATE-----\nkeycloak-cert\n-----END CERTIFICATE-----"
+            allow_webhook_access = true
+
+            [[controller.tls.client_auth.clients]]
+            name = "monitoring"
+            cert_pem = "-----BEGIN CERTIFICATE-----\nmonitoring-cert\n-----END CERTIFICATE-----"
+
+            [source]
+
+            [target]
+        "#;
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
+        let clients = config.controller.tls.unwrap().client_auth.unwrap().clients;
+        assert_eq!(clients.len(), 2);
+        assert_eq!(clients[0].name, "keycloak");
+        assert!(clients[0].allow_webhook_access);
+        assert!(clients[0].cert_pem.contains("keycloak-cert"));
+        assert_eq!(clients[1].name, "monitoring");
+        assert!(!clients[1].allow_webhook_access);
     }
 
     #[test]

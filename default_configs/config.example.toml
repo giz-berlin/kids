@@ -6,6 +6,32 @@ bind_addr = ""
 # Defaults to 24h.
 # full_sync_interval_seconds = 86400
 
+# Optional: When set, the API is served over HTTPS.
+# [controller.tls]
+# cert_pem = """
+# -----BEGIN CERTIFICATE-----
+# ...contents of server.crt...
+# -----END CERTIFICATE-----
+# """
+# key_pem = """
+# -----BEGIN PRIVATE KEY-----
+# ...contents of server.key...
+# -----END PRIVATE KEY-----
+# """
+#
+# Optional: require a client certificate on every connection.
+# [controller.tls.client_auth]
+#
+# [[controller.tls.client_auth.clients]]
+# name = "keycloak"
+# cert_pem = """
+# -----BEGIN CERTIFICATE-----
+# ...contents of keycloak-client.crt...
+# -----END CERTIFICATE-----
+# """
+# Whether to grant access to the webhook routes such as /v1/users and /v1/groups
+# allow_webhook_access = false
+
 # This section can be omitted to disable Sentry.
 [sentry]
 # Sentry Data Source Name (DSN). Tells Sentry where to send events to so they're associated with the correct project.

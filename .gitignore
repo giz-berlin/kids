@@ -1,3 +1,5 @@
 /target
 /config.toml
 /config.*.toml
+*.key
+*.crt
