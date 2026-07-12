@@ -34,15 +34,12 @@ pub async fn require_webhook_access(
 /// of the pinned client certificates or the handshake itself is rejected.
 pub async fn serve(
     bind_addr: std::net::SocketAddr,
-    cert_pem: String,
-    key_pem: String,
+    cert: crate::config::ServerCertChain,
+    key: crate::config::ServerPrivateKey,
     client_auth: crate::config::ClientAuth,
     app: axum::Router,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
-    let cert_chain = parse_certs(&cert_pem)?;
-    let key = parse_private_key(&key_pem)?;
-
     let (verifier, clients) = match client_auth {
         crate::config::ClientAuth::InsecureDisabled => (build_client_cert_verifier(None)?, None),
         crate::config::ClientAuth::Enabled { clients } => {
@@ -54,7 +51,7 @@ pub async fn serve(
 
     let mut server_config = rustls::ServerConfig::builder()
         .with_client_cert_verifier(verifier)
-        .with_single_cert(cert_chain, key)
+        .with_single_cert(cert.0, key.0)
         .context("invalid server certificate/key")?;
     server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
@@ -71,7 +68,10 @@ pub async fn serve(
     if let Some(clients) = clients {
         tracing::info!(bind = %bind_addr, mtls = true, "Starting API with TLS");
         axum_server::bind(bind_addr)
-            .acceptor(MtlsAcceptor { inner: tls_acceptor, clients: std::sync::Arc::new(clients) })
+            .acceptor(MtlsAcceptor {
+                inner: tls_acceptor,
+                clients: std::sync::Arc::new(clients),
+            })
             .handle(handle)
             .serve(app.into_make_service())
             .await
@@ -89,24 +89,6 @@ pub async fn serve(
     Ok(())
 }
 
-fn parse_certs(pem: &str) -> anyhow::Result<Vec<rustls::pki_types::CertificateDer<'static>>> {
-    let certs = rustls_pemfile::certs(&mut pem.as_bytes())
-        .collect::<Result<Vec<_>, _>>()
-        .context("failed to parse PEM certificate(s)")?;
-
-    if certs.is_empty() {
-        anyhow::bail!("no certificates found in PEM input");
-    }
-
-    Ok(certs)
-}
-
-fn parse_private_key(pem: &str) -> anyhow::Result<rustls::pki_types::PrivateKeyDer<'static>> {
-    rustls_pemfile::private_key(&mut pem.as_bytes())
-        .context("failed to parse PEM private key")?
-        .ok_or_else(|| anyhow::anyhow!("no private key found in PEM input"))
-}
-
 fn fingerprint_hex(der: &[u8]) -> String {
     let digest = sha2::Sha256::digest(der);
     digest.iter().map(|b| format!("{b:02x}")).collect()
@@ -116,20 +98,14 @@ fn build_client_map(clients: &[crate::config::ClientCertConfig]) -> anyhow::Resu
     let mut map = std::collections::HashMap::new();
 
     for client in clients {
-        let certs = parse_certs(&client.cert_pem).with_context(|| format!("invalid certificate for client '{}'", client.name))?;
-        if certs.len() != 1 {
-            anyhow::bail!("expected exactly one certificate for client '{}', found {}", client.name, certs.len());
-        }
-        let der = certs.into_iter().next().unwrap();
-
         tracing::info!(
             client = client.name,
-            fingerprint = fingerprint_hex(der.as_ref()),
+            fingerprint = fingerprint_hex(client.cert.0.as_ref()),
             "Pinned client certificate loaded"
         );
 
         map.insert(
-            der.as_ref().to_vec(),
+            client.cert.0.as_ref().to_vec(),
             ClientIdentity {
                 name: client.name.clone(),
                 allow_webhook_access: client.allow_webhook_access,
@@ -217,14 +193,13 @@ where
 mod tests {
     use super::*;
 
-    fn generate_cert(common_name: &str) -> (String, String) {
-        let rcgen::CertifiedKey { cert, signing_key } = rcgen::generate_simple_self_signed(vec![common_name.to_string()]).unwrap();
-        (cert.pem(), signing_key.serialize_pem())
+    fn generate_cert(common_name: &str) -> rustls::pki_types::CertificateDer<'static> {
+        let rcgen::CertifiedKey { cert, .. } = rcgen::generate_simple_self_signed(vec![common_name.to_string()]).unwrap();
+        cert.der().clone()
     }
 
-    fn sample_pins() -> (std::collections::HashMap<Vec<u8>, ClientIdentity>, String, String) {
-        let (cert_pem, key_pem) = generate_cert("known-client");
-        let der = parse_certs(&cert_pem).unwrap().into_iter().next().unwrap();
+    fn sample_pins() -> (std::collections::HashMap<Vec<u8>, ClientIdentity>, rustls::pki_types::CertificateDer<'static>) {
+        let der = generate_cert("known-client");
 
         let mut pins = std::collections::HashMap::new();
         pins.insert(
@@ -234,13 +209,12 @@ mod tests {
                 allow_webhook_access: true,
             },
         );
-        (pins, cert_pem, key_pem)
+        (pins, der)
     }
 
     #[test]
     fn resolve_identity_matches_pinned_cert() {
-        let (pins, cert_pem, _key_pem) = sample_pins();
-        let der = parse_certs(&cert_pem).unwrap().into_iter().next().unwrap();
+        let (pins, der) = sample_pins();
 
         let identity = resolve_identity(der.as_ref(), &pins).expect("known cert should resolve");
         assert_eq!(identity.name, "known");
@@ -249,27 +223,24 @@ mod tests {
 
     #[test]
     fn resolve_identity_rejects_unpinned_cert() {
-        let (pins, _cert_pem, _key_pem) = sample_pins();
-        let (other_cert_pem, _) = generate_cert("unknown-client");
-        let der = parse_certs(&other_cert_pem).unwrap().into_iter().next().unwrap();
+        let (pins, _) = sample_pins();
+        let der = generate_cert("unknown-client");
 
         assert!(resolve_identity(der.as_ref(), &pins).is_none());
     }
 
     #[test]
     fn build_client_map_loads_configured_clients() {
-        let (keycloak_cert_pem, _) = generate_cert("keycloak-client");
-        let (monitoring_cert_pem, _) = generate_cert("monitoring-client");
-
+        let keycloak_der = generate_cert("keycloak-client");
         let clients = vec![
             crate::config::ClientCertConfig {
                 name: "keycloak".to_string(),
-                cert_pem: keycloak_cert_pem.clone(),
+                cert: crate::config::ClientCert(keycloak_der.clone()),
                 allow_webhook_access: true,
             },
             crate::config::ClientCertConfig {
                 name: "monitoring".to_string(),
-                cert_pem: monitoring_cert_pem,
+                cert: crate::config::ClientCert(generate_cert("monitoring-client")),
                 allow_webhook_access: false,
             },
         ];
@@ -277,7 +248,6 @@ mod tests {
         let map = build_client_map(&clients).unwrap();
         assert_eq!(map.len(), 2);
 
-        let keycloak_der = parse_certs(&keycloak_cert_pem).unwrap().into_iter().next().unwrap();
         let identity = resolve_identity(keycloak_der.as_ref(), &map).unwrap();
         assert_eq!(identity.name, "keycloak");
         assert!(identity.allow_webhook_access);

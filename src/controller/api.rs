@@ -92,7 +92,13 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
             ),
         );
 
-    if matches!(&tls, config::Tls::Enabled { client_auth: config::ClientAuth::Enabled { .. }, .. }) {
+    if matches!(
+        &tls,
+        config::Tls::Enabled {
+            client_auth: config::ClientAuth::Enabled { .. },
+            ..
+        }
+    ) {
         protected_routes = protected_routes.route_layer(axum::middleware::from_fn(tls::require_webhook_access));
     }
 
@@ -117,8 +123,8 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
             let listener = tokio::net::TcpListener::bind(bind_addr).await?;
             axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
         }
-        config::Tls::Enabled { cert_pem, key_pem, client_auth } => {
-            tls::serve(bind_addr, cert_pem, key_pem, client_auth, app, shutdown_signal()).await?;
+        config::Tls::Enabled { cert, key, client_auth } => {
+            tls::serve(bind_addr, cert, key, client_auth, app, shutdown_signal()).await?;
         }
     }
 
