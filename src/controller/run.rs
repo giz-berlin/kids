@@ -6,13 +6,13 @@ use crate::{
 };
 
 pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target::interface::Target + Send + Sync + 'static>(
-    bind_addr: String,
-    tls: Option<crate::config::TlsConfig>,
+    bind_addr: std::net::SocketAddr,
+    tls: crate::config::Tls,
     full_sync_interval_seconds: u64,
     source: S,
     target: T,
 ) -> anyhow::Result<()> {
-    tracing::info!(addr = bind_addr, full_sync_interval = full_sync_interval_seconds, "Starting Controller");
+    tracing::info!(addr = %bind_addr, full_sync_interval = full_sync_interval_seconds, "Starting Controller");
 
     let app_state = state::AppState {
         source: std::sync::Arc::new(source),

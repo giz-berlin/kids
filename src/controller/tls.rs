@@ -28,28 +28,29 @@ pub async fn require_webhook_access(
     next.run(req).await
 }
 
-/// Serve `app` over HTTPS using `tls_config`.
+/// Serve `app` over HTTPS.
 ///
-/// If `tls_config.client_auth` is present, every connection must
-/// present one of the pinned client certificates or the handshake itself is rejected.
+/// If `client_auth` is [`crate::config::ClientAuth::Enabled`], every connection must present one
+/// of the pinned client certificates or the handshake itself is rejected.
 pub async fn serve(
-    bind_addr: String,
-    tls_config: crate::config::TlsConfig,
+    bind_addr: std::net::SocketAddr,
+    cert_pem: String,
+    key_pem: String,
+    client_auth: crate::config::ClientAuth,
     app: axum::Router,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
-    let addr: std::net::SocketAddr = bind_addr.parse().with_context(|| format!("invalid bind address: {bind_addr}"))?;
+    let cert_chain = parse_certs(&cert_pem)?;
+    let key = parse_private_key(&key_pem)?;
 
-    let cert_chain = parse_certs(&tls_config.cert_pem)?;
-    let key = parse_private_key(&tls_config.key_pem)?;
-
-    let mtls_enabled = tls_config.client_auth.is_some();
-    let clients = match &tls_config.client_auth {
-        Some(client_auth) => build_client_map(client_auth)?,
-        None => std::collections::HashMap::new(),
+    let (verifier, clients) = match client_auth {
+        crate::config::ClientAuth::InsecureDisabled => (build_client_cert_verifier(None)?, None),
+        crate::config::ClientAuth::Enabled { clients } => {
+            let client_map = build_client_map(&clients)?;
+            let verifier = build_client_cert_verifier(Some(&client_map))?;
+            (verifier, Some(client_map))
+        }
     };
-
-    let verifier = build_client_cert_verifier(mtls_enabled.then_some(&clients))?;
 
     let mut server_config = rustls::ServerConfig::builder()
         .with_client_cert_verifier(verifier)
@@ -67,22 +68,17 @@ pub async fn serve(
         shutdown_handle.graceful_shutdown(None);
     });
 
-    tracing::info!(bind = bind_addr, mtls = mtls_enabled, "Starting API with TLS");
-
-    if mtls_enabled {
-        let acceptor = MtlsAcceptor {
-            inner: tls_acceptor,
-            clients: std::sync::Arc::new(clients),
-        };
-
-        axum_server::bind(addr)
-            .acceptor(acceptor)
+    if let Some(clients) = clients {
+        tracing::info!(bind = %bind_addr, mtls = true, "Starting API with TLS");
+        axum_server::bind(bind_addr)
+            .acceptor(MtlsAcceptor { inner: tls_acceptor, clients: std::sync::Arc::new(clients) })
             .handle(handle)
             .serve(app.into_make_service())
             .await
             .context("API server with mTLS failed")?;
     } else {
-        axum_server::bind(addr)
+        tracing::info!(bind = %bind_addr, mtls = false, "Starting API with TLS");
+        axum_server::bind(bind_addr)
             .acceptor(tls_acceptor)
             .handle(handle)
             .serve(app.into_make_service())
@@ -116,10 +112,10 @@ fn fingerprint_hex(der: &[u8]) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn build_client_map(client_auth: &crate::config::ClientAuthConfig) -> anyhow::Result<std::collections::HashMap<Vec<u8>, ClientIdentity>> {
+fn build_client_map(clients: &[crate::config::ClientCertConfig]) -> anyhow::Result<std::collections::HashMap<Vec<u8>, ClientIdentity>> {
     let mut map = std::collections::HashMap::new();
 
-    for client in &client_auth.clients {
+    for client in clients {
         let certs = parse_certs(&client.cert_pem).with_context(|| format!("invalid certificate for client '{}'", client.name))?;
         if certs.len() != 1 {
             anyhow::bail!("expected exactly one certificate for client '{}', found {}", client.name, certs.len());
@@ -265,22 +261,20 @@ mod tests {
         let (keycloak_cert_pem, _) = generate_cert("keycloak-client");
         let (monitoring_cert_pem, _) = generate_cert("monitoring-client");
 
-        let client_auth = crate::config::ClientAuthConfig {
-            clients: vec![
-                crate::config::ClientCertConfig {
-                    name: "keycloak".to_string(),
-                    cert_pem: keycloak_cert_pem.clone(),
-                    allow_webhook_access: true,
-                },
-                crate::config::ClientCertConfig {
-                    name: "monitoring".to_string(),
-                    cert_pem: monitoring_cert_pem,
-                    allow_webhook_access: false,
-                },
-            ],
-        };
+        let clients = vec![
+            crate::config::ClientCertConfig {
+                name: "keycloak".to_string(),
+                cert_pem: keycloak_cert_pem.clone(),
+                allow_webhook_access: true,
+            },
+            crate::config::ClientCertConfig {
+                name: "monitoring".to_string(),
+                cert_pem: monitoring_cert_pem,
+                allow_webhook_access: false,
+            },
+        ];
 
-        let map = build_client_map(&client_auth).unwrap();
+        let map = build_client_map(&clients).unwrap();
         assert_eq!(map.len(), 2);
 
         let keycloak_der = parse_certs(&keycloak_cert_pem).unwrap().into_iter().next().unwrap();

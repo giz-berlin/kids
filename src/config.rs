@@ -15,24 +15,20 @@ pub struct EmptyConfig {}
 #[derive(serde::Deserialize, Debug)]
 pub struct SentryConfig {
     /// Sentry Data Source Name (DSN). Tells Sentry where to send events to so they're associated with the correct project.
-    /// Must be specified if Sentry is `active`.
     pub dsn: String,
     /// Tag specifying which context the service is running in (for example, development, production, ...).
-    /// Must be specified if Sentry is `active`.
     pub environment: String,
 }
 
 #[derive(serde::Deserialize, Debug)]
 pub struct ControllerConfig {
     /// Address with port to bind the HTTP server to.
-    pub bind_addr: String,
+    pub bind_addr: std::net::SocketAddr,
     /// Interval in seconds to perform the full sync from source to target.
     #[serde(default = "default_full_sync_interval")]
     pub full_sync_interval_seconds: u64,
-    /// If present, serve the API over HTTPS using this certificate/key.
-    /// If absent, the API is served over plain HTTP.
-    #[serde(default)]
-    pub tls: Option<TlsConfig>,
+    /// TLS configuration.
+    pub tls: Tls,
 }
 
 fn default_full_sync_interval() -> u64 {
@@ -40,22 +36,51 @@ fn default_full_sync_interval() -> u64 {
     24 * 60 * 60
 }
 
-#[derive(serde::Deserialize, Debug)]
-pub struct TlsConfig {
-    /// PEM-encoded server certificate to present to clients.
-    pub cert_pem: String,
-    /// PEM-encoded private key belonging to `cert_pem`.
-    pub key_pem: String,
-    /// If present, enables mandatory mTLS: every connection must present one of the
-    /// pinned client certificates below, or the TLS handshake is rejected.
-    #[serde(default)]
-    pub client_auth: Option<ClientAuthConfig>,
+#[derive(serde::Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum Tls {
+    /// Serve plain HTTP. Do not use in production.
+    InsecureDisabled,
+    Enabled {
+        /// PEM-encoded server certificate to present to clients.
+        cert_pem: String,
+        /// PEM-encoded private key belonging to `cert_pem`.
+        key_pem: String,
+        /// Client authentication configuration.
+        client_auth: ClientAuth,
+    },
+}
+
+// Debug implementation for the TLS struct to prevent the key_pem from leaking into logs.
+impl std::fmt::Debug for Tls {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tls::InsecureDisabled => {
+                f.write_str("InsecureDisabled")
+            }
+            Tls::Enabled {
+                cert_pem,
+                key_pem: _,
+                client_auth,
+            } => {
+                f.debug_struct("Enabled")
+                    .field("cert_pem", cert_pem)
+                    .field("key_pem", &"[REDACTED]")
+                    .field("client_auth", client_auth)
+                    .finish()
+            }
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Debug)]
-pub struct ClientAuthConfig {
-    /// Pinned client certificates, each identifying one named client allowed to connect.
-    pub clients: Vec<ClientCertConfig>,
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ClientAuth {
+    /// Disable client certificate authentication. Do not use in production.
+    InsecureDisabled,
+    /// Every connection must present one of the pinned client certificates
+    /// or the TLS handshake is rejected.
+    Enabled { clients: Vec<ClientCertConfig> },
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -108,6 +133,9 @@ mod tests {
             [controller]
             bind_addr = "127.0.0.1:8080"
 
+            [controller.tls]
+            mode = "insecure_disabled"
+
             [source]
 
             [target]
@@ -122,10 +150,13 @@ mod tests {
     #[test]
     fn test_try_from_str_sentry_inactive() {
         let toml_str = r#"
-            [source]
-
             [controller]
             bind_addr = "127.0.0.1:8080"
+
+            [controller.tls]
+            mode = "insecure_disabled"
+
+            [source]
 
             [target]
         "#;
@@ -134,51 +165,67 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_str_tls_absent() {
+    fn test_try_from_str_tls_insecure_disabled() {
         let toml_str = r#"
             [controller]
             bind_addr = "127.0.0.1:8080"
+
+            [controller.tls]
+            mode = "insecure_disabled"
 
             [source]
 
             [target]
         "#;
         let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
-        assert!(config.controller.tls.is_none());
+        assert!(matches!(config.controller.tls, Tls::InsecureDisabled));
     }
 
     #[test]
-    fn test_try_from_str_tls_server_only() {
+    fn test_try_from_str_tls_enabled_client_auth_disabled() {
         let toml_str = r#"
             [controller]
             bind_addr = "127.0.0.1:8080"
 
             [controller.tls]
-            cert_pem = "-----BEGIN CERTIFICATE-----\nserver-cert\n-----END CERTIFICATE-----"
-            key_pem = "-----BEGIN PRIVATE KEY-----\nserver-key\n-----END PRIVATE KEY-----"
-
-            [source]
-
-            [target]
-        "#;
-        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
-        let tls = config.controller.tls.unwrap();
-        assert!(tls.cert_pem.contains("server-cert"));
-        assert!(tls.key_pem.contains("server-key"));
-        assert!(tls.client_auth.is_none());
-    }
-
-    #[test]
-    fn test_try_from_str_tls_client_auth() {
-        let toml_str = r#"
-            [controller]
-            bind_addr = "127.0.0.1:8080"
-
-            [controller.tls]
+            mode = "enabled"
             cert_pem = "-----BEGIN CERTIFICATE-----\nserver-cert\n-----END CERTIFICATE-----"
             key_pem = "-----BEGIN PRIVATE KEY-----\nserver-key\n-----END PRIVATE KEY-----"
 
             [controller.tls.client_auth]
+            mode = "insecure_disabled"
+
+            [source]
+
+            [target]
+        "#;
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
+        let Tls::Enabled {
+            cert_pem,
+            key_pem,
+            client_auth,
+        } = config.controller.tls
+        else {
+            panic!("expected Tls::Enabled");
+        };
+        assert!(cert_pem.contains("server-cert"));
+        assert!(key_pem.contains("server-key"));
+        assert!(matches!(client_auth, ClientAuth::InsecureDisabled));
+    }
+
+    #[test]
+    fn test_try_from_str_tls_enabled_client_auth_enabled() {
+        let toml_str = r#"
+            [controller]
+            bind_addr = "127.0.0.1:8080"
+
+            [controller.tls]
+            mode = "enabled"
+            cert_pem = "-----BEGIN CERTIFICATE-----\nserver-cert\n-----END CERTIFICATE-----"
+            key_pem = "-----BEGIN PRIVATE KEY-----\nserver-key\n-----END PRIVATE KEY-----"
+
+            [controller.tls.client_auth]
+            mode = "enabled"
 
             [[controller.tls.client_auth.clients]]
             name = "keycloak"
@@ -194,7 +241,12 @@ mod tests {
             [target]
         "#;
         let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
-        let clients = config.controller.tls.unwrap().client_auth.unwrap().clients;
+        let Tls::Enabled { client_auth, .. } = config.controller.tls else {
+            panic!("expected Tls::Enabled");
+        };
+        let ClientAuth::Enabled { clients } = client_auth else {
+            panic!("expected ClientAuth::Enabled");
+        };
         assert_eq!(clients.len(), 2);
         assert_eq!(clients[0].name, "keycloak");
         assert!(clients[0].allow_webhook_access);

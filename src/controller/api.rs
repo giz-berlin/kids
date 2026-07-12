@@ -9,8 +9,8 @@ async fn serve_api(axum::Extension(api): axum::Extension<aide::openapi::OpenApi>
 }
 
 pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target::interface::Target + Send + Sync + 'static>(
-    bind_addr: String,
-    tls: Option<config::TlsConfig>,
+    bind_addr: std::net::SocketAddr,
+    tls: config::Tls,
     app_state: state::AppState<S, T>,
 ) -> anyhow::Result<()> {
     // create metadata for API docs
@@ -92,7 +92,7 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
             ),
         );
 
-    if tls.as_ref().is_some_and(|tls| tls.client_auth.is_some()) {
+    if matches!(&tls, config::Tls::Enabled { client_auth: config::ClientAuth::Enabled { .. }, .. }) {
         protected_routes = protected_routes.route_layer(axum::middleware::from_fn(tls::require_webhook_access));
     }
 
@@ -112,13 +112,13 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
         .layer(sentry::integrations::tower::SentryHttpLayer::new().enable_transaction());
 
     match tls {
-        None => {
-            tracing::info!(bind = bind_addr, "Starting API");
+        config::Tls::InsecureDisabled => {
+            tracing::info!(bind = %bind_addr, "Starting API");
             let listener = tokio::net::TcpListener::bind(bind_addr).await?;
             axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
         }
-        Some(tls_config) => {
-            tls::serve(bind_addr, tls_config, app, shutdown_signal()).await?;
+        config::Tls::Enabled { cert_pem, key_pem, client_auth } => {
+            tls::serve(bind_addr, cert_pem, key_pem, client_auth, app, shutdown_signal()).await?;
         }
     }
 
