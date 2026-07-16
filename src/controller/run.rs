@@ -6,12 +6,13 @@ use crate::{
 };
 
 pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target::interface::Target + Send + Sync + 'static>(
-    bind_addr: String,
+    bind_addr: std::net::SocketAddr,
+    tls: crate::config::Tls,
     full_sync_interval_seconds: u64,
     source: S,
     target: T,
 ) -> anyhow::Result<()> {
-    tracing::info!(addr = bind_addr, full_sync_interval = full_sync_interval_seconds, "Starting Controller");
+    tracing::info!(addr = %bind_addr, full_sync_interval = full_sync_interval_seconds, "Starting Controller");
 
     let app_state = state::AppState {
         source: std::sync::Arc::new(source),
@@ -26,7 +27,7 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
     // If the initial sync succeeds, the `Ok(Err(e))` pattern does not match and tokio::select!
     // disables that branch, continuing to wait for the API to exit normally (e.g. via Ctrl+C).
     tokio::select! {
-        result = api::run(bind_addr, app_state) => result,
+        result = api::run(bind_addr, tls, app_state) => result,
         Ok(Err(e)) = periodic_full_sync_handle => Err(e).context("initial full sync failed on startup"),
     }
 }

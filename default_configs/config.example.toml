@@ -6,6 +6,38 @@ bind_addr = ""
 # Defaults to 24h.
 # full_sync_interval_seconds = 86400
 
+# TLS configuration.
+# Set mode = "insecure_disabled" to serve plain HTTP (do not use in production).
+[controller.tls]
+mode = "enabled"
+cert_pem = """
+-----BEGIN CERTIFICATE-----
+...contents of server.crt...
+-----END CERTIFICATE-----
+"""
+key_pem = """
+-----BEGIN PRIVATE KEY-----
+...contents of server.key...
+-----END PRIVATE KEY-----
+"""
+
+# Client certificate authentication.
+# Set mode = "insecure_disabled" to allow unauthenticated access (do not use in production).
+[controller.tls.client_auth]
+mode = "enabled"
+
+[[controller.tls.client_auth.clients]]
+name = "keycloak"
+cert_pem = """
+-----BEGIN CERTIFICATE-----
+...contents of keycloak-client.crt...
+-----END CERTIFICATE-----
+"""
+# Role of the client which determines what it can do on the API.
+# source - no restrictions
+# monitoring - can't access the webhook routes (only health and docs)
+role = "source"
+
 # This section can be omitted to disable Sentry.
 [sentry]
 # Sentry Data Source Name (DSN). Tells Sentry where to send events to so they're associated with the correct project.

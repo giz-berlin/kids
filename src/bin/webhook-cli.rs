@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueHint};
 use reqwest::Client;
@@ -9,6 +10,23 @@ use url::Url;
 struct Cli {
     #[arg(long, value_hint = ValueHint::Url, default_value = "http://127.0.0.1:3000")]
     endpoint: Url,
+
+    /// Path to a PEM certificate to trust as the server's CA, for endpoints using a self-signed
+    /// server certificate not already in the system trust store.
+    #[arg(long, value_hint = ValueHint::FilePath)]
+    server_ca: Option<PathBuf>,
+
+    /// Skip server certificate verification entirely. Only use for local testing.
+    #[arg(long, default_value_t = false)]
+    insecure: bool,
+
+    /// Path to a PEM client certificate, for endpoints requiring mutual TLS. Requires --client-key.
+    #[arg(long, value_hint = ValueHint::FilePath, requires = "client_key")]
+    client_cert: Option<PathBuf>,
+
+    /// Path to the PEM private key belonging to --client-cert.
+    #[arg(long, value_hint = ValueHint::FilePath, requires = "client_cert")]
+    client_key: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Command,
@@ -94,10 +112,33 @@ fn attributes_to_hashmap(attrs: Vec<(String, String)>) -> HashMap<String, Vec<St
     map
 }
 
+fn build_client(cli: &Cli) -> Result<Client, Box<dyn std::error::Error>> {
+    let mut builder = Client::builder();
+
+    if cli.insecure {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+
+    if let Some(server_ca) = &cli.server_ca {
+        let ca_pem = std::fs::read(server_ca).map_err(|e| format!("failed to read --server-ca {}: {e}", server_ca.display()))?;
+        builder = builder.add_root_certificate(reqwest::Certificate::from_pem(&ca_pem)?);
+    }
+
+    if let Some(client_cert) = &cli.client_cert {
+        // `requires = "client_key"` on the arg definition guarantees this is set.
+        let client_key = cli.client_key.as_ref().unwrap();
+        let cert_pem = std::fs::read(client_cert).map_err(|e| format!("failed to read --client-cert {}: {e}", client_cert.display()))?;
+        let key_pem = std::fs::read(client_key).map_err(|e| format!("failed to read --client-key {}: {e}", client_key.display()))?;
+        builder = builder.identity(reqwest::Identity::from_pkcs8_pem(&cert_pem, &key_pem)?);
+    }
+
+    Ok(builder.build()?)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    let client = Client::new();
+    let client = build_client(&cli)?;
 
     let resp: Option<reqwest::Response>;
 

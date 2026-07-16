@@ -18,6 +18,10 @@ pub fn run<S: source::interface::Source + Send + Sync + 'static, T: target::inte
 
     let config = config::Config::<S::Config, T::Config>::try_from(args.config)?;
 
+    // Install default CryptoProvider for Rustls crate features.
+    // Without this, the program panicks.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let _guard = if let Some(sentry_config) = config.sentry.as_ref() {
         let dsn = sentry::types::Dsn::from_str(&sentry_config.dsn).map_err(|err| {
             tracing::error!(error = ?err, "Invalid Sentry DSN {}", &sentry_config.dsn);
@@ -60,6 +64,7 @@ pub fn run<S: source::interface::Source + Send + Sync + 'static, T: target::inte
 
         crate::controller::run(
             config.controller.bind_addr,
+            config.controller.tls,
             config.controller.full_sync_interval_seconds,
             source_impl,
             target_impl,
