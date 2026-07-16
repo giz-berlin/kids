@@ -47,7 +47,7 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
         )
         .route("/", aide::axum::routing::get(|| async { axum::response::Redirect::to("/docs") }));
 
-    // Webhook routes that require `allow_webhook_access` enabled for the certificate when mTLS is enabled.
+    // Webhook routes that require a specific role of the certificate when mTLS is enabled.
     let mut protected_routes = aide::axum::ApiRouter::new()
         .api_route(
             "/v1/users",

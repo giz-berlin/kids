@@ -33,8 +33,10 @@ cert_pem = """
 ...contents of keycloak-client.crt...
 -----END CERTIFICATE-----
 """
-# Whether to grant access to the webhook routes such as /v1/users and /v1/groups
-# allow_webhook_access = false
+# Role of the client which determines what it can do on the API.
+# source - no restrictions
+# monitoring - can't access the webhook routes (only health and docs)
+role = "source"
 
 # This section can be omitted to disable Sentry.
 [sentry]

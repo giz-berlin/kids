@@ -6,7 +6,7 @@ use sha2::Digest;
 #[derive(Clone, Debug)]
 pub struct ClientIdentity {
     pub name: String,
-    pub allow_webhook_access: bool,
+    pub role: crate::config::ClientRole,
 }
 
 /// Rejects any client whose certificate wasn't granted webhook access.
@@ -15,7 +15,7 @@ pub async fn require_webhook_access(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    if !identity.allow_webhook_access {
+    if !identity.role.allows_webhook_access() {
         return crate::controller::error::ControllerError::new(
             None,
             Some("Forbidden".to_string()),
@@ -108,7 +108,7 @@ fn build_client_map(clients: &[crate::config::ClientCertConfig]) -> anyhow::Resu
             client.cert.0.as_ref().to_vec(),
             ClientIdentity {
                 name: client.name.clone(),
-                allow_webhook_access: client.allow_webhook_access,
+                role: client.role,
             },
         );
     }
@@ -206,7 +206,7 @@ mod tests {
             der.as_ref().to_vec(),
             ClientIdentity {
                 name: "known".to_string(),
-                allow_webhook_access: true,
+                role: crate::config::ClientRole::Source,
             },
         );
         (pins, der)
@@ -218,7 +218,7 @@ mod tests {
 
         let identity = resolve_identity(der.as_ref(), &pins).expect("known cert should resolve");
         assert_eq!(identity.name, "known");
-        assert!(identity.allow_webhook_access);
+        assert_eq!(identity.role, crate::config::ClientRole::Source);
     }
 
     #[test]
@@ -236,12 +236,12 @@ mod tests {
             crate::config::ClientCertConfig {
                 name: "keycloak".to_string(),
                 cert: crate::config::ClientCert(keycloak_der.clone()),
-                allow_webhook_access: true,
+                role: crate::config::ClientRole::Source,
             },
             crate::config::ClientCertConfig {
                 name: "monitoring".to_string(),
                 cert: crate::config::ClientCert(generate_cert("monitoring-client")),
-                allow_webhook_access: false,
+                role: crate::config::ClientRole::Monitoring,
             },
         ];
 
@@ -250,6 +250,6 @@ mod tests {
 
         let identity = resolve_identity(keycloak_der.as_ref(), &map).unwrap();
         assert_eq!(identity.name, "keycloak");
-        assert!(identity.allow_webhook_access);
+        assert_eq!(identity.role, crate::config::ClientRole::Source);
     }
 }

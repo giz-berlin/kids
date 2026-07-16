@@ -69,10 +69,23 @@ pub struct ClientCertConfig {
     /// PEM-encoded client certificate to pin.
     #[serde(rename = "cert_pem")]
     pub cert: ClientCert,
-    /// Whether this client may additionally reach the webhook routes (/v1/users, /v1/groups).
-    /// If false, the client can only reach the health and docs routes.
-    #[serde(default)]
-    pub allow_webhook_access: bool,
+    /// Role of this client, determining what it can do on the API.
+    pub role: ClientRole,
+}
+
+#[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientRole {
+    /// Can reach the webhook routes (/v1/users, /v1/groups) in addition to health and docs.
+    Source,
+    /// Can only reach the health and docs routes.
+    Monitoring,
+}
+
+impl ClientRole {
+    pub fn allows_webhook_access(&self) -> bool {
+        matches!(self, ClientRole::Source)
+    }
 }
 
 /// Parsed server certificate chain.
@@ -280,11 +293,12 @@ mod tests {
             [[controller.tls.client_auth.clients]]
             name = "keycloak"
             cert_pem = """{keycloak_cert_pem}"""
-            allow_webhook_access = true
+            role = "source"
 
             [[controller.tls.client_auth.clients]]
             name = "monitoring"
             cert_pem = """{monitoring_cert_pem}"""
+            role = "monitoring"
 
             [source]
 
@@ -300,10 +314,10 @@ mod tests {
         };
         assert_eq!(clients.len(), 2);
         assert_eq!(clients[0].name, "keycloak");
-        assert!(clients[0].allow_webhook_access);
+        assert_eq!(clients[0].role, ClientRole::Source);
         assert!(!clients[0].cert.0.is_empty());
         assert_eq!(clients[1].name, "monitoring");
-        assert!(!clients[1].allow_webhook_access);
+        assert_eq!(clients[1].role, ClientRole::Monitoring);
     }
 
     #[test]
