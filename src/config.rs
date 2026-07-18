@@ -71,7 +71,21 @@ pub enum ClientAuth {
     InsecureDisabled,
     /// Every connection must present one of the pinned client certificates
     /// or the TLS handshake is rejected.
-    Enabled { clients: Vec<ClientCertConfig> },
+    Enabled {
+        #[serde(deserialize_with = "deserialize_nonempty_clients")]
+        clients: Vec<ClientCertConfig>,
+    },
+}
+
+fn deserialize_nonempty_clients<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<ClientCertConfig>, D::Error> {
+    use serde::Deserialize as _;
+    let clients = Vec::<ClientCertConfig>::deserialize(deserializer)?;
+    if clients.is_empty() {
+        return Err(serde::de::Error::custom(
+            "at least one client must be configured when client_auth mode is \"enabled\"",
+        ));
+    }
+    Ok(clients)
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -363,6 +377,32 @@ mod tests {
         assert!(!clients[0].cert.0.is_empty());
         assert_eq!(clients[1].name, "monitoring");
         assert_eq!(clients[1].role, ClientRole::Monitoring);
+    }
+
+    #[test]
+    fn test_try_from_str_client_auth_empty_clients_is_error() {
+        let (cert_pem, key_pem) = generate_cert_and_key();
+        let toml_str = format!(
+            r#"
+            [controller.api]
+            mode = "enabled"
+            bind_addr = "127.0.0.1:8080"
+
+            [controller.api.tls]
+            mode = "enabled"
+            cert_pem = """{cert_pem}"""
+            key_pem = """{key_pem}"""
+
+            [controller.api.tls.client_auth]
+            mode = "enabled"
+            clients = []
+
+            [source]
+            [target]
+            "#
+        );
+        let result = Config::<EmptyConfig, EmptyConfig>::try_from_str(&toml_str);
+        assert!(result.is_err());
     }
 
     #[test]
