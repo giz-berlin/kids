@@ -321,6 +321,38 @@ mod tests {
     }
 
     #[test]
+    fn test_try_from_str_tls_enabled_client_auth_empty_clients() {
+        let (cert_pem, key_pem) = generate_cert_and_key();
+        let toml_str = format!(
+            r#"
+            [controller]
+            bind_addr = "127.0.0.1:8080"
+
+            [controller.tls]
+            mode = "enabled"
+            cert_pem = """{cert_pem}"""
+            key_pem = """{key_pem}"""
+
+            [controller.tls.client_auth]
+            mode = "enabled"
+            clients = []
+
+            [source]
+
+            [target]
+            "#
+        );
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(&toml_str).unwrap();
+        let Tls::Enabled { client_auth, .. } = config.controller.tls else {
+            panic!("expected Tls::Enabled");
+        };
+        let ClientAuth::Enabled { clients } = client_auth else {
+            panic!("expected ClientAuth::Enabled");
+        };
+        assert_eq!(clients.len(), 0);
+    }
+
+    #[test]
     fn test_try_from_str_missing_section() {
         let toml_str = r#"
             [sentry]

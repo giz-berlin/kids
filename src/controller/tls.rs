@@ -132,6 +132,13 @@ fn build_client_cert_verifier(
         return Ok(std::sync::Arc::new(rustls::server::NoClientAuth));
     };
 
+    // The WebPkiClientVerifier doesn't support an empty root store so
+    // return our own client verifier instead.
+    if clients.is_empty() {
+        tracing::warn!("No tls.clients configured, all API requests will be rejected");
+        return Ok(std::sync::Arc::new(DenyAllClientVerifier));
+    }
+
     let mut roots = rustls::RootCertStore::empty();
     for der in clients.keys() {
         roots
@@ -142,6 +149,55 @@ fn build_client_cert_verifier(
     rustls::server::WebPkiClientVerifier::builder(std::sync::Arc::new(roots))
         .build()
         .context("building client certificate verifier")
+}
+
+/// Rejects every TLS connection regardless of what certificate the client presents.
+#[derive(Debug)]
+struct DenyAllClientVerifier;
+
+impl rustls::server::danger::ClientCertVerifier for DenyAllClientVerifier {
+    fn offer_client_auth(&self) -> bool {
+        true
+    }
+
+    fn client_auth_mandatory(&self) -> bool {
+        true
+    }
+
+    fn root_hint_subjects(&self) -> &[rustls::DistinguishedName] {
+        &[]
+    }
+
+    fn verify_client_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::server::danger::ClientCertVerified, rustls::Error> {
+        Err(rustls::CertificateError::UnknownIssuer.into())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Err(rustls::CertificateError::UnknownIssuer.into())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Err(rustls::CertificateError::UnknownIssuer.into())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![]
+    }
 }
 
 /// Wraps [`axum_server::tls_rustls::RustlsAcceptor`] to extract the client identity established
@@ -251,5 +307,36 @@ mod tests {
         let identity = resolve_identity(keycloak_der.as_ref(), &map).unwrap();
         assert_eq!(identity.name, "keycloak");
         assert_eq!(identity.role, crate::config::ClientRole::Source);
+    }
+
+    #[test]
+    fn build_client_cert_verifier_returns_no_auth_when_clients_is_none() {
+        let result = build_client_cert_verifier(None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn build_client_cert_verifier_returns_deny_all_when_clients_is_empty() {
+        let empty: std::collections::HashMap<Vec<u8>, ClientIdentity> = std::collections::HashMap::new();
+        let verifier = build_client_cert_verifier(Some(&empty)).unwrap();
+        assert!(verifier.offer_client_auth());
+        assert!(verifier.client_auth_mandatory());
+
+        let cert = generate_cert("any-client");
+        let result = verifier.verify_client_cert(&cert, &[], rustls::pki_types::UnixTime::now());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_client_cert_verifier_succeeds_with_pinned_clients() {
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            // Install default CryptoProvider for Rustls crate features.
+            // Without this, the program panicks.
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        }
+
+        let (pins, _) = sample_pins();
+        let result = build_client_cert_verifier(Some(&pins));
+        assert!(result.is_ok());
     }
 }
