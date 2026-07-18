@@ -62,15 +62,9 @@ pub fn run<S: source::interface::Source + Send + Sync + 'static, T: target::inte
         tracing::info!("Active Source: {}", source_impl.info());
         tracing::info!("Active Target: {}", target_impl.info());
 
-        crate::controller::run(
-            config.controller.bind_addr,
-            config.controller.tls,
-            config.controller.full_sync_interval_seconds,
-            source_impl,
-            target_impl,
-        )
-        .await
-        .unwrap();
+        crate::controller::run(config.controller.api, config.controller.full_sync_interval_seconds, source_impl, target_impl)
+            .await
+            .unwrap();
     });
 
     Ok(())

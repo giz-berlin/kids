@@ -22,12 +22,24 @@ pub struct SentryConfig {
 
 #[derive(serde::Deserialize, Debug)]
 pub struct ControllerConfig {
-    /// Address with port to bind the HTTP server to.
-    pub bind_addr: std::net::SocketAddr,
     /// Interval in seconds to perform the full sync from source to target.
     #[serde(default = "default_full_sync_interval")]
     pub full_sync_interval_seconds: u64,
-    pub tls: Tls,
+    #[serde(default)]
+    pub api: Api,
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum Api {
+    /// Disable the HTTP API entirely. Only the periodic full sync runs.
+    #[default]
+    Disabled,
+    Enabled {
+        /// Address with port to bind the HTTP server to.
+        bind_addr: std::net::SocketAddr,
+        tls: Tls,
+    },
 }
 
 fn default_full_sync_interval() -> u64 {
@@ -193,10 +205,6 @@ mod tests {
             environment = "production"
 
             [controller]
-            bind_addr = "127.0.0.1:8080"
-
-            [controller.tls]
-            mode = "insecure_disabled"
 
             [source]
 
@@ -213,10 +221,6 @@ mod tests {
     fn test_try_from_str_sentry_inactive() {
         let toml_str = r#"
             [controller]
-            bind_addr = "127.0.0.1:8080"
-
-            [controller.tls]
-            mode = "insecure_disabled"
 
             [source]
 
@@ -227,12 +231,42 @@ mod tests {
     }
 
     #[test]
-    fn test_try_from_str_tls_insecure_disabled() {
+    fn test_try_from_str_api_disabled_by_default() {
         let toml_str = r#"
             [controller]
+
+            [source]
+
+            [target]
+        "#;
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
+        assert!(matches!(config.controller.api, Api::Disabled));
+    }
+
+    #[test]
+    fn test_try_from_str_api_disabled_explicit() {
+        let toml_str = r#"
+            [controller]
+
+            [controller.api]
+            mode = "disabled"
+
+            [source]
+
+            [target]
+        "#;
+        let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
+        assert!(matches!(config.controller.api, Api::Disabled));
+    }
+
+    #[test]
+    fn test_try_from_str_tls_insecure_disabled() {
+        let toml_str = r#"
+            [controller.api]
+            mode = "enabled"
             bind_addr = "127.0.0.1:8080"
 
-            [controller.tls]
+            [controller.api.tls]
             mode = "insecure_disabled"
 
             [source]
@@ -240,7 +274,10 @@ mod tests {
             [target]
         "#;
         let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(toml_str).unwrap();
-        assert!(matches!(config.controller.tls, Tls::InsecureDisabled));
+        let Api::Enabled { tls, .. } = config.controller.api else {
+            panic!("expected Api::Enabled");
+        };
+        assert!(matches!(tls, Tls::InsecureDisabled));
     }
 
     #[test]
@@ -248,15 +285,16 @@ mod tests {
         let (cert_pem, key_pem) = generate_cert_and_key();
         let toml_str = format!(
             r#"
-            [controller]
+            [controller.api]
+            mode = "enabled"
             bind_addr = "127.0.0.1:8080"
 
-            [controller.tls]
+            [controller.api.tls]
             mode = "enabled"
             cert_pem = """{cert_pem}"""
             key_pem = """{key_pem}"""
 
-            [controller.tls.client_auth]
+            [controller.api.tls.client_auth]
             mode = "insecure_disabled"
 
             [source]
@@ -265,7 +303,10 @@ mod tests {
             "#
         );
         let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(&toml_str).unwrap();
-        let Tls::Enabled { cert, client_auth, .. } = config.controller.tls else {
+        let Api::Enabled { tls, .. } = config.controller.api else {
+            panic!("expected Api::Enabled");
+        };
+        let Tls::Enabled { cert, client_auth, .. } = tls else {
             panic!("expected Tls::Enabled");
         };
         assert_eq!(cert.0.len(), 1);
@@ -279,23 +320,24 @@ mod tests {
         let (monitoring_cert_pem, _) = generate_cert_and_key();
         let toml_str = format!(
             r#"
-            [controller]
+            [controller.api]
+            mode = "enabled"
             bind_addr = "127.0.0.1:8080"
 
-            [controller.tls]
+            [controller.api.tls]
             mode = "enabled"
             cert_pem = """{server_cert_pem}"""
             key_pem = """{server_key_pem}"""
 
-            [controller.tls.client_auth]
+            [controller.api.tls.client_auth]
             mode = "enabled"
 
-            [[controller.tls.client_auth.clients]]
+            [[controller.api.tls.client_auth.clients]]
             name = "keycloak"
             cert_pem = """{keycloak_cert_pem}"""
             role = "source"
 
-            [[controller.tls.client_auth.clients]]
+            [[controller.api.tls.client_auth.clients]]
             name = "monitoring"
             cert_pem = """{monitoring_cert_pem}"""
             role = "monitoring"
@@ -306,7 +348,10 @@ mod tests {
             "#
         );
         let config = Config::<EmptyConfig, EmptyConfig>::try_from_str(&toml_str).unwrap();
-        let Tls::Enabled { client_auth, .. } = config.controller.tls else {
+        let Api::Enabled { tls, .. } = config.controller.api else {
+            panic!("expected Api::Enabled");
+        };
+        let Tls::Enabled { client_auth, .. } = tls else {
             panic!("expected Tls::Enabled");
         };
         let ClientAuth::Enabled { clients } = client_auth else {
@@ -364,18 +409,19 @@ mod tests {
         for (description, cert_pem, key_pem, client_cert_pem) in cases {
             let toml_str = format!(
                 r#"
-                [controller]
+                [controller.api]
+                mode = "enabled"
                 bind_addr = "127.0.0.1:8080"
 
-                [controller.tls]
+                [controller.api.tls]
                 mode = "enabled"
                 cert_pem = """{cert_pem}"""
                 key_pem = """{key_pem}"""
 
-                [controller.tls.client_auth]
+                [controller.api.tls.client_auth]
                 mode = "enabled"
 
-                [[controller.tls.client_auth.clients]]
+                [[controller.api.tls.client_auth.clients]]
                 name = "test-client"
                 cert_pem = """{client_cert_pem}"""
 

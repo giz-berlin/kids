@@ -12,6 +12,7 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
     bind_addr: std::net::SocketAddr,
     tls: config::Tls,
     app_state: state::AppState<S, T>,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     // create metadata for API docs
     let mut api = aide::openapi::OpenApi {
@@ -121,34 +122,12 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
         config::Tls::InsecureDisabled => {
             tracing::info!(bind = %bind_addr, "Starting API");
             let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-            axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
+            axum::serve(listener, app).with_graceful_shutdown(shutdown).await?;
         }
         config::Tls::Enabled { cert, key, client_auth } => {
-            tls::serve(bind_addr, cert, key, client_auth, app, shutdown_signal()).await?;
+            tls::serve(bind_addr, cert, key, client_auth, app, shutdown).await?;
         }
     }
 
     Ok(())
-}
-
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
-    };
-
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
-    };
-
-    tokio::select! {
-        _ = ctrl_c => {
-            tracing::info!("Received CTRL+C, shutting down");
-        },
-        _ = terminate => {
-            tracing::info!("Received SIGTERM, shutting down")
-        },
-    }
 }

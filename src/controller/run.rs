@@ -1,18 +1,18 @@
 use anyhow::Context;
 
 use crate::{
+    config,
     controller::{api, state, sync},
     source, target,
 };
 
 pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target::interface::Target + Send + Sync + 'static>(
-    bind_addr: std::net::SocketAddr,
-    tls: crate::config::Tls,
+    api_config: config::Api,
     full_sync_interval_seconds: u64,
     source: S,
     target: T,
 ) -> anyhow::Result<()> {
-    tracing::info!(addr = %bind_addr, full_sync_interval = full_sync_interval_seconds, "Starting Controller");
+    tracing::info!(full_sync_interval = full_sync_interval_seconds, "Starting Controller");
 
     let app_state = state::AppState {
         source: std::sync::Arc::new(source),
@@ -23,12 +23,39 @@ pub async fn run<S: source::interface::Source + Send + Sync + 'static, T: target
     let state_for_sync = app_state.clone();
     let periodic_full_sync_handle = tokio::spawn(async move { periodic_full_sync(full_sync_interval_seconds, state_for_sync).await });
 
-    // Run the API, but abort immediately if the initial full sync fails.
+    // Run the API or wait for shutdown, but abort immediately if the initial full sync fails.
     // If the initial sync succeeds, the `Ok(Err(e))` pattern does not match and tokio::select!
-    // disables that branch, continuing to wait for the API to exit normally (e.g. via Ctrl+C).
+    // disables that branch, continuing to wait for exit normally (e.g. via Ctrl+C).
     tokio::select! {
-        result = api::run(bind_addr, tls, app_state) => result,
+        result = async {
+            match api_config {
+                config::Api::Enabled { bind_addr, tls } => api::run(bind_addr, tls, app_state, shutdown_signal()).await,
+                config::Api::Disabled => {
+                    tracing::info!("API disabled, running full sync only");
+                    shutdown_signal().await;
+                    Ok(())
+                }
+            }
+        } => result,
         Ok(Err(e)) = periodic_full_sync_handle => Err(e).context("initial full sync failed on startup"),
+    }
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("Received CTRL+C, shutting down"),
+        _ = terminate => tracing::info!("Received SIGTERM, shutting down"),
     }
 }
 
