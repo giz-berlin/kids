@@ -1,14 +1,19 @@
 ### General & controller configuration
 [controller]
-# Address with port to bind the HTTP server to, e.g. 127.0.0.1:3000
-bind_addr = ""
 # Interval in seconds to perform the full sync from source to target.
 # Defaults to 24h.
 # full_sync_interval_seconds = 86400
 
+# API configuration.
+# Omit this section (or set mode = "disabled") to disable the HTTP API and run full syncs only.
+[controller.api]
+mode = "enabled"
+# Address with port to bind the HTTP server to, e.g. 127.0.0.1:3000
+bind_addr = ""
+
 # TLS configuration.
 # Set mode = "insecure_disabled" to serve plain HTTP (do not use in production).
-[controller.tls]
+[controller.api.tls]
 mode = "enabled"
 cert_pem = """
 -----BEGIN CERTIFICATE-----
@@ -23,10 +28,10 @@ key_pem = """
 
 # Client certificate authentication.
 # Set mode = "insecure_disabled" to allow unauthenticated access (do not use in production).
-[controller.tls.client_auth]
+[controller.api.tls.client_auth]
 mode = "enabled"
 
-[[controller.tls.client_auth.clients]]
+[[controller.api.tls.client_auth.clients]]
 name = "keycloak"
 cert_pem = """
 -----BEGIN CERTIFICATE-----
