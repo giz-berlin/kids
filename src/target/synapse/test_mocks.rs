@@ -167,6 +167,159 @@ impl SynapseApiMocker {
         self
     }
 
+    pub fn can_create_room(mut self) -> Self {
+        self.api_mock.expect_create_room().returning(|name, path| {
+            let room = MockSynapseRoomBuilder::default().name(name).alias(path).build();
+            let room_id = room.matrix_room_id.clone();
+            Ok(dto::RoomCreationResponse { room_id })
+        });
+        self
+    }
+
+    pub fn cannot_create_room(mut self) -> Self {
+        self.api_mock
+            .expect_create_room()
+            .returning(|_, _| Err(KidsError::InternalError(error::NO_CONTEXT.to_string())));
+        self
+    }
+
+    pub fn require_delete_room(mut self, matrix_room_id: String) -> Self {
+        self.api_mock.expect_delete_room().with(eq(matrix_room_id)).times(1).return_once(|_| Ok(()));
+        self
+    }
+
+    pub fn can_get_room_display_name_all_rooms(mut self) -> Self {
+        for room in self.synapse_rooms.iter() {
+            let matrix_room_id = room.matrix_room_id.clone();
+            let room_name = room.name.clone();
+            self.api_mock
+                .expect_get_room_display_name()
+                .with(eq(matrix_room_id))
+                .returning(move |_| Ok(room_name.clone()));
+        }
+        self.api_mock.expect_get_room_display_name().returning(|matrix_room_id| {
+            Err(KidsError::ApiOperationFailed(
+                error::NO_CONTEXT.to_string(),
+                404,
+                "get_room_display_name".to_owned(),
+                anyhow::anyhow!("Could not find room with matrix id '{matrix_room_id}'."),
+            ))
+        });
+        self
+    }
+
+    pub fn require_set_room_display_name(mut self, matrix_room_id: impl Into<String>, display_name: impl Into<String>) -> Self {
+        let matrix_room_id = matrix_room_id.into();
+        let display_name = display_name.into();
+        self.api_mock
+            .expect_set_room_display_name()
+            .with(eq(matrix_room_id), eq(display_name))
+            .times(1)
+            .returning(|_, _| Ok(()));
+        self
+    }
+
+    pub fn can_full_room_alias(mut self) -> Self {
+        self.api_mock
+            .expect_full_room_alias()
+            .returning(|group_path| format!("#{group_path}:testing.matrix.giz.berlin"));
+        self
+    }
+
+    pub fn can_get_room_canonical_alias_all_rooms(mut self) -> Self {
+        for room in self.synapse_rooms.iter() {
+            let matrix_room_id = room.matrix_room_id.clone();
+            let room_alias = room.alias.clone();
+            self.api_mock.expect_get_room_canonical_alias().with(eq(matrix_room_id)).returning(move |_| {
+                Ok(dto::RoomCanonicalAliasEvent {
+                    alias: room_alias.clone(),
+                    alt_aliases: None,
+                })
+            });
+        }
+        self.api_mock.expect_get_room_canonical_alias().returning(|matrix_room_id| {
+            Err(KidsError::ApiOperationFailed(
+                error::NO_CONTEXT.to_string(),
+                404,
+                "get_room_canonical_alias".to_owned(),
+                anyhow::anyhow!("Could not find room with matrix id '{matrix_room_id}'."),
+            ))
+        });
+        self
+    }
+
+    pub fn require_set_room_canonical_alias(mut self, matrix_room_id: String) -> Self {
+        self.api_mock
+            .expect_set_room_canonical_alias()
+            .with(eq(matrix_room_id), mockall::predicate::always())
+            .times(1)
+            .returning(move |_, _| Ok(()));
+        self
+    }
+
+    pub fn require_create_room_alias(mut self, matrix_room_id: String) -> Self {
+        self.api_mock
+            .expect_create_room_alias()
+            .with(eq(matrix_room_id), mockall::predicate::always())
+            .times(1)
+            .returning(|_, _| Ok(()));
+        self
+    }
+
+    pub fn can_delete_room_alias_all_aliases(mut self) -> Self {
+        self.api_mock.expect_delete_room_alias().returning(|_| Ok(()));
+        self
+    }
+
+    pub fn can_manage_room_members<S: Into<String>>(
+        mut self,
+        matrix_room_id: impl Into<String>,
+        syncer_user_id: impl Into<String>,
+        users_in_room: impl IntoIterator<Item = S>,
+        allow_syncer_to_leave_room: bool,
+        user_id_fails_to_kick: Option<S>,
+    ) -> Self {
+        let matrix_room_id = matrix_room_id.into();
+        let syncer_user_id = syncer_user_id.into();
+        let user_id_fails_to_kick = user_id_fails_to_kick.map(Into::into);
+        let users_in_room: std::collections::HashMap<String, serde_json::Value> = users_in_room
+            .into_iter()
+            .map(Into::into)
+            .map(|user_id| (user_id, serde_json::Value::Null))
+            .chain([(syncer_user_id.clone(), serde_json::Value::Null)])
+            .collect();
+        self.api_mock.expect_user_is_matrix_syncer().with(eq(syncer_user_id.clone())).return_const(true);
+        self.api_mock.expect_user_is_matrix_syncer().return_const(false);
+        for user in users_in_room.keys() {
+            let expectation = self.api_mock.expect_kick_user_from_room().with(eq(matrix_room_id.clone()), eq(user.to_owned()));
+            if *user == syncer_user_id {
+                // Syncer is never kicked but rather removed using `syncer_leave_room`.
+                expectation.never();
+            } else if user_id_fails_to_kick.as_ref().is_some_and(|u| u == user) {
+                expectation
+                    .times(1)
+                    .return_once(|_, _| Err(KidsError::InternalError(error::NO_CONTEXT.to_string())));
+            } else {
+                expectation.times(1).return_once(|_, _| Ok(()));
+            }
+        }
+        if allow_syncer_to_leave_room {
+            self.api_mock
+                .expect_syncer_leave_room()
+                .with(eq(matrix_room_id.clone()))
+                .return_once(|_| Ok(()));
+        }
+        // Catch-all forbid syncer to leave rooms.
+        self.api_mock
+            .expect_syncer_leave_room()
+            .returning(|_| Err(KidsError::InternalError(error::NO_CONTEXT.to_string())));
+        self.api_mock
+            .expect_get_room_joined_users()
+            .with(eq(matrix_room_id.clone()))
+            .return_once(|_| Ok(dto::RoomJoinedUsersResponse { joined: users_in_room }));
+        self
+    }
+
     pub fn can_get_source_user_id_for_all_matrix_users(mut self) -> Self {
         let users = self.synapse_users.clone();
         for user in users.iter() {

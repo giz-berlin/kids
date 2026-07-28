@@ -611,6 +611,8 @@ mod test {
     use super::*;
     use crate::target::interface::Target;
     use crate::target::synapse::external::MockSynapseApi;
+    use crate::target::synapse::test_mocks::{MockSynapseRoomBuilder, MockSynapseUserBuilder, SynapseApiMocker};
+    use crate::test_util::constants;
     use rstest::*;
 
     #[fixture]
@@ -641,8 +643,6 @@ mod test {
 
     mod when_full_sync_incoming_and_generate_id_mappings {
         use super::*;
-        use crate::target::synapse::test_mocks::{MockSynapseRoomBuilder, MockSynapseUserBuilder, SynapseApiMocker};
-        use crate::test_util::constants;
 
         #[rstest]
         #[tokio::test]
@@ -864,6 +864,472 @@ mod test {
             // when & then
             assert!(connector.full_sync_incoming().await.is_ok());
             assert!(connector.generate_id_mappings().await.is_err());
+        }
+    }
+
+    mod manage_groups {
+        use super::*;
+
+        #[derive(Debug, PartialEq, Eq, Clone)]
+        struct Group {
+            id: String,
+            attributes: std::collections::HashMap<String, Vec<String>>,
+        }
+
+        impl Group {
+            pub fn new(id: impl Into<String>, attributes: Option<std::collections::HashMap<String, Vec<String>>>) -> Self {
+                Self {
+                    id: id.into(),
+                    attributes: attributes.unwrap_or_default(),
+                }
+            }
+        }
+
+        #[async_trait::async_trait(?Send)]
+        impl crate::source::interface::Group for Group {
+            fn id(&self) -> &types::SharedResourceIdentifier {
+                &self.id
+            }
+
+            fn name(&self) -> &str {
+                &self.id
+            }
+
+            fn path(&self) -> &str {
+                &self.id
+            }
+
+            fn attributes(&self) -> &std::collections::HashMap<String, Vec<String>> {
+                &self.attributes
+            }
+
+            fn root_group(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn crate::source::interface::Group> {
+                self
+            }
+
+            fn parent_group(&self) -> Option<std::sync::Arc<dyn crate::source::interface::Group>> {
+                None
+            }
+
+            async fn sub_groups(self: std::sync::Arc<Self>) -> Result<Vec<std::sync::Arc<dyn crate::source::interface::Group>>, error::KidsError> {
+                Ok(vec![])
+            }
+        }
+
+        mod create {
+            use super::*;
+
+            #[rstest]
+            #[tokio::test]
+            async fn create_group_succeeds_without_attribute(mut connector: Connector) {
+                // given
+                let group = Group::new("group", None);
+                let group_id = group.id.clone();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .cannot_create_room()
+                    .into();
+
+                // when
+                let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
+
+                // then
+                created.expect("Error creating or updating group");
+                let all_groups = connector.all_groups().await.unwrap();
+                assert!(!all_groups.contains(&group_id));
+            }
+
+            #[rstest]
+            #[tokio::test]
+            async fn create_group_succeeds_with_attribute(mut connector: Connector) {
+                // given
+                let group = Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let group_id = group.id.clone();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_create_room()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_room_display_name_all_rooms()
+                    .can_full_room_alias()
+                    .can_get_room_canonical_alias_all_rooms()
+                    .into();
+
+                // when
+                let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
+
+                // then
+                created.expect("Error creating or updating group");
+                let all_groups = connector.all_groups().await.unwrap();
+                assert!(all_groups.contains(&group_id));
+            }
+
+            #[rstest]
+            #[tokio::test]
+            async fn create_group_is_idempotent(mut connector: Connector) {
+                // given
+                let group = Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let group_id = group.id.clone();
+                {
+                    // 1. Add
+                    connector.synapse_api = SynapseApiMocker::new()
+                        .can_get_joined_rooms_of_syncer()
+                        .can_get_users()
+                        .can_create_room()
+                        .can_associate_source_group_id_to_room()
+                        .can_get_room_display_name_all_rooms()
+                        .can_full_room_alias()
+                        .can_get_room_canonical_alias_all_rooms()
+                        .into();
+
+                    // when
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group.clone())).await;
+
+                    // then
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                }
+                {
+                    // 2. Do nothing
+                    connector.synapse_api = SynapseApiMocker::new()
+                        .can_get_joined_rooms_of_syncer()
+                        .can_get_users()
+                        // We disallow room creation here, it must use the existing one instead.
+                        .cannot_create_room()
+                        .can_get_room_display_name_all_rooms()
+                        .can_full_room_alias()
+                        .can_get_room_canonical_alias_all_rooms()
+                        .into();
+
+                    // when
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
+
+                    // then
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                }
+            }
+
+            #[rstest]
+            #[tokio::test]
+            #[case("C:\\Windows")]
+            #[tokio::test]
+            #[case("/usr/bin")]
+            async fn create_group_fails_with_invalid_group_name(mut connector: Connector, #[case] invalid_group_name: &'static str) {
+                // given
+                let group = Group::new(invalid_group_name, None);
+                connector.synapse_api = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().can_get_users().into();
+
+                // when
+                let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
+
+                // then
+                let err: error::KidsError = created.expect_err("Creating or updating group unexpectedly succeeded");
+                match err {
+                    crate::error::KidsError::InternalError(ref msg)
+                        if *msg == format!("Could not create room for group {invalid_group_name}: group name contains invalid character") => {}
+                    ref err => panic!("Error creating or updating group: {err:?}."),
+                };
+            }
+        }
+
+        mod update {
+            use super::*;
+
+            #[rstest]
+            #[tokio::test]
+            async fn update_group_succeeds_updates_room_existence(mut connector: Connector) {
+                // given
+                let mut group = Group::new("group", None);
+                let group_id = group.id.clone();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_create_room()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_room_display_name_all_rooms()
+                    .can_full_room_alias()
+                    .can_get_room_canonical_alias_all_rooms()
+                    .into();
+                {
+                    // 1. Without attribute, nothing happens.
+
+                    // when
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group.clone())).await;
+
+                    // then
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(!all_groups.contains(&group_id));
+                }
+                {
+                    // 2. With attribute, the group is now included.
+                    group
+                        .attributes
+                        .insert(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()]);
+
+                    // when
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group.clone())).await;
+
+                    // then
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                }
+                {
+                    // 3. Without attribute, the group gets removed.
+                    group.attributes.clear();
+
+                    // when
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group.clone())).await;
+
+                    // then
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(!all_groups.contains(&group_id));
+                }
+            }
+
+            #[rstest]
+            #[tokio::test]
+            #[case("Other name", "Other name")]
+            #[tokio::test]
+            #[case(DERIVE_DISPLAY_NAME_FROM_GROUP_NAME, "group Group Group group")]
+            async fn update_group_changes_name(mut connector: Connector, #[case] attr: &'static str, #[case] expected_name: &'static str) {
+                // given
+                let mut group = Group::new(
+                    // Complex pattern for `DERIVE_DISPLAY_NAME_FROM_GROUP_NAME` handling.
+                    "group-Group_Group group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let group_id = group.id.clone();
+                let matrix_room_id = {
+                    // 1. Add
+                    connector.synapse_api = SynapseApiMocker::new()
+                        .can_get_joined_rooms_of_syncer()
+                        .can_get_users()
+                        .can_create_room()
+                        .can_associate_source_group_id_to_room()
+                        .can_get_room_display_name_all_rooms()
+                        .can_full_room_alias()
+                        .can_get_room_canonical_alias_all_rooms()
+                        .into();
+
+                    // when
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group.clone())).await;
+
+                    // then
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                    connector.get_group_id_mapping().await.unwrap().get(&group_id).unwrap()
+                }
+                .to_owned();
+                {
+                    // 2. Update group name
+                    let new_group_name = attr;
+                    group.attributes.entry(connector.config.source_room_name_attr.clone()).and_modify(|entry| {
+                        entry.clear();
+                        entry.push(new_group_name.to_owned());
+                    });
+                    connector.synapse_api = SynapseApiMocker::new()
+                        .with_rooms(vec![MockSynapseRoomBuilder::default()
+                            .source_room_id(group_id.clone())
+                            .matrix_room_id(matrix_room_id.clone())
+                            .build()])
+                        .can_get_joined_rooms_of_syncer()
+                        .can_get_users()
+                        // We disallow room creation here, it must use the existing one instead.
+                        .cannot_create_room()
+                        .can_get_room_display_name_all_rooms()
+                        .require_set_room_display_name(matrix_room_id.clone(), expected_name)
+                        .can_full_room_alias()
+                        .can_get_room_canonical_alias_all_rooms()
+                        .require_set_room_canonical_alias(matrix_room_id.clone())
+                        .require_create_room_alias(matrix_room_id)
+                        .can_delete_room_alias_all_aliases()
+                        .into();
+
+                    // when
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
+
+                    // then
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                }
+            }
+        }
+
+        mod delete {
+            use super::*;
+
+            #[rstest]
+            #[tokio::test]
+            async fn delete_group_ignore_room_deletion(mut connector: Connector) {
+                // given
+                let group = Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let group_id = group.id.clone();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_create_room()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_room_display_name_all_rooms()
+                    .can_full_room_alias()
+                    .can_get_room_canonical_alias_all_rooms()
+                    .into();
+                {
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                }
+                {
+                    // when
+                    let deleted = connector.delete_group(&group_id).await;
+
+                    // then
+                    deleted.expect("Error deleting group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(!all_groups.contains(&group_id));
+                }
+            }
+
+            #[rstest]
+            #[tokio::test]
+            #[case(RoomDeletionStrategy::KickAll)]
+            #[tokio::test]
+            #[case(RoomDeletionStrategy::Evacuate)]
+            #[tokio::test]
+            #[case(RoomDeletionStrategy::Delete)]
+            async fn delete_group_kickall_evacuate_delete_room_deletion(mut connector: Connector, #[case] deletion_strategy: RoomDeletionStrategy) {
+                // given
+                let group = Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let group_id = group.id.clone();
+                connector.config.room_deletion_strategy = deletion_strategy;
+                connector.synapse_api = SynapseApiMocker::new()
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_create_room()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_room_display_name_all_rooms()
+                    .can_full_room_alias()
+                    .can_get_room_canonical_alias_all_rooms()
+                    .into();
+                let matrix_room_id = {
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                    connector.get_group_id_mapping().await.unwrap().get(&group_id).unwrap()
+                };
+                connector.synapse_api = {
+                    let mut mock_api = SynapseApiMocker::new().with_rooms(vec![MockSynapseRoomBuilder::default()
+                        .source_room_id(group_id.clone())
+                        .matrix_room_id(matrix_room_id.clone())
+                        .build()]);
+                    if matches!(deletion_strategy, RoomDeletionStrategy::KickAll | RoomDeletionStrategy::Evacuate) {
+                        // Managing room members is necessary to kick users.
+                        mock_api = mock_api.can_manage_room_members(
+                            matrix_room_id,
+                            "syncer-user",
+                            ["user-1", "user-2"],
+                            matches!(deletion_strategy, RoomDeletionStrategy::Evacuate),
+                            None,
+                        );
+                        if matches!(deletion_strategy, RoomDeletionStrategy::Evacuate) {
+                            mock_api = mock_api.can_get_room_canonical_alias_all_rooms().can_delete_room_alias_all_aliases();
+                        }
+                    } else {
+                        mock_api = mock_api.require_delete_room(matrix_room_id.clone());
+                    }
+                    mock_api.into()
+                };
+                {
+                    // when
+                    let deleted = connector.delete_group(&group_id).await;
+
+                    // then
+                    deleted.expect("Error deleting group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(!all_groups.contains(&group_id));
+                }
+            }
+
+            #[rstest]
+            #[tokio::test]
+            #[case(RoomDeletionStrategy::KickAll)]
+            #[tokio::test]
+            #[case(RoomDeletionStrategy::Evacuate)]
+            async fn delete_group_kickall_evacuate_room_deletion_fails_without_kicking(
+                mut connector: Connector,
+                #[case] deletion_strategy: RoomDeletionStrategy,
+            ) {
+                // given
+                let group = Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let group_id = group.id.clone();
+                connector.config.room_deletion_strategy = deletion_strategy;
+                connector.synapse_api = SynapseApiMocker::new()
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_create_room()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_room_display_name_all_rooms()
+                    .can_full_room_alias()
+                    .can_get_room_canonical_alias_all_rooms()
+                    .into();
+                let matrix_room_id = {
+                    let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
+                    created.expect("Error creating or updating group");
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                    connector.get_group_id_mapping().await.unwrap().get(&group_id).unwrap()
+                }
+                .to_owned();
+                connector.synapse_api = {
+                    let mut mock_api = SynapseApiMocker::new().with_rooms(vec![MockSynapseRoomBuilder::default()
+                        .source_room_id(group_id.clone())
+                        .matrix_room_id(matrix_room_id.clone())
+                        .build()]);
+                    // Managing room members is necessary to kick users.
+                    // We disallow the syncer to leave the room as we will fail kicking all users.
+                    // In that case, the syncer must not leave the room.
+                    mock_api = mock_api.can_manage_room_members(matrix_room_id.clone(), "syncer-user", ["user-1", "user-2"], false, Some("user-1"));
+                    mock_api.into()
+                };
+                {
+                    // when
+                    let deleted = connector.delete_group(&group_id).await;
+
+                    // then
+                    let err: error::KidsError = deleted.expect_err("Deleting group unexpectedly succeeded");
+                    match err {
+                        crate::error::KidsError::InternalError(ref msg) if *msg == format!("Could not kick all members from room {matrix_room_id}") => {}
+                        ref err => panic!("Error deleting group: {err:?}."),
+                    };
+                    let all_groups = connector.all_groups().await.unwrap();
+                    assert!(all_groups.contains(&group_id));
+                }
+            }
         }
     }
 }
