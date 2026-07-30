@@ -378,14 +378,22 @@ impl interface::Target for Connector {
                 // With locking, this works properly and unlocked users will encounter the same
                 // state they left off with before being locked.
                 match self.synapse_api.lock_user(&matrix_user_id).await {
-                    Ok(()) => tracing::info!(matrix_user_id, "Locked user"),
+                    Ok(()) => {
+                        let user = self.get_user_id_mapping().await?.get_mut(source_user.id()).unwrap();
+                        user.locked = true;
+                        tracing::info!(matrix_user_id, "Locked user");
+                    }
                     Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user"),
                 };
             }
         }
         if source_user.enabled() && is_matrix_user_locked {
             match self.synapse_api.unlock_user(&matrix_user_id).await {
-                Ok(()) => tracing::info!(matrix_user_id, "Unlocked user"),
+                Ok(()) => {
+                    let user = self.get_user_id_mapping().await?.get_mut(source_user.id()).unwrap();
+                    user.locked = false;
+                    tracing::info!(matrix_user_id, "Unlocked user");
+                }
                 Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user"),
             };
         }
@@ -609,6 +617,7 @@ impl Connector {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::source::interface::Group;
     use crate::target::interface::Target;
     use crate::target::synapse::external::MockSynapseApi;
     use crate::target::synapse::test_mocks::{MockSynapseRoomBuilder, MockSynapseUserBuilder, SynapseApiMocker};
@@ -871,7 +880,7 @@ mod test {
         use super::*;
 
         #[derive(Debug, PartialEq, Eq, Clone)]
-        struct Group {
+        pub(super) struct Group {
             id: String,
             attributes: std::collections::HashMap<String, Vec<String>>,
         }
@@ -882,6 +891,12 @@ mod test {
                     id: id.into(),
                     attributes: attributes.unwrap_or_default(),
                 }
+            }
+        }
+
+        impl From<Group> for std::sync::Arc<dyn source::interface::Group + Send + Sync> {
+            fn from(value: Group) -> Self {
+                std::sync::Arc::new(value)
             }
         }
 
@@ -1328,6 +1343,321 @@ mod test {
                     };
                     let all_groups = connector.all_groups().await.unwrap();
                     assert!(all_groups.contains(&group_id));
+                }
+            }
+        }
+    }
+
+    mod manage_users {
+        use super::*;
+
+        #[derive(Debug, PartialEq, Eq, Clone)]
+        struct User {
+            id: String,
+            enabled: bool,
+            attributes: std::collections::HashMap<String, Vec<String>>,
+            groups: Vec<super::manage_groups::Group>,
+        }
+
+        impl User {
+            pub fn new(
+                id: impl Into<String>,
+                enabled: bool,
+                attributes: Option<std::collections::HashMap<String, Vec<String>>>,
+                groups: Option<Vec<super::manage_groups::Group>>,
+            ) -> Self {
+                Self {
+                    id: id.into(),
+                    enabled,
+                    attributes: attributes.unwrap_or_default(),
+                    groups: groups.unwrap_or_default(),
+                }
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl crate::source::interface::User for User {
+            fn id(&self) -> &types::SharedResourceIdentifier {
+                &self.id
+            }
+            fn enabled(&self) -> bool {
+                self.enabled
+            }
+            fn username(&self) -> Option<&str> {
+                Some(&self.id)
+            }
+            fn email(&self) -> Option<&str> {
+                None
+            }
+            fn attributes(&self) -> &collections::HashMap<String, Vec<String>> {
+                &self.attributes
+            }
+
+            async fn groups(
+                &self,
+                _include_transitive_groups: bool,
+            ) -> Result<Vec<std::sync::Arc<dyn crate::source::interface::Group + Send + Sync>>, error::KidsError> {
+                Ok(self.groups.clone().into_iter().map(Into::into).collect())
+            }
+        }
+
+        /// Note that [`create_or_update_user`](Connector::create_or_update_user) can never create a new user account.
+        /// We require that the user handles the first login manually, e.g. to setup the recovery key.
+        mod create {
+            use super::*;
+
+            #[rstest]
+            #[tokio::test]
+            async fn create_user_succeeds_noop_without_being_present(mut connector: Connector) {
+                // given
+                let group = super::manage_groups::Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let user = User::new("user", true, None, Some(vec![group.clone()]));
+                let user_id = user.id.clone();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .with_rooms(vec![MockSynapseRoomBuilder::default().source_room_id(group.id()).build()])
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_get_source_user_id_for_all_matrix_users()
+                    .can_get_room_associated_source_group_id_v1()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_all_rooms_associated_source_group_id()
+                    .into();
+
+                // when
+                let created = connector.create_or_update_user(std::sync::Arc::new(user)).await;
+
+                // then
+                created.expect("Error creating or updating user");
+                let all_users = connector.all_users().await.unwrap();
+                // Users need to login themselves to be present in Synapse.
+                assert!(!all_users.contains(&user_id));
+            }
+
+            #[rstest]
+            #[tokio::test]
+            async fn not_create_user_succeeds_adding_user(mut connector: Connector) {
+                // given
+                let group = super::manage_groups::Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
+                let user = User::new("user", true, None, Some(vec![group]));
+                let user_id = user.id;
+                let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .with_rooms(vec![synapse_room])
+                    .with_users(vec![synapse_user])
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_get_source_user_id_for_all_matrix_users()
+                    .can_get_room_associated_source_group_id_v1()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_all_rooms_associated_source_group_id()
+                    .into();
+
+                // when
+                // nothing
+
+                // then
+                let all_users = connector.all_users().await.unwrap();
+                assert!(all_users.contains(&user_id));
+            }
+        }
+
+        mod update {
+            use super::*;
+
+            #[rstest]
+            #[tokio::test]
+            async fn update_user_adds_room(mut connector: Connector) {
+                // given
+                let group = super::manage_groups::Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
+                let user = User::new("user", true, None, Some(vec![group]));
+                let user_id = user.id.clone();
+                let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .with_rooms(vec![synapse_room.clone()])
+                    .with_users(vec![synapse_user.clone()])
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_get_source_user_id_for_all_matrix_users()
+                    .can_get_room_associated_source_group_id_v1()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_all_rooms_associated_source_group_id()
+                    // Assume the user is not yet member of any (managed) room.
+                    .can_get_joined_rooms_of_user(&synapse_user, vec![])
+                    // This is the core assertion here: The user gets added to the room.
+                    .require_join_user_to_room(&synapse_user, &synapse_room)
+                    .into();
+
+                // when
+                let created = connector.create_or_update_user(std::sync::Arc::new(user)).await;
+
+                // then
+                created.expect("Error creating or updating user");
+                let all_users = connector.all_users().await.unwrap();
+                assert!(all_users.contains(&user_id));
+            }
+
+            #[rstest]
+            #[tokio::test]
+            async fn update_user_leaves_room(mut connector: Connector) {
+                // given
+                let group = super::manage_groups::Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
+                let user = User::new("user", true, None, None);
+                let user_id = user.id.clone();
+                let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .with_rooms(vec![synapse_room.clone()])
+                    .with_users(vec![synapse_user.clone()])
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_get_source_user_id_for_all_matrix_users()
+                    .can_get_room_associated_source_group_id_v1()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_all_rooms_associated_source_group_id()
+                    // Assume the user is still member of the managed room.
+                    .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
+                    // This is the core assertion here: The user gets kicked from the room.
+                    .require_kick_user_from_room(&synapse_user, &synapse_room)
+                    .into();
+
+                // when
+                let created = connector.create_or_update_user(std::sync::Arc::new(user)).await;
+
+                // then
+                created.expect("Error creating or updating user");
+                let all_users = connector.all_users().await.unwrap();
+                assert!(all_users.contains(&user_id));
+            }
+
+            #[rstest]
+            #[tokio::test]
+            async fn update_user_locking(mut connector: Connector) {
+                // given
+                let group = super::manage_groups::Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
+                let mut user = User::new("user", true, None, Some(vec![group]));
+                let user_id = user.id.clone();
+                let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
+                let get_api_mocker = |joined_room: Vec<&crate::target::synapse::test_mocks::MockSynapseRoom>| {
+                    SynapseApiMocker::new()
+                        .with_rooms(vec![synapse_room.clone()])
+                        .with_users(vec![synapse_user.clone()])
+                        .can_get_joined_rooms_of_syncer()
+                        .can_get_users()
+                        .can_get_source_user_id_for_all_matrix_users()
+                        .can_get_room_associated_source_group_id_v1()
+                        .can_associate_source_group_id_to_room()
+                        .can_get_all_rooms_associated_source_group_id()
+                        .can_get_joined_rooms_of_user(&synapse_user, joined_room)
+                };
+                {
+                    // 1. Create as unlocked.
+                    // when
+                    connector.synapse_api = get_api_mocker(vec![&synapse_room]).into();
+
+                    // then
+                    let all_users = connector.all_users().await.unwrap();
+                    assert!(all_users.contains(&user_id));
+                    let user_via_connector = connector.get_user_id_mapping().await.unwrap().get(&user_id).unwrap();
+                    assert!(!user_via_connector.locked);
+                }
+                {
+                    // 2. Update to locked.
+                    user.enabled = false;
+                    connector.synapse_api = get_api_mocker(vec![&synapse_room])
+                        .require_lock_user(&synapse_user)
+                        .require_kick_user_from_room(&synapse_user, &synapse_room)
+                        .into();
+
+                    // when
+                    let created = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
+
+                    // then
+                    created.expect("Error creating or updating user");
+                    let all_users = connector.all_users().await.unwrap();
+                    assert!(all_users.contains(&user_id));
+                    let user_via_connector = connector.get_user_id_mapping().await.unwrap().get(&user_id).unwrap();
+                    assert!(user_via_connector.locked);
+                }
+                {
+                    // 3. Update to unlocked.
+                    user.enabled = true;
+                    connector.synapse_api = get_api_mocker(vec![])
+                        .require_unlock_user(&synapse_user)
+                        .require_join_user_to_room(&synapse_user, &synapse_room)
+                        .into();
+
+                    // when
+                    let created = connector.create_or_update_user(std::sync::Arc::new(user)).await;
+
+                    // then
+                    created.expect("Error creating or updating user");
+                    let all_users = connector.all_users().await.unwrap();
+                    assert!(all_users.contains(&user_id));
+                    let user_via_connector = connector.get_user_id_mapping().await.unwrap().get(&user_id).unwrap();
+                    assert!(!user_via_connector.locked);
+                }
+            }
+        }
+
+        mod delete {
+            use super::*;
+
+            #[rstest]
+            #[tokio::test]
+            async fn delete_user_deactivates_it(mut connector: Connector) {
+                let group = super::manage_groups::Group::new(
+                    // given
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
+                let user = User::new("user", true, None, Some(vec![group]));
+                let user_id = user.id;
+                let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
+                {
+                    // 1. Create user.
+                    connector.synapse_api = SynapseApiMocker::new()
+                        .with_rooms(vec![synapse_room])
+                        .with_users(vec![synapse_user.clone()])
+                        .can_get_joined_rooms_of_syncer()
+                        .can_get_users()
+                        .can_get_source_user_id_for_all_matrix_users()
+                        .can_get_room_associated_source_group_id_v1()
+                        .can_associate_source_group_id_to_room()
+                        .can_get_all_rooms_associated_source_group_id()
+                        .into();
+                    let all_users = connector.all_users().await.unwrap();
+                    assert!(all_users.contains(&user_id));
+                }
+                {
+                    // 2. Delete user.
+                    connector.synapse_api = SynapseApiMocker::new().require_deactivate_user(&synapse_user).into();
+
+                    // when
+                    let deleted = connector.delete_user(&user_id).await;
+
+                    // then
+                    deleted.expect("Error deleting user");
+                    let all_users = connector.all_users().await.unwrap();
+                    assert!(!all_users.contains(&user_id));
                 }
             }
         }

@@ -111,6 +111,33 @@ impl SynapseApiMocker {
         self
     }
 
+    pub fn can_get_joined_rooms_of_user(mut self, user: &MockSynapseUser, rooms: Vec<&MockSynapseRoom>) -> Self {
+        let rooms: Vec<String> = rooms.into_iter().map(|room| room.matrix_room_id.clone()).collect();
+        self.api_mock
+            .expect_get_user_joined_rooms()
+            .with(eq(user.matrix_user_id.clone()))
+            .returning(move |_| Ok(dto::UserJoinedRoomsResponse { joined_rooms: rooms.clone() }));
+        self
+    }
+
+    pub fn require_join_user_to_room(mut self, user: &MockSynapseUser, room: &MockSynapseRoom) -> Self {
+        self.api_mock
+            .expect_join_user_to_room()
+            .with(eq(room.matrix_room_id.clone()), eq(user.matrix_user_id.clone()))
+            .times(1)
+            .returning(|_, _| Ok(()));
+        self
+    }
+
+    pub fn require_kick_user_from_room(mut self, user: &MockSynapseUser, room: &MockSynapseRoom) -> Self {
+        self.api_mock
+            .expect_kick_user_from_room()
+            .with(eq(room.matrix_room_id.clone()), eq(user.matrix_user_id.clone()))
+            .times(1)
+            .returning(|_, _| Ok(()));
+        self
+    }
+
     pub fn can_get_all_rooms_associated_source_group_id(mut self) -> Self {
         let rooms = self.synapse_rooms.clone();
         for room in rooms {
@@ -341,6 +368,33 @@ impl SynapseApiMocker {
             .expect_get_source_user_id_for_matrix_user_id()
             .with(eq(user.matrix_user_id.clone()))
             .returning(|_| Err(KidsError::InternalError(error::NO_CONTEXT.to_string())));
+        self
+    }
+
+    pub fn require_lock_user(mut self, user_to_be_locked: &MockSynapseUser) -> Self {
+        self.api_mock
+            .expect_lock_user()
+            .with(eq(user_to_be_locked.matrix_user_id.clone()))
+            .times(1)
+            .return_once(|_| Ok(()));
+        self
+    }
+
+    pub fn require_unlock_user(mut self, user_to_be_locked: &MockSynapseUser) -> Self {
+        self.api_mock
+            .expect_unlock_user()
+            .with(eq(user_to_be_locked.matrix_user_id.clone()))
+            .times(1)
+            .return_once(|_| Ok(()));
+        self
+    }
+
+    pub fn require_deactivate_user(mut self, user_to_be_locked: &MockSynapseUser) -> Self {
+        self.api_mock
+            .expect_deactivate_user()
+            .with(eq(user_to_be_locked.matrix_user_id.clone()))
+            .times(1)
+            .return_once(|_| Ok(()));
         self
     }
 }
