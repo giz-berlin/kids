@@ -67,10 +67,10 @@ impl interface::Target for Connector {
         Ok(self.get_cached_user_ids().await?.iter().cloned().collect())
     }
 
-    async fn delete_group(&mut self, _group_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
-        if !self.get_cached_group_id_mapping().await?.contains_key(&_group_id) {
+    async fn delete_group(&mut self, group_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
+        if !self.get_cached_group_id_mapping().await?.contains_key(&group_id) {
             tracing::warn!(
-                _group_id,
+                group_id,
                 "Source group has no known associated team or list in James that could be deleted. Nothing to be done"
             );
             return Ok(());
@@ -78,7 +78,7 @@ impl interface::Target for Connector {
 
         let has_team;
         let has_list;
-        if let Some(group) = self.get_cached_group_id_mapping().await?.get(&_group_id) {
+        if let Some(group) = self.get_cached_group_id_mapping().await?.get(&group_id) {
             has_team = group.has_team;
             has_list = group.has_list;
         } else {
@@ -88,46 +88,46 @@ impl interface::Target for Connector {
         }
 
         let uuid_team_email = self
-            .create_uuid_team_email(&_group_id)
-            .map_err(|error| error.with_context(&format!("group_id = {}, Could not delete group", _group_id)))?;
+            .create_uuid_team_email(&group_id)
+            .map_err(|error| error.with_context(&format!("group_id = {}, Could not delete group", group_id)))?;
 
         if has_team {
-            self.delete_all_aliases_and_members_from_team(&_group_id, &uuid_team_email, &[]).await?;
-            match self.james_api.delete_team(&_group_id).await {
-                Ok(_) => tracing::info!(group_id = _group_id, "Delete team"),
-                Err(error) => return Err(error.with_context(&format!("group_id = {}, Could not delete team", _group_id))),
+            self.delete_all_aliases_and_members_from_team(&group_id, &uuid_team_email, &[]).await?;
+            match self.james_api.delete_team(&group_id).await {
+                Ok(_) => tracing::info!(group_id = group_id, "Delete team"),
+                Err(error) => return Err(error.with_context(&format!("group_id = {}, Could not delete team", group_id))),
             };
         }
 
         let uuid_list_email = self
-            .create_uuid_list_email(&_group_id)
-            .map_err(|error| error.with_context(&format!("group_id = {}, Could not delete group", _group_id)))?;
+            .create_uuid_list_email(&group_id)
+            .map_err(|error| error.with_context(&format!("group_id = {}, Could not delete group", group_id)))?;
 
         if has_list {
             self.delete_all_aliases_and_members_from_list(&uuid_list_email, &[]).await?;
-            tracing::info!(_group_id, "Delete list");
+            tracing::info!(group_id, "Delete list");
         }
 
-        self.get_cached_group_id_mapping().await?.remove(&_group_id);
+        self.get_cached_group_id_mapping().await?.remove(&group_id);
 
         Ok(())
     }
 
-    async fn delete_user(&mut self, _user_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
-        if !self.get_cached_user_ids().await?.contains(&_user_id) {
-            tracing::warn!(user_id = _user_id, "Cannot deactivate source user, because it is not known to James");
+    async fn delete_user(&mut self, user_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
+        if !self.get_cached_user_ids().await?.contains(&user_id) {
+            tracing::warn!(user_id = user_id, "Cannot deactivate source user, because it is not known to James");
         }
 
         let uuid_user_email = self
-            .create_uuid_user_email(&_user_id)
-            .map_err(|error| error.with_context(&format!("user_id = {}, Could not delete user", _user_id)))?;
+            .create_uuid_user_email(&user_id)
+            .map_err(|error| error.with_context(&format!("user_id = {}, Could not delete user", user_id)))?;
         self.update_alias(&uuid_user_email, &[]).await?;
         match self.james_api.delete_user(&uuid_user_email).await {
-            Ok(_) => tracing::info!(user_id = _user_id, "Delete user"),
-            Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not delete user", _user_id))),
+            Ok(_) => tracing::info!(user_id = user_id, "Delete user"),
+            Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not delete user", user_id))),
         };
 
-        self.get_cached_user_ids().await?.remove(&_user_id);
+        self.get_cached_user_ids().await?.remove(&user_id);
 
         Ok(())
     }
