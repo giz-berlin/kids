@@ -17,7 +17,7 @@ pub struct SynapseConfig {
     pub room_deletion_strategy: RoomDeletionStrategy,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, Copy)]
 pub enum RoomDeletionStrategy {
     /// Do not modify the Matrix room. No users will be removed from it
     /// and no attributes (name, alias, power levels) will be updated.
@@ -227,7 +227,7 @@ impl interface::Target for Connector {
 
         tracing::info!(matrix_room_id, "Deleting room with strategy {:?}", self.config.room_deletion_strategy);
 
-        self.delete_room(&matrix_room_id.clone(), self.config.room_deletion_strategy.clone()).await?;
+        self.delete_room(&matrix_room_id.clone(), self.config.room_deletion_strategy).await?;
 
         self.get_group_id_mapping().await?.remove(source_group_id);
 
