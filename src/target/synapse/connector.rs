@@ -205,8 +205,8 @@ impl interface::Target for Connector {
         Ok(self.get_user_id_mapping().await?.keys().cloned().collect())
     }
 
-    async fn delete_group(&mut self, source_group_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
-        if !self.get_group_id_mapping().await?.contains_key(&source_group_id) {
+    async fn delete_group(&mut self, source_group_id: &types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
+        if !self.get_group_id_mapping().await?.contains_key(source_group_id) {
             // Note: Since rooms are being created before users, all valid rooms must be contained
             // in the mapping at this point.
             tracing::warn!(
@@ -216,17 +216,17 @@ impl interface::Target for Connector {
             return Ok(());
         }
 
-        let matrix_room_id = self.get_group_id_mapping().await?.get(&source_group_id).unwrap().clone();
+        let matrix_room_id = self.get_group_id_mapping().await?.get(source_group_id).unwrap().clone();
         tracing::info!(matrix_room_id, "Deleting room with strategy {:?}", self.config.room_deletion_strategy);
 
         self.delete_room(&matrix_room_id.clone(), self.config.room_deletion_strategy.clone()).await?;
 
-        self.get_group_id_mapping().await?.remove(&source_group_id);
+        self.get_group_id_mapping().await?.remove(source_group_id);
 
         Ok(())
     }
 
-    async fn delete_user(&mut self, user_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
+    async fn delete_user(&mut self, user_id: &types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
         // Synapse does not support deleting users.
         // Instead, we can only deactivate them, which will revoke all user sessions and prevent
         // the user from logging in again.
@@ -240,19 +240,19 @@ impl interface::Target for Connector {
         // so recreating it will actually create a new user in the source, and the user will then
         // also register as a new user in the Synapse.
 
-        if !self.get_user_id_mapping().await?.contains_key(&user_id) {
+        if !self.get_user_id_mapping().await?.contains_key(user_id) {
             // This should not happen, as the controller should only attempt to delete users that
             // we told it exists in Matrix before via the `self.all_users` method.
             tracing::warn!(source_user_id = user_id, "Cannot deactivate source user, because it is not known to Matrix");
         }
 
-        let matrix_user_id = self.get_user_id_mapping().await?.get(&user_id).unwrap().name.clone();
+        let matrix_user_id = self.get_user_id_mapping().await?.get(user_id).unwrap().name.clone();
         tracing::info!(matrix_user_id, "Deactivating matrix user");
         self.synapse_api
             .deactivate_user(&matrix_user_id)
             .await
             .map_err(|e| e.with_context(&format!("Could not deactivate matrix user {matrix_user_id}")))?;
-        self.get_user_id_mapping().await?.remove(&user_id);
+        self.get_user_id_mapping().await?.remove(user_id);
         Ok(())
     }
 
@@ -282,7 +282,7 @@ impl interface::Target for Connector {
                 // in fact, the group will still be present in the source after this even though we are deleting the room
                 // because the attribute is missing.
                 // For this reason, the controller will not call the delete_group method in that case.
-                self.delete_group(source_group.id().to_owned()).await?;
+                self.delete_group(source_group.id()).await?;
             } else {
                 tracing::info!(
                     source_group_id = source_group.id(),

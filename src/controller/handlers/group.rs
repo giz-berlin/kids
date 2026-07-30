@@ -57,7 +57,7 @@ where
 {
     let mut target = state.target.write().await;
 
-    tracing::info!(group_id = tracing::field::display(group_id.clone()), "Deleting group");
+    tracing::info!(group_id = tracing::field::display(&group_id), "Deleting group");
 
     if !target.all_groups().await?.contains(&group_id) {
         return Err(crate::controller::error::ControllerError::new(
@@ -68,7 +68,7 @@ where
         ));
     }
 
-    target.delete_group(group_id).await?;
+    target.delete_group(&group_id).await?;
 
     Ok(axum::response::NoContent)
 }
