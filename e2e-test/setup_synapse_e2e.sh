@@ -171,7 +171,7 @@ fi
 if restart_if_possible $SYNAPSE_ADMIN_CONTAINER_NAME; [ $? -ne 0 ]; then
   progress_msg "Starting $SYNAPSE_ADMIN_CONTAINER_NAME"
   envsubst < config/synapse_admin_config.tpl.json > config/synapse_admin_config.json
-  podman run -d --name $SYNAPSE_ADMIN_CONTAINER_NAME -p 8080:80 -v "./config/synapse_admin_config.json:/app/config.json" ghcr.io/etkecc/synapse-admin
+  podman run -d --name $SYNAPSE_ADMIN_CONTAINER_NAME -p 8080:8080 -v "./config/synapse_admin_config.json:/app/config.json" ghcr.io/etkecc/ketesa
 fi
 
 progress_msg "Creating synapse_e2e_config.toml from environment variables"
