@@ -1,8 +1,12 @@
 # For documentation on the configuration parameters, refer to the default_configs directory.
 # This file does intentionally not contain any parameter comments, as those could get out of sync quite easily.
 
-[http]
-bind_addr = "127.0.0.1:3000"
+[controller.api]
+mode = "enabled"
+bind_addr = "0.0.0.0:3000"
+
+[controller.api.tls]
+mode = "insecure_disabled"
 
 [sentry]
 active = false
