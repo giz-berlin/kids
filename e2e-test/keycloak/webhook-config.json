@@ -1,0 +1,11 @@
+{
+    "webhooks": [
+        {
+            "name": "kids",
+            "url": "http://host.docker.internal:3000",
+            "authToken": "secret-token-1",
+            "realm": "giz",
+            "version": "v1"
+        }
+    ]
+}
