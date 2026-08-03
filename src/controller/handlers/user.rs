@@ -57,7 +57,7 @@ where
 {
     let mut target = state.target.write().await;
 
-    tracing::info!(user_id = tracing::field::display(user_id.clone()), "Deleting user");
+    tracing::info!(user_id = tracing::field::display(&user_id), "Deleting user");
 
     if !target.all_users().await?.contains(&user_id) {
         return Err(crate::controller::error::ControllerError::new(
@@ -68,7 +68,7 @@ where
         ));
     }
 
-    target.delete_user(user_id.clone()).await?;
+    target.delete_user(&user_id).await?;
 
     Ok(axum::response::NoContent)
 }

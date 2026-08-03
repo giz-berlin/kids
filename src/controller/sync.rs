@@ -40,7 +40,7 @@ pub async fn full_sync<S: source::interface::Source + Send + Sync + 'static, T: 
             // from the source its subgroup relationships are unknown. Targets that track group
             // hierarchies must handle cascading deletes themselves and any remaining subgroups will
             // be cleaned up on the next full sync.
-            target.delete_group(group).await.context("deleting leftover group from source")?;
+            target.delete_group(&group).await.context("deleting leftover group from source")?;
         }
     }
 
@@ -61,7 +61,7 @@ pub async fn full_sync<S: source::interface::Source + Send + Sync + 'static, T: 
     for user in target_users {
         if !source_user_set.contains(&user) {
             tracing::warn!(id = user, "Deleting leftover user from source");
-            target.delete_user(user).await.context("deleting leftover user from source")?;
+            target.delete_user(&user).await.context("deleting leftover user from source")?;
         }
     }
 

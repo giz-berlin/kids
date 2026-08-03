@@ -42,13 +42,13 @@ impl interface::Target for Connector {
         Ok(self.users.keys().cloned().collect())
     }
 
-    async fn delete_group(&mut self, group_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
-        self.groups.remove(&group_id);
+    async fn delete_group(&mut self, group_id: &types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
+        self.groups.remove(group_id);
         Ok(())
     }
 
-    async fn delete_user(&mut self, user_id: types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
-        self.users.remove(&user_id);
+    async fn delete_user(&mut self, user_id: &types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
+        self.users.remove(user_id);
         Ok(())
     }
 
