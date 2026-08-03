@@ -4,6 +4,7 @@ stages:
   - build
   - test
   - build-container
+  - test-e2e
 
 variables:
   # This will instruct Docker not to start over TLS.
@@ -118,3 +119,46 @@ kids-synapse-container:
   extends: .docker-image-build
   variables:
     TARGET_BINARY: keycloak-synapse
+
+############
+# E2E Testing
+############
+
+test-synapse-e2e:
+  stage: test-e2e
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: kids-synapse-container
+  tags:
+    # Use a privileged runner for running (Docker) containers.
+    - privileged
+  script:
+    - echo "Install dependencies"
+    - dnf install unzip envsubst openssl jq --assumeyes --refresh
+    - python -m ensurepip --upgrade
+    - python -m pip install pyyaml
+    - python -m pip install synadm
+    - echo "$CI_REGISTRY_PASSWORD" | podman login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - echo "127.0.0.1 host.docker.internal" >> /etc/hosts
+    - pushd e2e-test
+    - source .env
+    - echo "Download Keycloak Webhook SPI"
+    - pushd keycloak
+    - >
+      curl --output artifacts.zip --header "PRIVATE-TOKEN: $KEYCLOAK_WEBHOOK_SPI_DOWNLOAD"
+      "https://rechenknecht.net/api/v4/projects/192/jobs/artifacts/main/download?job=build-jar"
+    - unzip artifacts.zip
+    - rm artifacts.zip
+    - mv build/libs/* .
+    - rmdir -p build/libs
+    - popd
+    - echo "Start Synapse & Keycloak"
+    - ./setup_synapse_e2e.sh
+    - echo "Start KIDS"
+    - KIDS_PODMAN_ID=$(podman run -d -v $(realpath config/synapse_e2e_config.toml):/config.toml --net host $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG/keycloak-synapse:latest --config /config.toml)
+    - echo "Waiting for KIDS to sync..."
+    - sleep 10
+    - podman logs $KIDS_PODMAN_ID
+    - PODMAN_SERVICE_HOSTNAME=$PODMAN_SERVICE_HOSTNAME SYNAPSE_TLS_PORT=$SYNAPSE_TLS_PORT ./verify_synapse_e2e.sh
+    - podman stop $KIDS_PODMAN_ID && podman rm $KIDS_PODMAN_ID
+    - ./teardown_synapse_e2e.sh
