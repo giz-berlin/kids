@@ -27,7 +27,10 @@ build-release:
     - cargo build --release --verbose
   artifacts:
     paths:
-      - target/release/
+      - target/release/keycloak-memory
+      - target/release/keycloak-synapse
+      - target/release/keycloak-james
+      - target/release/webhook-cli
     expire_in: 1 week
     when: always
 
@@ -37,8 +40,11 @@ build-debug:
     - cargo build --verbose
   artifacts:
     paths:
-      - target/debug/
-    expire_in: 1 week
+      - target/debug/keycloak-memory
+      - target/debug/keycloak-synapse
+      - target/debug/keycloak-james
+      - target/debug/webhook-cli
+    expire_in: 2 days
     when: always
 
 ############
@@ -75,7 +81,6 @@ test-debug:
       coverage_report:
         coverage_format: cobertura
         path: target/llvm-cov/cobertura.xml
-
   needs:
     - build-debug
 
