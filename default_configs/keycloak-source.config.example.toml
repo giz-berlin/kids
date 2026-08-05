@@ -1,7 +1,8 @@
 [source]
 
 [source.keycloak_api]
-# Address of the external Keycloak to fetch data from.
+# Base path of the external Keycloak to fetch data from.
+# This must include any path (e.g. `/auth`) that your Keycloak is using.
 keycloak_address = "http://localhost:8080"
 # Credentials of a Keycloak service account used to fetch the data.
 # The service account needs to have access to the realm and have the "view-users" and "view-realm" roles assigned.
