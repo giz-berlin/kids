@@ -58,7 +58,22 @@ impl interface::Target for Connector {
     }
 
     async fn create_or_update_user(&mut self, user: Arc<dyn source::interface::User + Sync + Send>) -> Result<(), error::KidsError> {
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            match user.groups(false).await {
+                Ok(groups) => tracing::debug!(user_id = user.id(), groups = ?group_paths(&groups), "Resolved direct groups for user"),
+                Err(err) => tracing::warn!(user_id = user.id(), error = %err, "Failed to resolve direct groups for user"),
+            }
+            match user.groups(true).await {
+                Ok(groups) => tracing::debug!(user_id = user.id(), groups = ?group_paths(&groups), "Resolved transitive groups for user"),
+                Err(err) => tracing::warn!(user_id = user.id(), error = %err, "Failed to resolve transitive groups for user"),
+            }
+        }
+
         self.users.insert(user.id().to_owned(), user);
         Ok(())
     }
+}
+
+fn group_paths(groups: &[Arc<dyn source::interface::Group + Sync + Send>]) -> Vec<&str> {
+    groups.iter().map(|g| g.path()).collect()
 }

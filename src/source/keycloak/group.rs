@@ -61,6 +61,47 @@ impl KeycloakGroup {
     }
 }
 
+/// Resolves `group_representation` together with all of its ancestors, by walking upwards via each group's `parent_id`
+/// until a root group is reached. Every group resolved this way is inserted into `cache`, keyed by ID.
+/// Passing the same `cache` into multiple calls therefore only fetches ancestors shared
+/// between them once, and `cache` ends up holding the union of all resolved groups across those calls.
+pub async fn resolve_group_with_ancestors(
+    keycloak_api: std::sync::Arc<dyn external::KeycloakApi>,
+    group_representation: keycloak::types::GroupRepresentation,
+    cache: &mut std::collections::HashMap<String, std::sync::Arc<KeycloakGroup>>,
+) -> Result<(), error::KidsError> {
+    // We can unwrap here because every Keycloak group has an ID.
+    if cache.contains_key(group_representation.id.as_ref().unwrap()) {
+        return Ok(());
+    }
+
+    // Walk upwards from `group_representation`, collecting representations until we reach a root group or an already-cached ancestor.
+    let mut unresolved_chain = vec![group_representation];
+    while let Some(parent_id) = unresolved_chain.last().unwrap().parent_id.as_ref().filter(|id| !cache.contains_key(*id)) {
+        unresolved_chain.push(keycloak_api.get_group(parent_id).await?);
+    }
+
+    // Build root to leaf, since `new_with_parent` needs the parent to already be constructed.
+    let mut parent = unresolved_chain
+        .last()
+        .unwrap()
+        .parent_id
+        .as_ref()
+        .and_then(|parent_id| cache.get(parent_id).cloned());
+    for representation in unresolved_chain.into_iter().rev() {
+        // We can unwrap here because every Keycloak group has an ID.
+        let id = representation.id.clone().unwrap();
+        let group_instance = match parent {
+            Some(parent) => std::sync::Arc::new(KeycloakGroup::new_with_parent(keycloak_api.clone(), representation, parent)),
+            None => std::sync::Arc::new(KeycloakGroup::new_from_group_representation(keycloak_api.clone(), representation)),
+        };
+        cache.insert(id, group_instance.clone());
+        parent = Some(group_instance);
+    }
+
+    Ok(())
+}
+
 #[async_trait::async_trait(?Send)]
 impl interface::Group for KeycloakGroup {
     fn id(&self) -> &types::SharedResourceIdentifier {

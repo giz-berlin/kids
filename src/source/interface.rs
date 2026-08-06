@@ -71,7 +71,10 @@ pub trait User {
     fn attributes(&self) -> &collections::HashMap<String, Vec<String>>;
 
     /// All [Group]s the [User] is in.
-    async fn groups(&self) -> Result<Vec<std::sync::Arc<dyn Group + Send + Sync>>, error::KidsError>;
+    /// If `include_transitive_groups` is `true`, the result also contains every (indirect) parent of each group the [User] is
+    /// directly in. For example, if the [User] is a direct member of a group with path `/Group1/Group2/Group3`,
+    /// the result will contain `Group1`, `Group2` and `Group3`, instead of just `Group3`.
+    async fn groups(&self, include_transitive_groups: bool) -> Result<Vec<std::sync::Arc<dyn Group + Send + Sync>>, error::KidsError>;
 }
 
 impl fmt::Debug for dyn User + Send + Sync {

@@ -324,7 +324,7 @@ impl interface::Target for Connector {
         let matrix_user_id = self.get_user_id_mapping().await?.get(source_user.id()).unwrap().name.clone();
 
         let desired_user_groups = source_user
-            .groups()
+            .groups(false)
             .await
             .map_err(|e| e.with_context(&format!("Could not get source groups associated with source user {}", source_user.id())))?;
         let current_user_rooms = self

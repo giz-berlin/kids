@@ -238,7 +238,7 @@ impl interface::Target for Connector {
         }
         self.update_alias(&user_uuid_email, &desired_aliases).await?;
 
-        let desired_source_groups = source_user.groups().await.map_err(|e| {
+        let desired_source_groups = source_user.groups(false).await.map_err(|e| {
             e.with_context(&format!(
                 "user_id = {}, Could not get source groups associated with source user",
                 source_user.id()

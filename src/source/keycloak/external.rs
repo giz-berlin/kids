@@ -27,6 +27,7 @@ pub trait KeycloakApi: Send + Sync {
     async fn get_groups_of_user(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
     async fn get_groups(&self) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
     async fn get_subgroups(&self, group_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
+    async fn get_group(&self, group_id: &str) -> Result<keycloak::types::GroupRepresentation, error::KidsError>;
 }
 
 /// A Keycloak service account client capable of making HTTP requests to an external Keycloak instance.
@@ -62,10 +63,7 @@ impl KeycloakServiceAccountClient {
         KeycloakServiceAccountClient { config, keycloak_admin }
     }
 
-    fn convert_error<Resource>(
-        route: &str,
-        data: Result<keycloak::types::TypeVec<Resource>, keycloak::KeycloakError>,
-    ) -> Result<keycloak::types::TypeVec<Resource>, error::KidsError> {
+    fn convert_error<Resource>(route: &str, data: Result<Resource, keycloak::KeycloakError>) -> Result<Resource, error::KidsError> {
         match data {
             Ok(resource) => Ok(resource),
             Err(keycloak::KeycloakError::HttpFailure { status, text, .. }) => {
@@ -154,6 +152,13 @@ impl KeycloakApi for KeycloakServiceAccountClient {
                 .await,
         )
     }
+
+    async fn get_group(&self, group_id: &str) -> Result<keycloak::types::GroupRepresentation, error::KidsError> {
+        KeycloakServiceAccountClient::convert_error(
+            "GET_GROUP",
+            self.keycloak_admin.realm_groups_with_group_id_get(&self.config.realm, group_id).await,
+        )
+    }
 }
 
 // The builder macro appears to confuse clippy in some way.
@@ -229,6 +234,8 @@ pub mod test {
         name: String,
         #[builder(default = "self.default_path()")]
         path: String,
+        #[builder(setter(into, strip_option))]
+        parent_id: Option<String>,
     }
 
     impl KeycloakGroupRepresentationBuilder {
@@ -251,6 +258,7 @@ pub mod test {
                 id: Some(value.id),
                 name: Some(value.name),
                 path: Some(value.path),
+                parent_id: value.parent_id,
                 ..Default::default()
             }
         }
