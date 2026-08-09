@@ -21,4 +21,5 @@ pub mod constants {
     pub const ANOTHER_USER_ID: &str = "4n0th3r-us3r";
     pub const DEFAULT_GROUP_ID: &str = "d3f4ult_gr0up";
     pub const ANOTHER_GROUP_ID: &str = "4n0th3r-gr0up";
+    pub const THIRD_GROUP_ID: &str = "th1rd-gr0up";
 }

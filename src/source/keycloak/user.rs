@@ -71,15 +71,26 @@ impl interface::User for KeycloakUser {
         &self.attributes
     }
 
-    async fn groups(&self) -> Result<Vec<std::sync::Arc<dyn interface::Group + Send + Sync>>, error::KidsError> {
-        let users = self.keycloak_api.get_groups_of_user(self.id()).await?;
-        Ok(users
-            .into_iter()
-            .map(|g| {
-                std::sync::Arc::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), g))
-                    as std::sync::Arc<dyn interface::Group + Send + Sync>
-            })
-            .collect())
+    async fn groups(&self, include_transitive_groups: bool) -> Result<Vec<std::sync::Arc<dyn interface::Group + Send + Sync>>, error::KidsError> {
+        let direct_groups = self.keycloak_api.get_groups_of_user(self.id()).await?;
+
+        if !include_transitive_groups {
+            return Ok(direct_groups
+                .into_iter()
+                .map(|g| {
+                    std::sync::Arc::new(group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), g))
+                        as std::sync::Arc<dyn interface::Group + Send + Sync>
+                })
+                .collect());
+        }
+
+        let mut cache = collections::HashMap::new();
+        for direct_group in direct_groups {
+            group::resolve_group_with_ancestors(self.keycloak_api.clone(), direct_group, &mut cache).await?;
+        }
+
+        // Since `cache` ends up holding every direct group and all of their ancestors it already is the (deduplicated) result we want.
+        Ok(cache.into_values().map(|g| g as std::sync::Arc<dyn interface::Group + Send + Sync>).collect())
     }
 }
 
@@ -122,11 +133,159 @@ mod test {
         );
 
         // when
-        let user_groups = user.groups().await.unwrap();
+        let user_groups = user.groups(false).await.unwrap();
 
         // then
         assert_eq!(user_groups.len(), 2);
         assert_eq!(user_groups[0].id(), constants::DEFAULT_GROUP_ID);
         assert_eq!(user_groups[1].id(), constants::ANOTHER_GROUP_ID);
+    }
+
+    /// Asserts that `user_groups` contains exactly the given IDs, once each (order does not matter, but duplicates or
+    /// missing entries do), by comparing sorted ID lists.
+    fn assert_group_ids(user_groups: &[std::sync::Arc<dyn interface::Group + Send + Sync>], expected_ids: &[&str]) {
+        let mut actual_ids: Vec<&str> = user_groups.iter().map(|g| g.id().as_str()).collect();
+        actual_ids.sort_unstable();
+        let mut expected_ids = expected_ids.to_vec();
+        expected_ids.sort_unstable();
+        assert_eq!(actual_ids, expected_ids);
+    }
+
+    #[tokio::test]
+    async fn test_user_groups_transitive() {
+        // given
+        let mut mock = external::MockKeycloakApi::new();
+        // the direct group already carries its `parent_id`, so resolving it must not fetch it again via `get_group`
+        mock.expect_get_groups_of_user().with(predicate::eq(constants::DEFAULT_USER_ID)).returning(|_| {
+            Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
+                .id(constants::DEFAULT_GROUP_ID)
+                .parent_id(constants::ANOTHER_GROUP_ID)
+                .build_into()])
+        });
+        mock.expect_get_group()
+            .with(predicate::eq(constants::ANOTHER_GROUP_ID))
+            .times(1)
+            .returning(|_| {
+                Ok(external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::ANOTHER_GROUP_ID)
+                    .parent_id(constants::THIRD_GROUP_ID)
+                    .build_into())
+            });
+        mock.expect_get_group().with(predicate::eq(constants::THIRD_GROUP_ID)).times(1).returning(|_| {
+            Ok(external::test::KeycloakGroupRepresentationBuilder::default()
+                .id(constants::THIRD_GROUP_ID)
+                .build_into())
+        });
+
+        let user = KeycloakUser::from_user_representation(
+            std::sync::Arc::new(mock),
+            external::test::KeycloakUserRepresentationBuilder::default()
+                .id(constants::DEFAULT_USER_ID)
+                .build_into(),
+        );
+
+        // when
+        let user_groups = user.groups(true).await.unwrap();
+
+        // then
+        // the direct group's parents are included, order is not guaranteed
+        assert_group_ids(
+            &user_groups,
+            &[
+                constants::THIRD_GROUP_ID,
+                constants::ANOTHER_GROUP_ID,
+                constants::DEFAULT_GROUP_ID,
+            ],
+        );
+    }
+
+    #[tokio::test]
+    async fn test_user_groups_transitive_deduplicates_shared_ancestors() {
+        // given
+        let mut mock = external::MockKeycloakApi::new();
+        // the user is directly in both a group and one of its ancestors
+        mock.expect_get_groups_of_user().with(predicate::eq(constants::DEFAULT_USER_ID)).returning(|_| {
+            Ok(vec![
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::ANOTHER_GROUP_ID)
+                    .parent_id(constants::THIRD_GROUP_ID)
+                    .build_into(),
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::DEFAULT_GROUP_ID)
+                    .parent_id(constants::ANOTHER_GROUP_ID)
+                    .build_into(),
+            ])
+        });
+        // THIRD_GROUP_ID is the shared ancestor of both direct groups
+        mock.expect_get_group().with(predicate::eq(constants::THIRD_GROUP_ID)).times(1).returning(|_| {
+            Ok(external::test::KeycloakGroupRepresentationBuilder::default()
+                .id(constants::THIRD_GROUP_ID)
+                .build_into())
+        });
+
+        let user = KeycloakUser::from_user_representation(
+            std::sync::Arc::new(mock),
+            external::test::KeycloakUserRepresentationBuilder::default()
+                .id(constants::DEFAULT_USER_ID)
+                .build_into(),
+        );
+
+        // when
+        let user_groups = user.groups(true).await.unwrap();
+
+        // then
+        assert_group_ids(
+            &user_groups,
+            &[
+                constants::THIRD_GROUP_ID,
+                constants::ANOTHER_GROUP_ID,
+                constants::DEFAULT_GROUP_ID,
+            ],
+        );
+    }
+
+    #[tokio::test]
+    async fn test_user_groups_transitive_deduplicates_shared_parent_of_siblings() {
+        // given
+        let mut mock = external::MockKeycloakApi::new();
+        // the user is directly in two sibling groups (THIRD_GROUP_ID -> ANOTHER_GROUP_ID and THIRD_GROUP_ID -> DEFAULT_GROUP_ID)
+        mock.expect_get_groups_of_user().with(predicate::eq(constants::DEFAULT_USER_ID)).returning(|_| {
+            Ok(vec![
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::ANOTHER_GROUP_ID)
+                    .parent_id(constants::THIRD_GROUP_ID)
+                    .build_into(),
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::DEFAULT_GROUP_ID)
+                    .parent_id(constants::THIRD_GROUP_ID)
+                    .build_into(),
+            ])
+        });
+        // THIRD_GROUP_ID is the shared parent of both direct groups
+        mock.expect_get_group().with(predicate::eq(constants::THIRD_GROUP_ID)).times(1).returning(|_| {
+            Ok(external::test::KeycloakGroupRepresentationBuilder::default()
+                .id(constants::THIRD_GROUP_ID)
+                .build_into())
+        });
+
+        let user = KeycloakUser::from_user_representation(
+            std::sync::Arc::new(mock),
+            external::test::KeycloakUserRepresentationBuilder::default()
+                .id(constants::DEFAULT_USER_ID)
+                .build_into(),
+        );
+
+        // when
+        let user_groups = user.groups(true).await.unwrap();
+
+        // then
+        assert_group_ids(
+            &user_groups,
+            &[
+                constants::THIRD_GROUP_ID,
+                constants::ANOTHER_GROUP_ID,
+                constants::DEFAULT_GROUP_ID,
+            ],
+        );
     }
 }
