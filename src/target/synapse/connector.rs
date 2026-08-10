@@ -150,7 +150,10 @@ impl Connector {
             self.generate_id_mappings().await?;
         }
 
-        Ok(self.group_id_mapping.as_mut().unwrap())
+        Ok(self
+            .group_id_mapping
+            .as_mut()
+            .expect("`generate_id_mappings` should have filled in `group_id_mapping`"))
     }
 
     async fn get_user_id_mapping(&mut self) -> Result<&mut collections::HashMap<types::SharedResourceIdentifier, dto::User>, error::KidsError> {
@@ -158,7 +161,10 @@ impl Connector {
             self.generate_id_mappings().await?;
         }
 
-        Ok(self.user_id_mapping.as_mut().unwrap())
+        Ok(self
+            .user_id_mapping
+            .as_mut()
+            .expect("`generate_id_mappings` should have filled in `user_id_mapping`"))
     }
 }
 
@@ -206,17 +212,19 @@ impl interface::Target for Connector {
     }
 
     async fn delete_group(&mut self, source_group_id: &types::SharedResourceIdentifier) -> Result<(), error::KidsError> {
-        if !self.get_group_id_mapping().await?.contains_key(source_group_id) {
-            // Note: Since rooms are being created before users, all valid rooms must be contained
-            // in the mapping at this point.
-            tracing::warn!(
-                source_group_id,
-                "Source group has no known associated room in Synapse that could be deleted. Nothing to be done"
-            );
-            return Ok(());
-        }
+        let matrix_room_id = match self.get_group_id_mapping().await?.get(source_group_id) {
+            Some(matrix_room) => matrix_room.clone(),
+            None => {
+                // Note: Since rooms are being created before users, all valid rooms must be contained
+                // in the mapping at this point.
+                tracing::warn!(
+                    source_group_id,
+                    "Source group has no known associated room in Synapse that could be deleted. Nothing to be done"
+                );
+                return Ok(());
+            }
+        };
 
-        let matrix_room_id = self.get_group_id_mapping().await?.get(source_group_id).unwrap().clone();
         tracing::info!(matrix_room_id, "Deleting room with strategy {:?}", self.config.room_deletion_strategy);
 
         self.delete_room(&matrix_room_id.clone(), self.config.room_deletion_strategy.clone()).await?;
@@ -240,13 +248,17 @@ impl interface::Target for Connector {
         // so recreating it will actually create a new user in the source, and the user will then
         // also register as a new user in the Synapse.
 
-        if !self.get_user_id_mapping().await?.contains_key(user_id) {
-            // This should not happen, as the controller should only attempt to delete users that
-            // we told it exists in Matrix before via the `self.all_users` method.
-            tracing::warn!(source_user_id = user_id, "Cannot deactivate source user, because it is not known to Matrix");
-        }
+        let matrix_user = match self.get_user_id_mapping().await?.get(user_id) {
+            Some(matrix_user) => matrix_user,
+            None => {
+                // This should not happen, as the controller should only attempt to delete users that
+                // we told it exists in Matrix before via the `self.all_users` method.
+                tracing::warn!(source_user_id = user_id, "Cannot deactivate source user, because it is not known to Matrix");
+                return Ok(());
+            }
+        };
 
-        let matrix_user_id = self.get_user_id_mapping().await?.get(user_id).unwrap().name.clone();
+        let matrix_user_id = matrix_user.name.clone();
         tracing::info!(matrix_user_id, "Deactivating matrix user");
         self.synapse_api
             .deactivate_user(&matrix_user_id)
@@ -270,25 +282,27 @@ impl interface::Target for Connector {
 
         // The target does only care about groups with the domain-specific attribute.
         if !source_group.attributes().contains_key(&self.config.source_room_name_attr) {
-            if self.get_group_id_mapping().await?.contains_key(source_group.id()) {
-                let matrix_room_id = self.get_group_id_mapping().await?.get(source_group.id()).unwrap();
-                tracing::warn!(
-                    source_group_id = source_group.id(),
-                    matrix_room_id,
-                    "The source_room_name_attr has been removed from a group that already had a corresponding Matrix room. Deleting that room now"
-                );
-                // Note that, even though we are in the create_or_update method, we have to delete the group here.
-                // This is because the source_room_name_attr is target-specific and the source knows nothing about it;
-                // in fact, the group will still be present in the source after this even though we are deleting the room
-                // because the attribute is missing.
-                // For this reason, the controller will not call the delete_group method in that case.
-                self.delete_group(source_group.id()).await?;
-            } else {
-                tracing::info!(
-                    source_group_id = source_group.id(),
-                    "Not creating room for group because it does not have the source_room_name_attr {}",
-                    self.config.source_room_name_attr
-                );
+            match self.get_group_id_mapping().await?.get(source_group.id()) {
+                Some(matrix_room_id) => {
+                    tracing::warn!(
+                        source_group_id = source_group.id(),
+                        matrix_room_id,
+                        "The source_room_name_attr has been removed from a group that already had a corresponding Matrix room. Deleting that room now"
+                    );
+                    // Note that, even though we are in the create_or_update method, we have to delete the group here.
+                    // This is because the source_room_name_attr is target-specific and the source knows nothing about it;
+                    // in fact, the group will still be present in the source after this even though we are deleting the room
+                    // because the attribute is missing.
+                    // For this reason, the controller will not call the delete_group method in that case.
+                    self.delete_group(source_group.id()).await?;
+                }
+                None => {
+                    tracing::info!(
+                        source_group_id = source_group.id(),
+                        "Not creating room for group because it does not have the source_room_name_attr {}",
+                        self.config.source_room_name_attr
+                    );
+                }
             }
 
             // This is not an error condition: We did succeed in performing the requested operation, it's
@@ -311,17 +325,22 @@ impl interface::Target for Connector {
     }
 
     async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn source::interface::User + Send + Sync>) -> Result<(), error::KidsError> {
-        if !self.get_user_id_mapping().await?.contains_key(source_user.id()) {
-            tracing::debug!(
-                source_user_id = source_user.id(),
-                "Source user is not known to Matrix. Before the syncer can handle them, they need to login to Matrix manually first"
-            );
-            // This is not an error condition: The syncer is only supposed to handle users which have logged in before.
-            // We are not able to create users directly from the syncer.
-            return Ok(());
-        }
+        let matrix_user = match self.get_user_id_mapping().await?.get(source_user.id()) {
+            Some(matrix_user) => matrix_user,
+            None => {
+                tracing::debug!(
+                    source_user_id = source_user.id(),
+                    "Source user is not known to Matrix. Before the syncer can handle them, they need to login to Matrix manually first"
+                );
+                // This is not an error condition: The syncer is only supposed to handle users which have logged in before.
+                // We are not able to create users directly from the syncer.
+                return Ok(());
+            }
+        };
 
-        let matrix_user_id = self.get_user_id_mapping().await?.get(source_user.id()).unwrap().name.clone();
+        let matrix_user_id = matrix_user.name.clone();
+        // Need to fetch this already here as we need to drop the mutable borrow.
+        let is_matrix_user_locked = matrix_user.locked;
 
         let desired_user_groups = source_user
             .groups(true)
@@ -346,7 +365,6 @@ impl interface::Target for Connector {
             })
             .collect();
 
-        let is_matrix_user_locked = self.get_user_id_mapping().await?.get(source_user.id()).unwrap().locked;
         if !source_user.enabled() {
             // If user is not enabled, we want to remove it from all rooms it is in.
             // Simply clearing the desired rooms will have this effect using the logic below.
@@ -415,29 +433,32 @@ impl Connector {
     }
 
     async fn get_or_create_room(&mut self, source_group: &std::sync::Arc<dyn source::interface::Group + Send + Sync>) -> Result<String, error::KidsError> {
-        let matrix_room_id;
-        if !self.get_group_id_mapping().await?.contains_key(source_group.id()) {
-            tracing::info!(
-                source_group_id = source_group.id(),
-                source_group_name = source_group.name(),
-                "Creating room for group"
-            );
-            let room_creation_response = self
-                .synapse_api
-                .create_room(source_group.name(), source_group.path())
-                .await
-                .map_err(|e| e.with_context("Could not create room"))?;
-            matrix_room_id = room_creation_response.room_id;
-            self.synapse_api
-                .associate_source_group_id_to_room(&matrix_room_id, source_group.id())
-                .await
-                .map_err(|e| e.with_context(&format!("Could not associate source group id {} to room {}", source_group.id(), matrix_room_id)))?;
-            self.get_group_id_mapping().await?.insert(source_group.id().to_owned(), matrix_room_id.clone());
-            tracing::info!(source_id = source_group.id(), group_name = source_group.name(), matrix_room_id, "Room created");
-        } else {
-            tracing::debug!(source_id = source_group.id(), "Room already exists");
-            matrix_room_id = self.get_group_id_mapping().await?.get(source_group.id()).unwrap().clone();
-        }
+        let matrix_room_id = match self.get_group_id_mapping().await?.get(source_group.id()) {
+            Some(matrix_room_id) => {
+                tracing::debug!(source_id = source_group.id(), "Room already exists");
+                matrix_room_id.clone()
+            }
+            None => {
+                tracing::info!(
+                    source_group_id = source_group.id(),
+                    source_group_name = source_group.name(),
+                    "Creating room for group"
+                );
+                let room_creation_response = self
+                    .synapse_api
+                    .create_room(source_group.name(), source_group.path())
+                    .await
+                    .map_err(|e| e.with_context("Could not create room"))?;
+                let matrix_room_id = room_creation_response.room_id;
+                self.synapse_api
+                    .associate_source_group_id_to_room(&matrix_room_id, source_group.id())
+                    .await
+                    .map_err(|e| e.with_context(&format!("Could not associate source group id {} to room {}", source_group.id(), matrix_room_id)))?;
+                self.get_group_id_mapping().await?.insert(source_group.id().to_owned(), matrix_room_id.clone());
+                tracing::info!(source_id = source_group.id(), group_name = source_group.name(), matrix_room_id, "Room created");
+                matrix_room_id
+            }
+        };
         Ok(matrix_room_id)
     }
 
@@ -453,7 +474,7 @@ impl Connector {
                     .first()
                     // We can unwrap here because we only process groups that have that attribute set
                     // when we call this method from create_or_update_group().
-                    .unwrap()
+                    .expect("The `self.config.source_room_name_attr` must be set on the source group when calling this method")
                     .to_owned();
                 if new_display_name == DERIVE_DISPLAY_NAME_FROM_GROUP_NAME {
                     new_display_name = source_group.name().replace("_", " ").replace("-", " ");
