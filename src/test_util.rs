@@ -17,9 +17,15 @@ impl fmt::Display for RandomId {
 }
 
 pub mod constants {
-    pub const DEFAULT_USER_ID: &str = "s0m3-us3r";
-    pub const ANOTHER_USER_ID: &str = "4n0th3r-us3r";
-    pub const DEFAULT_GROUP_ID: &str = "d3f4ult_gr0up";
-    pub const ANOTHER_GROUP_ID: &str = "4n0th3r-gr0up";
-    pub const THIRD_GROUP_ID: &str = "th1rd-gr0up";
+    pub const DEFAULT_MATRIX_HOMESERVER: &str = "localhost";
+    pub const DEFAULT_AUTH_PROVIDER: &str = "keycloak";
+
+    pub const DEFAULT_SOURCE_USER_ID: &str = "s0m3-us3r";
+    pub const ANOTHER_SOURCE_USER_ID: &str = "4n0th3r-us3r";
+    pub const DEFAULT_SOURCE_GROUP_ID: &str = "d3f4ult_gr0up";
+    pub const ANOTHER_SOURCE_GROUP_ID: &str = "4n0th3r-gr0up";
+    pub const THIRD_SOURCE_GROUP_ID: &str = "th1rd-gr0up";
+
+    pub const DEFAULT_TARGET_USER_ID: &str = "@s0m3-us3r:localhost";
+    pub const DEFAULT_TARGET_ROOM_ID: &str = "!default-target-room:localhost";
 }

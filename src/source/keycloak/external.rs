@@ -196,11 +196,11 @@ pub mod test {
         }
 
         fn default_username(&self) -> String {
-            format!("user_{}", &self.entity_number)
+            format!("user_{}", self.entity_number)
         }
 
         fn default_email(&self) -> String {
-            format!("user_{}@test.giz.berlin", &self.entity_number)
+            format!("user_{}@test.giz.berlin", self.entity_number)
         }
 
         pub fn build_into(&self) -> keycloak::types::UserRepresentation {
@@ -240,7 +240,7 @@ pub mod test {
 
     impl KeycloakGroupRepresentationBuilder {
         fn default_name(&self) -> String {
-            format!("Group_{}", &self.entity_number)
+            format!("Group_{}", self.entity_number)
         }
 
         fn default_path(&self) -> String {

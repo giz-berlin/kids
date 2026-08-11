@@ -114,21 +114,23 @@ mod test {
     async fn test_user_groups() {
         // given
         let mut mock = external::MockKeycloakApi::new();
-        mock.expect_get_groups_of_user().with(predicate::eq(constants::DEFAULT_USER_ID)).returning(|_| {
-            Ok(vec![
-                external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::DEFAULT_GROUP_ID)
-                    .build_into(),
-                external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::ANOTHER_GROUP_ID)
-                    .build_into(),
-            ])
-        });
+        mock.expect_get_groups_of_user()
+            .with(predicate::eq(constants::DEFAULT_SOURCE_USER_ID))
+            .returning(|_| {
+                Ok(vec![
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::DEFAULT_SOURCE_GROUP_ID)
+                        .build_into(),
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::ANOTHER_SOURCE_GROUP_ID)
+                        .build_into(),
+                ])
+            });
 
         let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
             external::test::KeycloakUserRepresentationBuilder::default()
-                .id(constants::DEFAULT_USER_ID)
+                .id(constants::DEFAULT_SOURCE_USER_ID)
                 .build_into(),
         );
 
@@ -137,8 +139,8 @@ mod test {
 
         // then
         assert_eq!(user_groups.len(), 2);
-        assert_eq!(user_groups[0].id(), constants::DEFAULT_GROUP_ID);
-        assert_eq!(user_groups[1].id(), constants::ANOTHER_GROUP_ID);
+        assert_eq!(user_groups[0].id(), constants::DEFAULT_SOURCE_GROUP_ID);
+        assert_eq!(user_groups[1].id(), constants::ANOTHER_SOURCE_GROUP_ID);
     }
 
     /// Asserts that `user_groups` contains exactly the given IDs, once each (order does not matter, but duplicates or
@@ -156,31 +158,36 @@ mod test {
         // given
         let mut mock = external::MockKeycloakApi::new();
         // the direct group already carries its `parent_id`, so resolving it must not fetch it again via `get_group`
-        mock.expect_get_groups_of_user().with(predicate::eq(constants::DEFAULT_USER_ID)).returning(|_| {
-            Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
-                .id(constants::DEFAULT_GROUP_ID)
-                .parent_id(constants::ANOTHER_GROUP_ID)
-                .build_into()])
-        });
+        mock.expect_get_groups_of_user()
+            .with(predicate::eq(constants::DEFAULT_SOURCE_USER_ID))
+            .returning(|_| {
+                Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::DEFAULT_SOURCE_GROUP_ID)
+                    .parent_id(constants::ANOTHER_SOURCE_GROUP_ID)
+                    .build_into()])
+            });
         mock.expect_get_group()
-            .with(predicate::eq(constants::ANOTHER_GROUP_ID))
+            .with(predicate::eq(constants::ANOTHER_SOURCE_GROUP_ID))
             .times(1)
             .returning(|_| {
                 Ok(external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::ANOTHER_GROUP_ID)
-                    .parent_id(constants::THIRD_GROUP_ID)
+                    .id(constants::ANOTHER_SOURCE_GROUP_ID)
+                    .parent_id(constants::THIRD_SOURCE_GROUP_ID)
                     .build_into())
             });
-        mock.expect_get_group().with(predicate::eq(constants::THIRD_GROUP_ID)).times(1).returning(|_| {
-            Ok(external::test::KeycloakGroupRepresentationBuilder::default()
-                .id(constants::THIRD_GROUP_ID)
-                .build_into())
-        });
+        mock.expect_get_group()
+            .with(predicate::eq(constants::THIRD_SOURCE_GROUP_ID))
+            .times(1)
+            .returning(|_| {
+                Ok(external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::THIRD_SOURCE_GROUP_ID)
+                    .build_into())
+            });
 
         let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
             external::test::KeycloakUserRepresentationBuilder::default()
-                .id(constants::DEFAULT_USER_ID)
+                .id(constants::DEFAULT_SOURCE_USER_ID)
                 .build_into(),
         );
 
@@ -192,9 +199,9 @@ mod test {
         assert_group_ids(
             &user_groups,
             &[
-                constants::THIRD_GROUP_ID,
-                constants::ANOTHER_GROUP_ID,
-                constants::DEFAULT_GROUP_ID,
+                constants::THIRD_SOURCE_GROUP_ID,
+                constants::ANOTHER_SOURCE_GROUP_ID,
+                constants::DEFAULT_SOURCE_GROUP_ID,
             ],
         );
     }
@@ -204,29 +211,34 @@ mod test {
         // given
         let mut mock = external::MockKeycloakApi::new();
         // the user is directly in both a group and one of its ancestors
-        mock.expect_get_groups_of_user().with(predicate::eq(constants::DEFAULT_USER_ID)).returning(|_| {
-            Ok(vec![
-                external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::ANOTHER_GROUP_ID)
-                    .parent_id(constants::THIRD_GROUP_ID)
-                    .build_into(),
-                external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::DEFAULT_GROUP_ID)
-                    .parent_id(constants::ANOTHER_GROUP_ID)
-                    .build_into(),
-            ])
-        });
+        mock.expect_get_groups_of_user()
+            .with(predicate::eq(constants::DEFAULT_SOURCE_USER_ID))
+            .returning(|_| {
+                Ok(vec![
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::ANOTHER_SOURCE_GROUP_ID)
+                        .parent_id(constants::THIRD_SOURCE_GROUP_ID)
+                        .build_into(),
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::DEFAULT_SOURCE_GROUP_ID)
+                        .parent_id(constants::ANOTHER_SOURCE_GROUP_ID)
+                        .build_into(),
+                ])
+            });
         // THIRD_GROUP_ID is the shared ancestor of both direct groups
-        mock.expect_get_group().with(predicate::eq(constants::THIRD_GROUP_ID)).times(1).returning(|_| {
-            Ok(external::test::KeycloakGroupRepresentationBuilder::default()
-                .id(constants::THIRD_GROUP_ID)
-                .build_into())
-        });
+        mock.expect_get_group()
+            .with(predicate::eq(constants::THIRD_SOURCE_GROUP_ID))
+            .times(1)
+            .returning(|_| {
+                Ok(external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::THIRD_SOURCE_GROUP_ID)
+                    .build_into())
+            });
 
         let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
             external::test::KeycloakUserRepresentationBuilder::default()
-                .id(constants::DEFAULT_USER_ID)
+                .id(constants::DEFAULT_SOURCE_USER_ID)
                 .build_into(),
         );
 
@@ -237,9 +249,9 @@ mod test {
         assert_group_ids(
             &user_groups,
             &[
-                constants::THIRD_GROUP_ID,
-                constants::ANOTHER_GROUP_ID,
-                constants::DEFAULT_GROUP_ID,
+                constants::THIRD_SOURCE_GROUP_ID,
+                constants::ANOTHER_SOURCE_GROUP_ID,
+                constants::DEFAULT_SOURCE_GROUP_ID,
             ],
         );
     }
@@ -249,29 +261,34 @@ mod test {
         // given
         let mut mock = external::MockKeycloakApi::new();
         // the user is directly in two sibling groups (THIRD_GROUP_ID -> ANOTHER_GROUP_ID and THIRD_GROUP_ID -> DEFAULT_GROUP_ID)
-        mock.expect_get_groups_of_user().with(predicate::eq(constants::DEFAULT_USER_ID)).returning(|_| {
-            Ok(vec![
-                external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::ANOTHER_GROUP_ID)
-                    .parent_id(constants::THIRD_GROUP_ID)
-                    .build_into(),
-                external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::DEFAULT_GROUP_ID)
-                    .parent_id(constants::THIRD_GROUP_ID)
-                    .build_into(),
-            ])
-        });
+        mock.expect_get_groups_of_user()
+            .with(predicate::eq(constants::DEFAULT_SOURCE_USER_ID))
+            .returning(|_| {
+                Ok(vec![
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::ANOTHER_SOURCE_GROUP_ID)
+                        .parent_id(constants::THIRD_SOURCE_GROUP_ID)
+                        .build_into(),
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::DEFAULT_SOURCE_GROUP_ID)
+                        .parent_id(constants::THIRD_SOURCE_GROUP_ID)
+                        .build_into(),
+                ])
+            });
         // THIRD_GROUP_ID is the shared parent of both direct groups
-        mock.expect_get_group().with(predicate::eq(constants::THIRD_GROUP_ID)).times(1).returning(|_| {
-            Ok(external::test::KeycloakGroupRepresentationBuilder::default()
-                .id(constants::THIRD_GROUP_ID)
-                .build_into())
-        });
+        mock.expect_get_group()
+            .with(predicate::eq(constants::THIRD_SOURCE_GROUP_ID))
+            .times(1)
+            .returning(|_| {
+                Ok(external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::THIRD_SOURCE_GROUP_ID)
+                    .build_into())
+            });
 
         let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
             external::test::KeycloakUserRepresentationBuilder::default()
-                .id(constants::DEFAULT_USER_ID)
+                .id(constants::DEFAULT_SOURCE_USER_ID)
                 .build_into(),
         );
 
@@ -282,9 +299,9 @@ mod test {
         assert_group_ids(
             &user_groups,
             &[
-                constants::THIRD_GROUP_ID,
-                constants::ANOTHER_GROUP_ID,
-                constants::DEFAULT_GROUP_ID,
+                constants::THIRD_SOURCE_GROUP_ID,
+                constants::ANOTHER_SOURCE_GROUP_ID,
+                constants::DEFAULT_SOURCE_GROUP_ID,
             ],
         );
     }
