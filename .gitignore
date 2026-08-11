@@ -3,3 +3,6 @@
 /config.*.toml
 *.key
 *.crt
+
+# Allow local VSCode settings to be stored without git.
+/.vscode
