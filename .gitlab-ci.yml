@@ -31,6 +31,7 @@ build-release:
       - target/release/keycloak-memory
       - target/release/keycloak-synapse
       - target/release/keycloak-james
+      - target/release/keycloak-zammad
       - target/release/webhook-cli
     expire_in: 1 week
     when: always
@@ -44,6 +45,7 @@ build-debug:
       - target/debug/keycloak-memory
       - target/debug/keycloak-synapse
       - target/debug/keycloak-james
+      - target/debug/keycloak-zammad
       - target/debug/webhook-cli
     expire_in: 2 days
     when: always
@@ -120,6 +122,11 @@ kids-synapse-container:
   variables:
     TARGET_BINARY: keycloak-synapse
 
+kids-zammad-container:
+  extends: .docker-image-build
+  variables:
+    TARGET_BINARY: keycloak-zammad
+
 ############
 # E2E Testing
 ############
@@ -140,10 +147,10 @@ test-synapse-e2e:
     - python -m pip install synadm
     - echo "$CI_REGISTRY_PASSWORD" | podman login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
     - echo "127.0.0.1 host.docker.internal" >> /etc/hosts
-    - pushd e2e-test
+    - pushd e2e-test/synapse
     - source .env
     - echo "Download Keycloak Webhook SPI"
-    - pushd keycloak
+    - pushd ../keycloak
     - >
       curl --output artifacts.zip --header "PRIVATE-TOKEN: $KEYCLOAK_WEBHOOK_SPI_DOWNLOAD"
       "https://rechenknecht.net/api/v4/projects/192/jobs/artifacts/main/download?job=build-jar"

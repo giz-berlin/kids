@@ -1,0 +1,5 @@
+local_ca/
+zammad_data/
+zammad-docker-compose/
+config/keycloak_realm_giz.json
+config/zammad_e2e_config.toml

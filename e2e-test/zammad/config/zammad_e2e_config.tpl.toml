@@ -1,0 +1,27 @@
+# For documentation on the configuration parameters, refer to the default_configs directory.
+# This file does intentionally not contain any parameter comments, as those could get out of sync quite easily.
+
+[controller.api]
+mode = "enabled"
+bind_addr = "0.0.0.0:3000"
+
+[controller.api.tls]
+mode = "insecure_disabled"
+
+[sentry]
+active = false
+dsn = "https://2b259ab7638c4a71ab3fca497e2c5295@sentry.giz.berlin/22"
+environment = "develop"
+
+[source]
+[source.keycloak_api]
+keycloak_address = "https://$PODMAN_SERVICE_HOSTNAME:8443"
+client_id = "keycloak_identity_syncer"
+client_secret = "keycloak_identity_syncer_secret"
+realm = "giz"
+insecure_disable_tls_verification = true
+
+[target.zammad_api]
+base_url = "https://$PODMAN_SERVICE_HOSTNAME:$ZAMMAD_TLS_PORT"
+syncer_username = "kids-syncer-zammad@giz.berlin.example.com"
+matrix_syncer_password = "syncer123"

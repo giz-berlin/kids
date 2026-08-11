@@ -84,9 +84,9 @@ if restart_if_possible $KEYCLOAK_CONTAINER_NAME; [ $? -ne 0 ]; then
 
   cd ..
 
-  if [ ! -f ./keycloak/keycloak-webhook-spi-2.0.0.jar ]; then
-    echo "Download the keycloak-webhook-spi jar from the latest pipeline in https://rechenknecht.net/giz/keycloak/keycloak-webhook-spi and place it in ./keycloak!"
-    echo "Note: In case the version of the plugin increased from 2.0.0, make sure that nothing broke in the update and change the version number in this file and in ./keycloak/.gitignore."
+  if [ ! -f ../keycloak/keycloak-webhook-spi-2.0.0.jar ]; then
+    echo "Download the keycloak-webhook-spi jar from the latest pipeline in https://rechenknecht.net/giz/keycloak/keycloak-webhook-spi and place it in ../keycloak!"
+    echo "Note: In case the version of the plugin increased from 2.0.0, make sure that nothing broke in the update and change the version number in this file and in ../keycloak/.gitignore."
     exit 1
   fi
 
@@ -99,8 +99,8 @@ if restart_if_possible $KEYCLOAK_CONTAINER_NAME; [ $? -ne 0 ]; then
       -e KC_HTTPS_CERTIFICATE_FILE=/opt/keycloak/ca/$KEYCLOAK_CONTAINER_NAME.crt \
       -e KC_HTTPS_CERTIFICATE_KEY_FILE=/opt/keycloak/ca/$KEYCLOAK_CONTAINER_NAME.key \
       -v "./local_ca:/opt/keycloak/ca" -v "./config/keycloak_realm_giz.json:/opt/keycloak/data/import/keycloak_realm_giz.json" \
-      -v "./keycloak/keycloak-webhook-spi-2.0.0.jar:/opt/keycloak/providers/keycloak-webhook-spi-2.0.0.jar" \
-      -v "./keycloak/webhook-config.json:/opt/keycloak/conf/webhook-config.json" \
+      -v "../keycloak/keycloak-webhook-spi-2.0.0.jar:/opt/keycloak/providers/keycloak-webhook-spi-2.0.0.jar" \
+      -v "../keycloak/webhook-config.json:/opt/keycloak/conf/webhook-config.json" \
       -p "0.0.0.0:8443:8443" -p "127.0.0.1:9000:9000" \
       quay.io/keycloak/keycloak:26.2 start --import-realm
 fi
