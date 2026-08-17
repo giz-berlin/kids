@@ -86,6 +86,9 @@ pub trait User {
     /// directly in. For example, if the [User] is a direct member of a group with path `/Group1/Group2/Group3`,
     /// the result will contain `Group1`, `Group2` and `Group3`, instead of just `Group3`.
     async fn groups(&self, include_transitive_groups: bool) -> Result<Vec<std::sync::Arc<dyn Group + Send + Sync>>, error::KidsError>;
+
+    /// All roles the [User] has attached.
+    async fn roles(&self) -> Result<Vec<String>, error::KidsError>;
 }
 
 impl fmt::Debug for dyn User + Send + Sync {

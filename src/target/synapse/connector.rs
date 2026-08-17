@@ -1471,6 +1471,10 @@ mod test {
             ) -> Result<Vec<std::sync::Arc<dyn crate::source::interface::Group + Send + Sync>>, error::KidsError> {
                 Ok(self.groups.clone().into_iter().map(Into::into).collect())
             }
+
+            async fn roles(&self) -> Result<Vec<String>, error::KidsError> {
+                Ok(vec![])
+            }
         }
 
         /// Note that [`create_or_update_user`](Connector::create_or_update_user) can never create a new user account.
