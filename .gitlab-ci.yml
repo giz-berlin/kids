@@ -22,6 +22,7 @@ cache:
   - keycloak-memory
   - keycloak-synapse
   - keycloak-james
+  - keycloak-kentix
   - webhook-cli
 
 .build_matrix: &build_matrix
