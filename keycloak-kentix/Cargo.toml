@@ -1,31 +1,26 @@
 [package]
-name = "keycloak-synapse"
-description = "Keycloak to Synapse identity syncer — synchronizes users and groups from Keycloak to a Synapse Matrix homeserver via webhook endpoints"
-homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-synapse"
-version = "0.1.0"
+name = "keycloak-kentix"
+description = "Keycloak to Kentix identity syncer — synchronizes users and roles from Keycloak to a Kentix server via webhook endpoints"
+homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-kentix"
+version = "0.1.1"
 edition = "2024"
 publish = false
 
 [dependencies]
 anyhow = "1"
 async-trait = "0.1.88"
-chrono = { version = "0.4.41", features = ["serde"] }
 http = "1.2.0"
 kids-lib = { path = "../kids-lib" }
 reqwest = { version = "0.12.15", features = ["default-tls", "native-tls"] }
 serde = { version = "1.0.218", features = ["serde_derive"] }
 serde_json = "1.0.140"
 source-keycloak-lib = { path = "../source-keycloak-lib" }
-tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 url = "2.5.4"
 
 [dev-dependencies]
-derive_builder = "0.20.2"
 kids-test-lib = { path = "../kids-test-lib" }
 mockall = "0.13.1"
 rstest = "0.25.0"
-uuid = { version = "1.16.0", features = ["v4", "serde"] }
-
-[lints]
-workspace = true
+tokio = { version = "1", features = ["full"] }
+typed-builder = "0.23.2"

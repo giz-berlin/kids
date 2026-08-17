@@ -1,0 +1,33 @@
+# For documentation on the configuration parameters, refer to the default_configs directory.
+# This file does intentionally not contain any parameter comments, as those could get out of sync quite easily.
+
+[controller.api]
+mode = "enabled"
+bind_addr = "0.0.0.0:4165"
+
+[controller.api.tls]
+mode = "insecure_disabled"
+
+[sentry]
+active = false
+dsn = "https://2b259ab7638c4a71ab3fca497e2c5295@sentry.giz.berlin/22"
+environment = "develop"
+
+[source]
+[source.keycloak_api]
+keycloak_address = "https://$PODMAN_SERVICE_HOSTNAME:8443"
+client_id = "keycloak_identity_syncer"
+client_secret = "keycloak_identity_syncer_secret"
+realm = "giz"
+fetch_service_accounts = false
+insecure_disable_tls_verification = true
+
+[target]
+offline_access_role = "offline-access"
+rfid_uid_attribute_name = "kentix-uid"
+rfid_data_attribute_name = "kentix-data"
+[target.kentix_api]
+kentix_url = "$KENTIX_API_URL"
+ignored_usernames = ["$KENTIX_ADMIN_USERNAME", "user-to-ignore"]
+bearer_token = "$KENTIX_API_TOKEN"
+insecure_disable_tls_verification = true

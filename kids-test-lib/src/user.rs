@@ -6,6 +6,18 @@
     pub fn with_group(&mut self, group: impl Into<crate::Group>) {
         self.groups.push(group.into());
     }
+    pub fn with_attribute_vec(&mut self, key: impl Into<String>, values: impl IntoIterator<Item = impl Into<String>>) {
+        self.attributes.insert(key.into(), values.into_iter().map(Into::into).collect());
+    }
+    pub fn with_attribute(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        let key = key.into();
+        let value = value.into();
+        if let Some(attribute_values) = self.attributes.get_mut(&key) {
+            attribute_values.push(value);
+        } else {
+            self.attributes.insert(key, vec![value]);
+        }
+    }
 ))]
 pub struct User {
     #[builder(setter(into))]
@@ -19,7 +31,7 @@ pub struct User {
     #[builder(default, setter(into, strip_option))]
     pub email: Option<String>,
     pub enabled: bool,
-    #[builder(default, setter(into))]
+    #[builder(via_mutators)]
     pub attributes: std::collections::HashMap<String, Vec<String>>,
     #[builder(via_mutators)]
     pub groups: Vec<crate::Group>,

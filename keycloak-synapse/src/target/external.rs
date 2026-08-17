@@ -123,44 +123,6 @@ const ALL_USERS: u32 = u32::MAX;
 /// (such as the mapping of room to source group).
 const SYNCER_ROOM_METADATA_EVENT: &str = "m.room.kids.room_sync";
 
-/// A properly encoded URL path.
-///
-/// Use [`from_segments`](Self::from_segments) or
-/// [`from_segments_and_query``](Self::from_segments_and_query) to create it.
-#[derive(Debug)]
-struct ApiPath(String);
-
-impl ApiPath {
-    /// First, [url-encodes](urlencoding::encode) each `segment` in `segments`.
-    ///
-    /// Then, returns a path of the form `segments[0]/segments[1]/.../segments[N-1]` for the encoded `segments`.
-    fn from_segments<const N: usize>(segments: [&str; N]) -> Self {
-        let segments = segments.into_iter().map(|segment| urlencoding::encode(segment)).collect::<Vec<_>>();
-        Self(segments.join("/"))
-    }
-    /// First, [url-encodes](urlencoding::encode) each `segment` in `segments` and each `value` in `query_parameters[i].1`.
-    ///
-    /// Then, returns a path of the form `segments[0]/.../segments[N-1]?query_parameters[0].0=query_parameters[0].1&...&query_parameters[M-1].0=query_parameters[M-1].1`
-    /// for the encoded `segments` and `query_parameters[i].1`.
-    ///
-    /// It does not encode the keys of the query parameters.
-    fn from_segments_and_query<const N: usize, const M: usize>(segments: [&str; N], query_parameters: [(&str, &str); M]) -> Self {
-        let segments = segments.into_iter().map(|segment| urlencoding::encode(segment)).collect::<Vec<_>>();
-        let path_section = segments.join("/");
-        let query_parameters = query_parameters
-            .into_iter()
-            .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
-            .collect::<Vec<_>>();
-        let query_section = query_parameters.join("&");
-        Self(format!("{path_section}?{query_section}"))
-    }
-}
-impl std::fmt::Display for ApiPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.0, f)
-    }
-}
-
 impl SynapseClient {
     pub async fn new(config: SynapseApiConfig) -> Result<Self, KidsError> {
         let parsed_homeserver_url = url::Url::parse(&config.matrix_homeserver_url).expect("Homeserver URL should be parseable");
@@ -194,7 +156,7 @@ impl SynapseClient {
         let token_response: dto::MatrixAuthentication = self
             .send_client_api_request_unauthenticated(
                 http::Method::POST,
-                ApiPath::from_segments(["login"]),
+                kids_lib::types::ApiPath::from_segments(["login"]),
                 Some(serde_json::json!({
                     "type": "m.login.password",
                     "identifier": {
@@ -228,7 +190,7 @@ impl SynapseClient {
             let token_response_res: Result<dto::MatrixAuthentication, KidsError> = self
                 .send_client_api_request_unauthenticated(
                     http::Method::POST,
-                    ApiPath::from_segments(["refresh"]),
+                    kids_lib::types::ApiPath::from_segments(["refresh"]),
                     Some(serde_json::json!({
                         "refresh_token": authentication.refresh_token,
                     })),
@@ -318,7 +280,7 @@ impl SynapseClient {
     async fn send_client_api_request_unauthenticated<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         &self,
         method: http::Method,
-        path: ApiPath,
+        path: kids_lib::types::ApiPath,
         body: Option<B>,
     ) -> Result<T, KidsError> {
         let request = self.construct_unauthenticated_request(method, format!("{}_matrix/client/v3/{}", self.parsed_homeserver_url, path), body);
@@ -328,7 +290,7 @@ impl SynapseClient {
     async fn send_client_api_request<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         &self,
         method: http::Method,
-        path: ApiPath,
+        path: kids_lib::types::ApiPath,
         body: Option<B>,
     ) -> Result<T, KidsError> {
         let request = self
@@ -337,7 +299,7 @@ impl SynapseClient {
         self.send_request(request).await
     }
 
-    async fn client_api_get<T: serde::de::DeserializeOwned>(&self, path: ApiPath) -> Result<T, KidsError> {
+    async fn client_api_get<T: serde::de::DeserializeOwned>(&self, path: kids_lib::types::ApiPath) -> Result<T, KidsError> {
         self.send_client_api_request::<(), T>(http::Method::GET, path, None).await
     }
 
@@ -345,7 +307,7 @@ impl SynapseClient {
         &self,
         api_version: &str,
         method: http::Method,
-        path: ApiPath,
+        path: kids_lib::types::ApiPath,
         body: Option<B>,
     ) -> Result<T, KidsError> {
         let request = self
@@ -354,7 +316,7 @@ impl SynapseClient {
         self.send_request(request).await
     }
 
-    async fn admin_api_get<T: serde::de::DeserializeOwned>(&self, api_version: &str, path: ApiPath) -> Result<T, KidsError> {
+    async fn admin_api_get<T: serde::de::DeserializeOwned>(&self, api_version: &str, path: kids_lib::types::ApiPath) -> Result<T, KidsError> {
         self.send_admin_api_request::<(), T>(api_version, http::Method::GET, path, None).await
     }
 
@@ -446,13 +408,17 @@ impl SynapseApi for SynapseClient {
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3joined_rooms
     async fn get_joined_rooms_of_syncer(&self) -> Result<dto::JoinedRoomsResponse, KidsError> {
-        self.client_api_get(ApiPath::from_segments(["joined_rooms"])).await
+        self.client_api_get(kids_lib::types::ApiPath::from_segments(["joined_rooms"])).await
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3roomsroomidleave
     async fn syncer_leave_room(&self, matrix_room_id: &str) -> Result<(), KidsError> {
         let _ = self
-            .send_client_api_request::<(), dto::IgnoredResponse>(http::Method::POST, ApiPath::from_segments(["rooms", matrix_room_id, "leave"]), None)
+            .send_client_api_request::<(), dto::IgnoredResponse>(
+                http::Method::POST,
+                kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "leave"]),
+                None,
+            )
             .await?;
         Ok(())
     }
@@ -462,7 +428,7 @@ impl SynapseApi for SynapseClient {
         let users: dto::AllUsersResponse = self
             .admin_api_get(
                 "v3",
-                ApiPath::from_segments_and_query(
+                kids_lib::types::ApiPath::from_segments_and_query(
                     ["users"],
                     [
                         ("limit", ALL_USERS.to_string().as_str()),
@@ -481,7 +447,7 @@ impl SynapseApi for SynapseClient {
             .send_admin_api_request(
                 "v1",
                 http::Method::POST,
-                ApiPath::from_segments(["deactivate", matrix_user_id]),
+                kids_lib::types::ApiPath::from_segments(["deactivate", matrix_user_id]),
                 Some(serde_json::json!({
                     "erase": true
                 })),
@@ -492,7 +458,9 @@ impl SynapseApi for SynapseClient {
 
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#query-user-account.
     async fn get_user_three_pids(&self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, KidsError> {
-        let response: dto::User = self.admin_api_get("v2", ApiPath::from_segments(["users", matrix_user_id])).await?;
+        let response: dto::User = self
+            .admin_api_get("v2", kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]))
+            .await?;
         Ok(response.threepids.unwrap_or_default())
     }
 
@@ -502,7 +470,7 @@ impl SynapseApi for SynapseClient {
             .send_admin_api_request(
                 "v2",
                 http::Method::PUT,
-                ApiPath::from_segments(["users", matrix_user_id]),
+                kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]),
                 Some(serde_json::json!({
                     "threepids": three_pids
                 })),
@@ -517,7 +485,7 @@ impl SynapseApi for SynapseClient {
             .send_admin_api_request(
                 "v2",
                 http::Method::PUT,
-                ApiPath::from_segments(["users", matrix_user_id]),
+                kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]),
                 Some(serde_json::json!({
                     "locked": true
                 })),
@@ -532,7 +500,7 @@ impl SynapseApi for SynapseClient {
             .send_admin_api_request(
                 "v2",
                 http::Method::PUT,
-                ApiPath::from_segments(["users", matrix_user_id]),
+                kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]),
                 Some(serde_json::json!({
                     "locked": false
                 })),
@@ -546,7 +514,7 @@ impl SynapseApi for SynapseClient {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
                 http::Method::PUT,
-                ApiPath::from_segments(["profile", matrix_user_id, "displayname"]),
+                kids_lib::types::ApiPath::from_segments(["profile", matrix_user_id, "displayname"]),
                 Some(serde_json::json!({"displayname": display_name})),
             )
             .await?;
@@ -555,7 +523,9 @@ impl SynapseApi for SynapseClient {
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3profileuseriddisplayname
     async fn get_user_display_name(&self, matrix_user_id: &str) -> Result<Option<String>, KidsError> {
-        let response: dto::UserDisplayNameResponse = self.client_api_get(ApiPath::from_segments(["profile", matrix_user_id, "displayname"])).await?;
+        let response: dto::UserDisplayNameResponse = self
+            .client_api_get(kids_lib::types::ApiPath::from_segments(["profile", matrix_user_id, "displayname"]))
+            .await?;
         Ok(response.display_name)
     }
 
@@ -564,7 +534,7 @@ impl SynapseApi for SynapseClient {
         self.send_admin_api_request(
             "v2",
             http::Method::PUT,
-            ApiPath::from_segments(["users", matrix_user_id]),
+            kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]),
             Some(serde_json::json!({
                 "external_ids": [
                     {
@@ -581,7 +551,7 @@ impl SynapseApi for SynapseClient {
     async fn create_room(&self, name: &str, path: &str) -> Result<dto::RoomCreationResponse, KidsError> {
         self.send_client_api_request(
             http::Method::POST,
-            ApiPath::from_segments(["createRoom"]),
+            kids_lib::types::ApiPath::from_segments(["createRoom"]),
             Some(serde_json::json!({
                 "name": name,
                 "visibility": "private",
@@ -610,7 +580,7 @@ impl SynapseApi for SynapseClient {
             .send_admin_api_request(
                 "v1", // We are intentionally using the older, blocking version of the API here.
                 http::Method::DELETE,
-                ApiPath::from_segments(["rooms", matrix_room_id]),
+                kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id]),
                 Some(&serde_json::json!({
                     "purge": true // Deletes all traces of the room from the database.
                 })),
@@ -630,7 +600,7 @@ impl SynapseApi for SynapseClient {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
                 http::Method::PUT,
-                ApiPath::from_segments(["rooms", matrix_room_id, "state", SYNCER_ROOM_METADATA_EVENT]),
+                kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "state", SYNCER_ROOM_METADATA_EVENT]),
                 Some(serde_json::json!({
                     "source_id": source_group_id
                 })),
@@ -644,7 +614,12 @@ impl SynapseApi for SynapseClient {
     /// [SynapseClient::associate_source_group_id_to_room].
     async fn get_room_associated_source_group_id(&self, matrix_room_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError> {
         let event: dto::RoomGlobalIdEvent = self
-            .client_api_get(ApiPath::from_segments(["rooms", matrix_room_id, "state", SYNCER_ROOM_METADATA_EVENT]))
+            .client_api_get(kids_lib::types::ApiPath::from_segments([
+                "rooms",
+                matrix_room_id,
+                "state",
+                SYNCER_ROOM_METADATA_EVENT,
+            ]))
             .await?;
         tracing::debug!(source_id = event.source_id, matrix_room_id, "Found mapping");
         Ok(event.source_id)
@@ -655,7 +630,7 @@ impl SynapseApi for SynapseClient {
     /// instead of in the metadata of a room directly.
     async fn get_room_associated_source_group_id_v1(&self, matrix_room_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError> {
         let account_data_event: serde_json::Value = self
-            .client_api_get(ApiPath::from_segments([
+            .client_api_get(kids_lib::types::ApiPath::from_segments([
                 "user",
                 &self.config.matrix_syncer_user_id,
                 "rooms",
@@ -678,7 +653,7 @@ impl SynapseApi for SynapseClient {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
                 http::Method::PUT,
-                ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.name"]),
+                kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.name"]),
                 Some(&dto::RoomNameEvent {
                     name: display_name.to_string(),
                 }),
@@ -691,7 +666,7 @@ impl SynapseApi for SynapseClient {
     /// Event type used is https://spec.matrix.org/v1.15/client-server-api/#mroomname
     async fn get_room_display_name(&self, matrix_room_id: &str) -> Result<String, KidsError> {
         let room_name_event: dto::RoomNameEvent = self
-            .client_api_get(ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.name"]))
+            .client_api_get(kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.name"]))
             .await?;
         Ok(room_name_event.name)
     }
@@ -705,7 +680,7 @@ impl SynapseApi for SynapseClient {
         let res: Result<dto::IgnoredResponse, KidsError> = self
             .send_client_api_request(
                 http::Method::PUT,
-                ApiPath::from_segments(["directory", "room", alias]),
+                kids_lib::types::ApiPath::from_segments(["directory", "room", alias]),
                 Some(&serde_json::json!({
                     "room_id": matrix_room_id
                 })),
@@ -726,7 +701,11 @@ impl SynapseApi for SynapseClient {
     /// See https://spec.matrix.org/v1.15/client-server-api/#delete_matrixclientv3directoryroomroomalias
     async fn delete_room_alias(&self, alias: &str) -> Result<(), KidsError> {
         let _ = self
-            .send_client_api_request::<(), serde_json::Value>(http::Method::DELETE, ApiPath::from_segments(["directory", "room", alias]), None)
+            .send_client_api_request::<(), serde_json::Value>(
+                http::Method::DELETE,
+                kids_lib::types::ApiPath::from_segments(["directory", "room", alias]),
+                None,
+            )
             .await?;
         Ok(())
     }
@@ -737,7 +716,7 @@ impl SynapseApi for SynapseClient {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
                 http::Method::PUT,
-                ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.canonical_alias"]),
+                kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.canonical_alias"]),
                 Some(dto::RoomCanonicalAliasEvent {
                     alias: canonical_alias.to_owned(),
                     alt_aliases: None,
@@ -750,13 +729,15 @@ impl SynapseApi for SynapseClient {
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomideventeventid
     /// Event type used is https://spec.matrix.org/v1.15/client-server-api/#mroomcanonical_alias
     async fn get_room_canonical_alias(&self, room_id: &str) -> Result<dto::RoomCanonicalAliasEvent, KidsError> {
-        self.client_api_get(ApiPath::from_segments(["rooms", room_id, "state", "m.room.canonical_alias"]))
+        self.client_api_get(kids_lib::types::ApiPath::from_segments(["rooms", room_id, "state", "m.room.canonical_alias"]))
             .await
     }
 
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#query-user-account.
     async fn get_source_user_id_for_matrix_user_id(&self, matrix_user_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError> {
-        let response: dto::User = self.admin_api_get("v2", ApiPath::from_segments(["users", matrix_user_id])).await?;
+        let response: dto::User = self
+            .admin_api_get("v2", kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]))
+            .await?;
         // This endpoint returns extended user information guaranteed to contain the external_ids field.
         for external_id in response.external_ids.unwrap() {
             if external_id.auth_provider == self.config.matrix_source_oidc_provider_id {
@@ -771,13 +752,14 @@ impl SynapseApi for SynapseClient {
 
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#list-joined-rooms-of-a-user
     async fn get_user_joined_rooms(&self, matrix_user_id: &str) -> Result<dto::UserJoinedRoomsResponse, KidsError> {
-        self.admin_api_get("v1", ApiPath::from_segments(["users", matrix_user_id, "joined_rooms"]))
+        self.admin_api_get("v1", kids_lib::types::ApiPath::from_segments(["users", matrix_user_id, "joined_rooms"]))
             .await
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomidjoined_members.
     async fn get_room_joined_users(&self, matrix_room_id: &str) -> Result<dto::RoomJoinedUsersResponse, KidsError> {
-        self.client_api_get(ApiPath::from_segments(["rooms", matrix_room_id, "joined_members"])).await
+        self.client_api_get(kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "joined_members"]))
+            .await
     }
 
     /// See https://element-hq.github.io/synapse/latest/admin_api/room_membership.html.
@@ -786,7 +768,7 @@ impl SynapseApi for SynapseClient {
             .send_admin_api_request(
                 "v1",
                 http::Method::POST,
-                ApiPath::from_segments(["join", matrix_group_id]),
+                kids_lib::types::ApiPath::from_segments(["join", matrix_group_id]),
                 Some(&serde_json::json!({
                     "user_id": matrix_user_id
                 })),
@@ -800,7 +782,7 @@ impl SynapseApi for SynapseClient {
         let _: dto::IgnoredResponse = self
             .send_client_api_request(
                 http::Method::POST,
-                ApiPath::from_segments(["rooms", matrix_group_id, "kick"]),
+                kids_lib::types::ApiPath::from_segments(["rooms", matrix_group_id, "kick"]),
                 Some(serde_json::json!({
                     "user_id": matrix_user_id
                 })),

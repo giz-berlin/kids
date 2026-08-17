@@ -1,0 +1,4 @@
+.env.private
+local_ca/
+config/keycloak_realm_giz.json
+config/kentix_e2e_config.toml

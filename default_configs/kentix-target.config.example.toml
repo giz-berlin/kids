@@ -1,0 +1,12 @@
+[target]
+offline_access_role = "offline-access"
+rfid_uid_attribute_name = "kentix-uid"
+rfid_data_attribute_name = "kentix-data"
+[target.kentix_api]
+# URL of the Kentix server (probably similar to https://kentix.example.com).
+kentix_url = "https://localhost"
+ignored_usernames = ["kids-admin", "other-user-to-ignore"]
+bearer_token = "Token"
+insecure_disable_tls_verification = false
+# Insert the path of a valid certificate here.
+kentix_root_certificate_pem_path = "./cert.pem"

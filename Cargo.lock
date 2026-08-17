@@ -1701,6 +1701,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "keycloak-kentix"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "http 1.5.0",
+ "kids-lib",
+ "kids-test-lib",
+ "mockall",
+ "reqwest",
+ "rstest",
+ "serde",
+ "serde_json",
+ "source-keycloak-lib",
+ "tokio",
+ "tracing",
+ "typed-builder",
+ "url",
+]
+
+[[package]]
 name = "keycloak-memory"
 version = "0.1.0"
 dependencies = [
@@ -1732,7 +1753,6 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "urlencoding",
  "uuid",
 ]
 
@@ -1764,6 +1784,7 @@ dependencies = [
  "tower-http 0.7.0",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
 ]
 
 [[package]]

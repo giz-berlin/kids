@@ -1,0 +1,449 @@
+{
+  "realm": "giz",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "keycloak_identity_syncer",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "keycloak_identity_syncer_secret",
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true
+    },
+    {
+      "clientId": "kentix",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "kentix_secret",
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true
+    }
+  ],
+  "eventsListeners": [
+    "jboss-logging",
+    "webhook-listener"
+  ],
+  "users": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "username": "TestUser",
+      "email": "tester@test.giz.berlin",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "First",
+      "lastName": "Tester",
+      "groups": [
+        "/TestGroup/SubGroup"
+      ],
+      "clientRoles": {
+        "keycloak_identity_syncer": [
+          "Tür 1"
+        ]
+      },
+      "realmRoles": [
+        "TestRealmRole"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "39f5a9da-86b1-4c91-94e2-d039c928dbb4",
+      "username": "SecondTestUser",
+      "email": "user@test.giz.berlin",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Second",
+      "lastName": "Tester",
+      "groups": [
+        "/TestGroup"
+      ],
+      "realmRoles": [
+        "SecondTestRealmRole"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "username": "0",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a0"
+        ],
+        "kentix-data": [
+          "b0"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "username": "1",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a1"
+        ],
+        "kentix-data": [
+          "b1"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "username": "2",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a2"
+        ],
+        "kentix-data": [
+          "b2"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "username": "3",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a3"
+        ],
+        "kentix-data": [
+          "b3"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "username": "4",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a4"
+        ],
+        "kentix-data": [
+          "b4"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "username": "5",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a5"
+        ],
+        "kentix-data": [
+          "b5"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000006",
+      "username": "6",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a6"
+        ],
+        "kentix-data": [
+          "b6"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "username": "7",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a7"
+        ],
+        "kentix-data": [
+          "b7"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "username": "8",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a8"
+        ],
+        "kentix-data": [
+          "b8"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000009",
+      "username": "9",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a9"
+        ],
+        "kentix-data": [
+          "b9"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "username": "10",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a10"
+        ],
+        "kentix-data": [
+          "b10"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000011",
+      "username": "11",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a11"
+        ],
+        "kentix-data": [
+          "b11"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000012",
+      "username": "12",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a12"
+        ],
+        "kentix-data": [
+          "b12"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000013",
+      "username": "13",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a13"
+        ],
+        "kentix-data": [
+          "b13"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000014",
+      "username": "14",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a14"
+        ],
+        "kentix-data": [
+          "b14"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000015",
+      "username": "15",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a15"
+        ],
+        "kentix-data": [
+          "b15"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000016",
+      "username": "16",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a16"
+        ],
+        "kentix-data": [
+          "b16"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000017",
+      "username": "17",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a17"
+        ],
+        "kentix-data": [
+          "b17"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000018",
+      "username": "18",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a18"
+        ],
+        "kentix-data": [
+          "b18"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000019",
+      "username": "19",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a19"
+        ],
+        "kentix-data": [
+          "b19"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000020",
+      "username": "20",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a20"
+        ],
+        "kentix-data": [
+          "b20"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000021",
+      "username": "21",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a21"
+        ],
+        "kentix-data": [
+          "b21"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000022",
+      "username": "22",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a22"
+        ],
+        "kentix-data": [
+          "b22"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000023",
+      "username": "23",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a23"
+        ],
+        "kentix-data": [
+          "b23"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000024",
+      "username": "24",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a24"
+        ],
+        "kentix-data": [
+          "b24"
+        ]
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000025",
+      "username": "25",
+      "enabled": true,
+      "attributes": {
+        "kentix-uid": [
+          "a25"
+        ],
+        "kentix-data": [
+          "b25"
+        ]
+      }
+    },
+    {
+      "username": "service-account-keycloak_identity_syncer",
+      "enabled": true,
+      "serviceAccountClientId": "keycloak_identity_syncer",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "view-realm",
+          "view-clients"
+        ]
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "TestRealmRole"
+      },
+      {
+        "name": "SecondTestRealmRole"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "TestGroup",
+      "path": "/TestGroup",
+      "subGroups": [
+        {
+          "name": "SubGroup",
+          "path": "/TestGroup/SubGroup"
+        }
+      ]
+    }
+  ]
+}

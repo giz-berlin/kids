@@ -29,3 +29,42 @@
 ///    even though `T` belonging to `S-hack` should really be a semantically different group, just with
 ///    the same name. Enforcing an ID mapping is necessary in order to notice and resolve the conflict here.
 pub type SharedResourceIdentifier = String;
+
+/// A properly encoded URL path.
+///
+/// Use [`from_segments`](Self::from_segments) or
+/// [`from_segments_and_query``](Self::from_segments_and_query) to create it.
+#[derive(Debug)]
+pub struct ApiPath(String);
+
+impl ApiPath {
+    /// First, [url-encodes](urlencoding::encode) each `segment` in `segments`.
+    ///
+    /// Then, returns a path of the form `segments[0]/segments[1]/.../segments[N-1]` for the encoded `segments`.
+    pub fn from_segments<const N: usize>(segments: [&str; N]) -> Self {
+        let segments = segments.into_iter().map(|segment| urlencoding::encode(segment)).collect::<Vec<_>>();
+        Self(segments.join("/"))
+    }
+    /// First, [url-encodes](urlencoding::encode) each `segment` in `segments` and each `value` in `query_parameters[i].1`.
+    ///
+    /// Then, returns a path of the form `segments[0]/.../segments[N-1]?query_parameters[0].0=query_parameters[0].1&...&query_parameters[M-1].0=query_parameters[M-1].1`
+    /// for the encoded `segments` and `query_parameters[i].1`.
+    ///
+    /// It does not encode the keys of the query parameters.
+    pub fn from_segments_and_query<const N: usize, const M: usize>(segments: [&str; N], query_parameters: [(&str, &str); M]) -> Self {
+        let segments = segments.into_iter().map(|segment| urlencoding::encode(segment)).collect::<Vec<_>>();
+        let path_section = segments.join("/");
+        let query_parameters = query_parameters
+            .into_iter()
+            .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
+            .collect::<Vec<_>>();
+        let query_section = query_parameters.join("&");
+        Self(format!("{path_section}?{query_section}"))
+    }
+}
+
+impl std::fmt::Display for ApiPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
