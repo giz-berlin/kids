@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "keycloak-james",
+    "keycloak-kentix",
     "keycloak-memory",
     "keycloak-synapse",
     "kids-lib",

@@ -10,6 +10,7 @@ Currently, these applications are supported as sync targets:
 
 * [James email server](https://github.com/apache/james-project)
 * [Synapse matrix server](https://github.com/element-hq/synapse)
+* [Kentix AccessManager](https://kentix.com/de/)
 
 ## Configuration
 
