@@ -19,6 +19,7 @@ keycloak_address = "https://$PODMAN_SERVICE_HOSTNAME:8443"
 client_id = "keycloak_identity_syncer"
 client_secret = "keycloak_identity_syncer_secret"
 realm = "giz"
+fetch_service_accounts = false
 insecure_disable_tls_verification = true
 
 [target]

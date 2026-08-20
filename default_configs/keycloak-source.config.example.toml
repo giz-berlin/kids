@@ -11,6 +11,8 @@ client_id = "keycloak_identity_syncer"
 client_secret = "keycloak_identity_syncer_secret"
 # Keycloak realm to fetch the data from.
 realm = "giz"
+# Whether service accounts should be fetched and handled like normal users.
+fetch_service_accounts = false
 # Whether to validate the server certificate of the external API.
 # Only disable for local development purposes!
 insecure_disable_tls_verification = false
