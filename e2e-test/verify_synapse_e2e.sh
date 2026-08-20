@@ -105,8 +105,8 @@ ADMIN_USER_NAME="@admin:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
 TESTUSER_USER_NAME="@testuser:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
 SECOND_TESTUSER_USER_NAME="@secondtestuser:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
 check_user_display_name "$ADMIN_USER_NAME" "admin" "$SYNADM_CONFIG_FILE"
-check_user_display_name "$SECOND_TESTUSER_USER_NAME" "Second Test User" "$SYNADM_CONFIG_FILE"
-check_user_display_name "$TESTUSER_USER_NAME" "Test User" "$SYNADM_CONFIG_FILE"
+check_user_display_name "$SECOND_TESTUSER_USER_NAME" "Second Tester" "$SYNADM_CONFIG_FILE"
+check_user_display_name "$TESTUSER_USER_NAME" "First Tester" "$SYNADM_CONFIG_FILE"
 
 progress_msg "Verify rooms"
 synadm --config-file "$SYNADM_CONFIG_FILE" room list | jq

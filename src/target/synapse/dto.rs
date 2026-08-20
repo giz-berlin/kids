@@ -24,6 +24,12 @@ pub struct User {
     pub external_ids: Option<Vec<ExternalId>>,
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
+pub struct UserDisplayNameResponse {
+    #[serde(rename = "displayname")]
+    pub display_name: Option<String>,
+}
+
 #[derive(serde::Deserialize, Debug, PartialEq, Clone)]
 pub struct ExternalId {
     pub auth_provider: String,

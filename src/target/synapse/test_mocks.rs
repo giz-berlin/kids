@@ -397,6 +397,23 @@ impl SynapseApiMocker {
             .return_once(|_| Ok(()));
         self
     }
+
+    pub fn can_get_user_display_name(mut self, user: &MockSynapseUser, current_display_name: Option<String>) -> Self {
+        self.api_mock
+            .expect_get_user_display_name()
+            .with(eq(user.matrix_user_id.clone()))
+            .returning(move |_| Ok(current_display_name.clone()));
+        self
+    }
+
+    pub fn require_set_user_display_name(mut self, user_to_be_modified: &MockSynapseUser, new_display_name: &str) -> Self {
+        self.api_mock
+            .expect_set_user_display_name()
+            .with(eq(user_to_be_modified.matrix_user_id.clone()), eq(new_display_name.to_owned()))
+            .times(1)
+            .return_once(|_, _| Ok(()));
+        self
+    }
 }
 
 impl SynapseApiMocker {

@@ -51,7 +51,7 @@ pub trait Source {
     /// All [User]s present within the [Source] (in a specific context, for example all groups visible to a Keycloak client within a Keycloak realm).
     async fn all_users(&self) -> Result<Vec<std::sync::Arc<dyn User + Send + Sync>>, error::KidsError>;
 
-    fn user_from_webhook(&self, payload: Self::UserWebhookPayload) -> Box<dyn User + Send + Sync>;
+    async fn user_from_webhook(&self, payload: Self::UserWebhookPayload) -> Result<Box<dyn User + Send + Sync>, error::KidsError>;
     fn group_from_webhook(&self, payload: Self::GroupWebhookPayload) -> Box<dyn Group + Send + Sync>;
 }
 
@@ -64,6 +64,17 @@ pub trait User {
     /// are no longer allowed to log in.
     fn enabled(&self) -> bool;
     fn username(&self) -> Option<&str>;
+    fn first_name(&self) -> Option<&str>;
+    fn last_name(&self) -> Option<&str>;
+    /// Get the name of the user that is human-friendly and can be used to display their name.
+    fn display_name(&self) -> Option<String> {
+        match (self.first_name(), self.last_name()) {
+            (Some(first_name), Some(last_name)) => Some(format!("{first_name} {last_name}")),
+            (Some(first_name), None) => Some(first_name.to_owned()),
+            (None, Some(last_name)) => Some(last_name.to_owned()),
+            (None, None) => None,
+        }
+    }
     fn email(&self) -> Option<&str>;
     /// A map containing all additional user attributes.
     /// Many [Targets](crate::target::interface::Target) will make use of custom user attributes to store target-system-specific

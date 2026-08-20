@@ -62,8 +62,8 @@ impl interface::Source for Connector {
             .collect())
     }
 
-    fn user_from_webhook(&self, webhook_user: Self::UserWebhookPayload) -> Box<dyn interface::User + Send + Sync> {
-        Box::new(KeycloakUser::from_webhook_user(self.keycloak_api.clone(), webhook_user))
+    async fn user_from_webhook(&self, webhook_user: Self::UserWebhookPayload) -> Result<Box<dyn interface::User + Send + Sync>, error::KidsError> {
+        Ok(Box::new(KeycloakUser::from_webhook_user(self.keycloak_api.clone(), webhook_user).await?))
     }
 
     fn group_from_webhook(&self, webhook_group: Self::GroupWebhookPayload) -> Box<dyn interface::Group + Send + Sync> {
