@@ -28,6 +28,7 @@ pub struct SynapseApiConfig {
 #[async_trait::async_trait]
 pub trait SynapseApi {
     fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool;
+    fn homeserver_domain(&self) -> &str;
     async fn get_joined_rooms_of_syncer(&mut self) -> Result<dto::JoinedRoomsResponse, error::KidsError>;
     async fn syncer_leave_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError>;
     async fn get_users(&mut self) -> Result<dto::AllUsersResponse, error::KidsError>;
@@ -38,6 +39,7 @@ pub trait SynapseApi {
     async fn unlock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
     async fn set_user_display_name(&mut self, matrix_user_id: &str, display_name: &str) -> Result<(), error::KidsError>;
     async fn get_user_display_name(&mut self, matrix_user_id: &str) -> Result<Option<String>, error::KidsError>;
+    async fn create_user(&mut self, matrix_user_id: &str, source_user_id: &str) -> Result<dto::User, error::KidsError>;
 
     async fn create_room(&mut self, name: &str, path: &str) -> Result<dto::RoomCreationResponse, error::KidsError>;
     async fn delete_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError>;
@@ -317,11 +319,6 @@ impl SynapseClient {
         vec![room_encryption_json, guest_access_json]
     }
 
-    fn homeserver_domain(&self) -> &str {
-        let pos = self.config.matrix_syncer_user_id.find(":").unwrap() + 1;
-        &self.config.matrix_syncer_user_id[pos..]
-    }
-
     fn room_alias_local_part(&self, group_path: &str) -> String {
         // "The localpart of a room alias may contain any valid non-surrogate Unicode codepoints except : and NUL."
         // See https://spec.matrix.org/v1.15/appendices/#room-aliases
@@ -352,6 +349,11 @@ impl SynapseClient {
 impl SynapseApi for SynapseClient {
     fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool {
         matrix_user_id == self.config.matrix_syncer_user_id
+    }
+
+    fn homeserver_domain(&self) -> &str {
+        let pos = self.config.matrix_syncer_user_id.find(":").unwrap() + 1;
+        &self.config.matrix_syncer_user_id[pos..]
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3joined_rooms
@@ -457,6 +459,24 @@ impl SynapseApi for SynapseClient {
     async fn get_user_display_name(&mut self, matrix_user_id: &str) -> Result<Option<String>, error::KidsError> {
         let response: dto::UserDisplayNameResponse = self.client_api_get(format!("profile/{matrix_user_id}/displayname")).await?;
         Ok(response.display_name)
+    }
+
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
+    async fn create_user(&mut self, matrix_user_id: &str, source_user_id: &str) -> Result<dto::User, error::KidsError> {
+        self.send_admin_api_request(
+            "v2",
+            http::Method::PUT,
+            format!("users/{matrix_user_id}"),
+            Some(serde_json::json!({
+                "external_ids": [
+                    {
+                        "auth_provider": self.config.matrix_source_oidc_provider_id,
+                        "external_id": source_user_id
+                    }
+                ]
+            })),
+        )
+        .await
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3createroom

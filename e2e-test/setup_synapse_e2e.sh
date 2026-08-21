@@ -162,18 +162,6 @@ progress_msg "OK - $SYNAPSE_CONTAINER_NAME has started"
 if [ $SHOULD_CREATE_USERS -eq 1 ]; then
   progress_msg "Creating admin user in $SYNAPSE_CONTAINER_NAME"
   podman exec -it $SYNAPSE_CONTAINER_NAME register_new_matrix_user -c /data/homeserver.yaml -u admin -p password -a
-
-  progress_msg "Creating users in $SYNAPSE_CONTAINER_NAME"
-  export ACCESS_TOKEN=$(curl --insecure -X POST -w '\n' https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/_matrix/client/v3/login \
-   -d '{"identifier": { "type": "m.id.user", "user": "admin" }, "password": "password", "type": "m.login.password" }' \
-   | tee /dev/stderr | jq -r .access_token)
-  echo "Bearer $ACCESS_TOKEN"
-  curl --insecure -X PUT -w '\n' https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/_synapse/admin/v2/users/@testuser:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT \
-    -H "Authorization: Bearer $ACCESS_TOKEN" \
-    -d '{ "displayname": "Test User", "external_ids":[{ "auth_provider" : "keycloak", "external_id": "123e4567-e89b-12d3-a456-426614174000" } ] }'
-  curl --insecure -X PUT -w '\n' https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/_synapse/admin/v2/users/@secondtestuser:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT \
-    -H "Authorization: Bearer $ACCESS_TOKEN" \
-    -d '{ "displayname": "Second Test User", "external_ids":[{ "auth_provider" : "keycloak", "external_id": "39f5a9da-86b1-4c91-94e2-d039c928dbb4" } ] }'
 fi
 
 if restart_if_possible $SYNAPSE_ADMIN_CONTAINER_NAME; [ $? -ne 0 ]; then
