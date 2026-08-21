@@ -30,6 +30,14 @@ check_user_display_name() {
   compare "Display name" "$USER_NAME" "$ACTUAL_DISPLAY_NAME" "$EXPECTED_DISPLAY_NAME"
 }
 
+check_user_email() {
+  EXPECTED_USER_NAME="$1"
+  EMAIL="$2"
+  SYNADM_CONFIG_FILE="$3"
+  ACTUAL_USER_NAME=$(synadm --config-file "$SYNADM_CONFIG_FILE" user 3pid --medium email "$EMAIL" | jq -r ".user_id")
+  compare "User name of email" "$EMAIL" "$ACTUAL_USER_NAME" "$EXPECTED_USER_NAME"
+}
+
 check_room() {
   ROOM_ID="$1"
   EXPECTED_NAME="$2"
@@ -106,7 +114,9 @@ TESTUSER_USER_NAME="@testuser:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
 SECOND_TESTUSER_USER_NAME="@secondtestuser:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
 check_user_display_name "$ADMIN_USER_NAME" "admin" "$SYNADM_CONFIG_FILE"
 check_user_display_name "$SECOND_TESTUSER_USER_NAME" "Second Tester" "$SYNADM_CONFIG_FILE"
+check_user_email "$SECOND_TESTUSER_USER_NAME" "user@test.giz.berlin" "$SYNADM_CONFIG_FILE"
 check_user_display_name "$TESTUSER_USER_NAME" "First Tester" "$SYNADM_CONFIG_FILE"
+check_user_email "$TESTUSER_USER_NAME" "tester@test.giz.berlin" "$SYNADM_CONFIG_FILE"
 
 progress_msg "Verify rooms"
 synadm --config-file "$SYNADM_CONFIG_FILE" room list | jq

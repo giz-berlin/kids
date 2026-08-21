@@ -192,6 +192,29 @@ impl Connector {
         }
         Ok(())
     }
+
+    async fn ensure_user_email(&mut self, matrix_user_id: &str, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<(), error::KidsError> {
+        let matrix_three_pids = self.synapse_api.get_user_three_pids(matrix_user_id).await?;
+        let desired_three_pids: &[dto::ThreePID] = if let Some(email) = source_user.email() {
+            &[dto::ThreePID {
+                medium: dto::ThreePIDMedium::Email,
+                address: email.to_owned(),
+            }]
+        } else {
+            &[]
+        };
+        if matrix_three_pids != desired_three_pids {
+            tracing::debug!(
+                matrix_user_id = matrix_user_id,
+                user_id = source_user.id(),
+                old_three_pids = ?matrix_three_pids,
+                new_three_pids = ?desired_three_pids,
+                "Updating user's 3PIDs."
+            );
+            self.synapse_api.set_user_three_pids(matrix_user_id, desired_three_pids).await?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -369,6 +392,7 @@ impl interface::Target for Connector {
         let is_matrix_user_locked = matrix_user.locked;
 
         self.ensure_user_display_name(matrix_user_id.as_str(), source_user.as_ref()).await?;
+        self.ensure_user_email(matrix_user_id.as_str(), source_user.as_ref()).await?;
 
         let desired_user_groups = source_user
             .groups(true)
@@ -781,6 +805,7 @@ mod test {
                     name: constants::DEFAULT_TARGET_USER_ID.to_string(),
                     locked: false,
                     external_ids: None,
+                    threepids: None,
                 },
             );
 
@@ -1536,6 +1561,7 @@ mod test {
                 );
                 let new_first_name = "New First";
                 let new_display_name = "New First Lastname";
+                let new_email = "my-new-email@example.com";
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector.synapse_api = SynapseApiMocker::new()
@@ -1553,7 +1579,9 @@ mod test {
                             user.display_name().unwrap()
                         }),
                     )
+                    .can_get_user_three_pids(&synapse_user, Some(current_email.to_owned()))
                     .require_set_user_display_name(&synapse_user, new_display_name)
+                    .require_set_user_three_pids(&synapse_user, new_email)
                     .into();
                 let created = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
                 created.expect("Error creating or updating user");
@@ -1562,7 +1590,7 @@ mod test {
 
                 // when
                 user.first_name = Some(new_first_name.to_owned());
-                user.email = Some("my-new-email@example.com".to_owned());
+                user.email = Some(new_email.to_owned());
                 let updated = connector.create_or_update_user(std::sync::Arc::new(user)).await;
 
                 // then
@@ -1593,6 +1621,7 @@ mod test {
                     .can_associate_source_group_id_to_room()
                     .can_get_all_rooms_associated_source_group_id()
                     .can_get_user_display_name(&synapse_user, None)
+                    .can_get_user_three_pids(&synapse_user, None)
                     // Assume the user is not yet member of any (managed) room.
                     .can_get_joined_rooms_of_user(&synapse_user, vec![])
                     // This is the core assertion here: The user gets added to the room.
@@ -1630,6 +1659,7 @@ mod test {
                     .can_associate_source_group_id_to_room()
                     .can_get_all_rooms_associated_source_group_id()
                     .can_get_user_display_name(&synapse_user, None)
+                    .can_get_user_three_pids(&synapse_user, None)
                     // Assume the user is still member of the managed room.
                     .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
                     // This is the core assertion here: The user gets kicked from the room.
@@ -1668,6 +1698,7 @@ mod test {
                         .can_associate_source_group_id_to_room()
                         .can_get_all_rooms_associated_source_group_id()
                         .can_get_user_display_name(&synapse_user, None)
+                        .can_get_user_three_pids(&synapse_user, None)
                         .can_get_joined_rooms_of_user(&synapse_user, joined_room)
                 };
                 {

@@ -17,11 +17,29 @@ pub struct AllUsersResponse {
     pub users: Vec<User>,
 }
 
+/// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
+/// for details of this enum.
+#[derive(serde::Deserialize, serde::Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum ThreePIDMedium {
+    Email,
+    Msisdn,
+}
+
+/// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
+/// for details of this struct.
+#[derive(serde::Deserialize, serde::Serialize, Debug, PartialEq, Eq, Clone)]
+pub struct ThreePID {
+    pub medium: ThreePIDMedium,
+    pub address: String,
+}
+
 #[derive(serde::Deserialize, Debug, PartialEq, Clone)]
 pub struct User {
     pub name: String,
     pub locked: bool,
     pub external_ids: Option<Vec<ExternalId>>,
+    pub threepids: Option<Vec<ThreePID>>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]

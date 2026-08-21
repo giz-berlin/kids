@@ -32,6 +32,8 @@ pub trait SynapseApi {
     async fn syncer_leave_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError>;
     async fn get_users(&mut self) -> Result<dto::AllUsersResponse, error::KidsError>;
     async fn deactivate_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
+    async fn get_user_three_pids(&mut self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, error::KidsError>;
+    async fn set_user_three_pids(&mut self, matrix_user_id: &str, three_pids: &[dto::ThreePID]) -> Result<(), error::KidsError>;
     async fn lock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
     async fn unlock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
     async fn set_user_display_name(&mut self, matrix_user_id: &str, display_name: &str) -> Result<(), error::KidsError>;
@@ -382,6 +384,27 @@ impl SynapseApi for SynapseClient {
                 format!("deactivate/{matrix_user_id}"),
                 Some(serde_json::json!({
                     "erase": true
+                })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#query-user-account.
+    async fn get_user_three_pids(&mut self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, error::KidsError> {
+        let response: dto::User = self.admin_api_get("v2", format!("users/{matrix_user_id}")).await?;
+        Ok(response.threepids.unwrap_or_default())
+    }
+
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
+    async fn set_user_three_pids(&mut self, matrix_user_id: &str, three_pids: &[dto::ThreePID]) -> Result<(), error::KidsError> {
+        let _: dto::IgnoredResponse = self
+            .send_admin_api_request(
+                "v2",
+                http::Method::PUT,
+                format!("users/{matrix_user_id}"),
+                Some(serde_json::json!({
+                    "threepids": three_pids
                 })),
             )
             .await?;
