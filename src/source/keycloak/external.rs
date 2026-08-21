@@ -26,6 +26,7 @@ pub struct KeycloakApiConfig {
 #[async_trait::async_trait]
 pub trait KeycloakApi: Send + Sync {
     async fn get_users(&self) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, error::KidsError>;
+    async fn get_user(&self, user_id: &str) -> Result<keycloak::types::UserRepresentation, error::KidsError>;
     async fn get_groups_of_user(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
     async fn get_groups(&self) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
     async fn get_subgroups(&self, group_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
@@ -129,6 +130,13 @@ impl KeycloakApi for KeycloakServiceAccountClient {
                     None,
                 )
                 .await,
+        )
+    }
+
+    async fn get_user(&self, user_id: &str) -> Result<keycloak::types::UserRepresentation, error::KidsError> {
+        KeycloakServiceAccountClient::convert_error(
+            "GET_USER",
+            self.keycloak_admin.realm_users_with_user_id_get(&self.config.realm, user_id, None).await,
         )
     }
 

@@ -166,6 +166,55 @@ impl Connector {
             .as_mut()
             .expect("`generate_id_mappings` should have filled in `user_id_mapping`"))
     }
+
+    async fn ensure_user_display_name(
+        &mut self,
+        matrix_user_id: &str,
+        source_user: &(dyn source::interface::User + Send + Sync),
+    ) -> Result<(), error::KidsError> {
+        let matrix_display_name = self.synapse_api.get_user_display_name(matrix_user_id).await?;
+        if matrix_display_name != source_user.display_name() {
+            tracing::debug!(
+                matrix_user_id = matrix_user_id,
+                user_id = source_user.id(),
+                old_display_name = matrix_display_name,
+                new_display_name = source_user.display_name(),
+                "Updating user's display name."
+            );
+            if let Some(username) = source_user.display_name() {
+                self.synapse_api.set_user_display_name(matrix_user_id, username.as_str()).await?;
+            } else {
+                const ERROR_CONTEXT: &str = "Creating or updating user";
+                const ERROR_MSG: &str = "Requested to unset the display name of a user (the username is unset). This is impossible in Matrix.";
+                tracing::error!(user_id = source_user.id(), "{ERROR_CONTEXT}: {ERROR_MSG}");
+                return Err(error::KidsError::RequestFailed(ERROR_CONTEXT.to_owned(), anyhow::anyhow!("{ERROR_MSG}")));
+            }
+        }
+        Ok(())
+    }
+
+    async fn ensure_user_email(&mut self, matrix_user_id: &str, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<(), error::KidsError> {
+        let matrix_three_pids = self.synapse_api.get_user_three_pids(matrix_user_id).await?;
+        let desired_three_pids: &[dto::ThreePID] = if let Some(email) = source_user.email() {
+            &[dto::ThreePID {
+                medium: dto::ThreePIDMedium::Email,
+                address: email.to_owned(),
+            }]
+        } else {
+            &[]
+        };
+        if matrix_three_pids != desired_three_pids {
+            tracing::debug!(
+                matrix_user_id = matrix_user_id,
+                user_id = source_user.id(),
+                old_three_pids = ?matrix_three_pids,
+                new_three_pids = ?desired_three_pids,
+                "Updating user's 3PIDs."
+            );
+            self.synapse_api.set_user_three_pids(matrix_user_id, desired_three_pids).await?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -341,6 +390,9 @@ impl interface::Target for Connector {
         let matrix_user_id = matrix_user.name.clone();
         // Need to fetch this already here as we need to drop the mutable borrow.
         let is_matrix_user_locked = matrix_user.locked;
+
+        self.ensure_user_display_name(matrix_user_id.as_str(), source_user.as_ref()).await?;
+        self.ensure_user_email(matrix_user_id.as_str(), source_user.as_ref()).await?;
 
         let desired_user_groups = source_user
             .groups(true)
@@ -753,6 +805,7 @@ mod test {
                     name: constants::DEFAULT_TARGET_USER_ID.to_string(),
                     locked: false,
                     external_ids: None,
+                    threepids: None,
                 },
             );
 
@@ -1354,20 +1407,33 @@ mod test {
         #[derive(Debug, PartialEq, Eq, Clone)]
         struct User {
             id: String,
+            username: Option<String>,
+            first_name: Option<String>,
+            last_name: Option<String>,
+            email: Option<String>,
             enabled: bool,
             attributes: std::collections::HashMap<String, Vec<String>>,
             groups: Vec<super::manage_groups::Group>,
         }
 
         impl User {
+            #[expect(clippy::too_many_arguments)]
             pub fn new(
                 id: impl Into<String>,
+                username: Option<String>,
+                first_name: Option<String>,
+                last_name: Option<String>,
+                email: Option<String>,
                 enabled: bool,
                 attributes: Option<std::collections::HashMap<String, Vec<String>>>,
                 groups: Option<Vec<super::manage_groups::Group>>,
             ) -> Self {
                 Self {
                     id: id.into(),
+                    username,
+                    first_name,
+                    last_name,
+                    email,
                     enabled,
                     attributes: attributes.unwrap_or_default(),
                     groups: groups.unwrap_or_default(),
@@ -1384,10 +1450,16 @@ mod test {
                 self.enabled
             }
             fn username(&self) -> Option<&str> {
-                Some(&self.id)
+                self.username.as_deref()
+            }
+            fn first_name(&self) -> Option<&str> {
+                self.first_name.as_deref()
+            }
+            fn last_name(&self) -> Option<&str> {
+                self.last_name.as_deref()
             }
             fn email(&self) -> Option<&str> {
-                None
+                self.email.as_ref().map(|s| s.as_ref())
             }
             fn attributes(&self) -> &collections::HashMap<String, Vec<String>> {
                 &self.attributes
@@ -1414,7 +1486,7 @@ mod test {
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
-                let user = User::new("user", true, None, Some(vec![group.clone()]));
+                let user = User::new("user", None, None, None, None, true, None, Some(vec![group.clone()]));
                 let user_id = user.id.clone();
                 connector.synapse_api = SynapseApiMocker::new()
                     .with_rooms(vec![MockSynapseRoomBuilder::default().source_room_id(group.id()).build()])
@@ -1445,7 +1517,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let user = User::new("user", true, None, Some(vec![group]));
+                let user = User::new("user", None, None, None, None, true, None, Some(vec![group]));
                 let user_id = user.id;
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector.synapse_api = SynapseApiMocker::new()
@@ -1473,6 +1545,62 @@ mod test {
 
             #[rstest]
             #[tokio::test]
+            async fn update_user_updates_name_email(mut connector: Connector) {
+                // given
+                let current_first_name = "First";
+                let current_email = "my-email@example.com";
+                let mut user = User::new(
+                    "user",
+                    None,
+                    Some(current_first_name.to_owned()),
+                    Some("Lastname".to_owned()),
+                    Some(current_email.to_owned()),
+                    true,
+                    None,
+                    None,
+                );
+                let new_first_name = "New First";
+                let new_display_name = "New First Lastname";
+                let new_email = "my-new-email@example.com";
+                let user_id = user.id.clone();
+                let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
+                connector.synapse_api = SynapseApiMocker::new()
+                    .with_rooms(vec![])
+                    .with_users(vec![synapse_user.clone()])
+                    .can_get_joined_rooms_of_syncer()
+                    .can_get_users()
+                    .can_get_source_user_id_for_all_matrix_users()
+                    // The user is no member of any (managed) room.
+                    .can_get_joined_rooms_of_user(&synapse_user, vec![])
+                    .can_get_user_display_name(
+                        &synapse_user,
+                        Some({
+                            use crate::source::interface::User;
+                            user.display_name().unwrap()
+                        }),
+                    )
+                    .can_get_user_three_pids(&synapse_user, Some(current_email.to_owned()))
+                    .require_set_user_display_name(&synapse_user, new_display_name)
+                    .require_set_user_three_pids(&synapse_user, new_email)
+                    .into();
+                let created = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
+                created.expect("Error creating or updating user");
+                let all_users = connector.all_users().await.unwrap();
+                assert!(all_users.contains(&user_id));
+
+                // when
+                user.first_name = Some(new_first_name.to_owned());
+                user.email = Some(new_email.to_owned());
+                let updated = connector.create_or_update_user(std::sync::Arc::new(user)).await;
+
+                // then
+                updated.expect("Error creating or updating user");
+                let all_users = connector.all_users().await.unwrap();
+                assert!(all_users.contains(&user_id));
+            }
+
+            #[rstest]
+            #[tokio::test]
             async fn update_user_adds_room(mut connector: Connector) {
                 // given
                 let group = super::manage_groups::Group::new(
@@ -1480,7 +1608,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let user = User::new("user", true, None, Some(vec![group]));
+                let user = User::new("user", None, None, None, None, true, None, Some(vec![group]));
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector.synapse_api = SynapseApiMocker::new()
@@ -1492,6 +1620,8 @@ mod test {
                     .can_get_room_associated_source_group_id_v1()
                     .can_associate_source_group_id_to_room()
                     .can_get_all_rooms_associated_source_group_id()
+                    .can_get_user_display_name(&synapse_user, None)
+                    .can_get_user_three_pids(&synapse_user, None)
                     // Assume the user is not yet member of any (managed) room.
                     .can_get_joined_rooms_of_user(&synapse_user, vec![])
                     // This is the core assertion here: The user gets added to the room.
@@ -1516,7 +1646,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let user = User::new("user", true, None, None);
+                let user = User::new("user", None, None, None, None, true, None, None);
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector.synapse_api = SynapseApiMocker::new()
@@ -1528,6 +1658,8 @@ mod test {
                     .can_get_room_associated_source_group_id_v1()
                     .can_associate_source_group_id_to_room()
                     .can_get_all_rooms_associated_source_group_id()
+                    .can_get_user_display_name(&synapse_user, None)
+                    .can_get_user_three_pids(&synapse_user, None)
                     // Assume the user is still member of the managed room.
                     .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
                     // This is the core assertion here: The user gets kicked from the room.
@@ -1552,7 +1684,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let mut user = User::new("user", true, None, Some(vec![group]));
+                let mut user = User::new("user", None, None, None, None, true, None, Some(vec![group]));
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 let get_api_mocker = |joined_room: Vec<&crate::target::synapse::test_mocks::MockSynapseRoom>| {
@@ -1565,6 +1697,8 @@ mod test {
                         .can_get_room_associated_source_group_id_v1()
                         .can_associate_source_group_id_to_room()
                         .can_get_all_rooms_associated_source_group_id()
+                        .can_get_user_display_name(&synapse_user, None)
+                        .can_get_user_three_pids(&synapse_user, None)
                         .can_get_joined_rooms_of_user(&synapse_user, joined_room)
                 };
                 {
@@ -1629,7 +1763,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let user = User::new("user", true, None, Some(vec![group]));
+                let user = User::new("user", None, None, None, None, true, None, Some(vec![group]));
                 let user_id = user.id;
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 {

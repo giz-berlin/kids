@@ -9,6 +9,8 @@ pub struct KeycloakUser {
     id: String,
     enabled: bool,
     username: Option<String>,
+    first_name: Option<String>,
+    last_name: Option<String>,
     email: Option<String>,
     attributes: std::collections::HashMap<String, Vec<String>>,
 }
@@ -27,6 +29,8 @@ impl KeycloakUser {
             // While we could use `unwrap_or_default` here this would silently disable users since the default value of booleans is false.
             enabled: user_representation.enabled.expect("Keycloak user is expected to have an enabled attribute"),
             username: user_representation.username,
+            first_name: user_representation.first_name,
+            last_name: user_representation.last_name,
             email: user_representation.email,
             // Users may or may not have attributes so use the default value (an empty map) as the fallback.
             // Whether the attributes are actually required depends on the target (e.g. if they store additional metadata about
@@ -35,15 +39,21 @@ impl KeycloakUser {
         }
     }
 
-    pub fn from_webhook_user(keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>, webhook_user: KeycloakWebhookUser) -> Self {
-        KeycloakUser {
+    pub async fn from_webhook_user(
+        keycloak_api: std::sync::Arc<dyn external::KeycloakApi + Send + Sync>,
+        webhook_user: KeycloakWebhookUser,
+    ) -> Result<Self, error::KidsError> {
+        let user = keycloak_api.get_user(&webhook_user.id).await?;
+        Ok(KeycloakUser {
             keycloak_api,
             id: webhook_user.id,
             enabled: webhook_user.enabled,
             username: webhook_user.username,
+            first_name: user.first_name,
+            last_name: user.last_name,
             email: webhook_user.email,
             attributes: webhook_user.attributes,
-        }
+        })
     }
 }
 
@@ -61,6 +71,14 @@ impl interface::User for KeycloakUser {
 
     fn username(&self) -> Option<&str> {
         self.username.as_deref()
+    }
+
+    fn first_name(&self) -> Option<&str> {
+        self.first_name.as_deref()
+    }
+
+    fn last_name(&self) -> Option<&str> {
+        self.last_name.as_deref()
     }
 
     fn email(&self) -> Option<&str> {

@@ -32,8 +32,12 @@ pub trait SynapseApi {
     async fn syncer_leave_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError>;
     async fn get_users(&mut self) -> Result<dto::AllUsersResponse, error::KidsError>;
     async fn deactivate_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
+    async fn get_user_three_pids(&mut self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, error::KidsError>;
+    async fn set_user_three_pids(&mut self, matrix_user_id: &str, three_pids: &[dto::ThreePID]) -> Result<(), error::KidsError>;
     async fn lock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
     async fn unlock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
+    async fn set_user_display_name(&mut self, matrix_user_id: &str, display_name: &str) -> Result<(), error::KidsError>;
+    async fn get_user_display_name(&mut self, matrix_user_id: &str) -> Result<Option<String>, error::KidsError>;
 
     async fn create_room(&mut self, name: &str, path: &str) -> Result<dto::RoomCreationResponse, error::KidsError>;
     async fn delete_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError>;
@@ -386,6 +390,27 @@ impl SynapseApi for SynapseClient {
         Ok(())
     }
 
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#query-user-account.
+    async fn get_user_three_pids(&mut self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, error::KidsError> {
+        let response: dto::User = self.admin_api_get("v2", format!("users/{matrix_user_id}")).await?;
+        Ok(response.threepids.unwrap_or_default())
+    }
+
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
+    async fn set_user_three_pids(&mut self, matrix_user_id: &str, three_pids: &[dto::ThreePID]) -> Result<(), error::KidsError> {
+        let _: dto::IgnoredResponse = self
+            .send_admin_api_request(
+                "v2",
+                http::Method::PUT,
+                format!("users/{matrix_user_id}"),
+                Some(serde_json::json!({
+                    "threepids": three_pids
+                })),
+            )
+            .await?;
+        Ok(())
+    }
+
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
     async fn lock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError> {
         let _: dto::IgnoredResponse = self
@@ -414,6 +439,24 @@ impl SynapseApi for SynapseClient {
             )
             .await?;
         Ok(())
+    }
+
+    /// See https://spec.matrix.org/v1.15/client-server-api/#put_matrixclientv3profileuseriddisplayname
+    async fn set_user_display_name(&mut self, matrix_user_id: &str, display_name: &str) -> Result<(), error::KidsError> {
+        let _: dto::IgnoredResponse = self
+            .send_client_api_request(
+                http::Method::PUT,
+                format!("profile/{matrix_user_id}/displayname"),
+                Some(serde_json::json!({"displayname": display_name})),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3profileuseriddisplayname
+    async fn get_user_display_name(&mut self, matrix_user_id: &str) -> Result<Option<String>, error::KidsError> {
+        let response: dto::UserDisplayNameResponse = self.client_api_get(format!("profile/{matrix_user_id}/displayname")).await?;
+        Ok(response.display_name)
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3createroom

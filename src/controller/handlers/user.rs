@@ -31,7 +31,7 @@ where
     S: crate::source::interface::Source + Send,
     T: crate::target::interface::Target,
 {
-    let user: std::sync::Arc<dyn crate::source::interface::User + Send + Sync> = std::sync::Arc::from(state.source.user_from_webhook(payload));
+    let user: std::sync::Arc<dyn crate::source::interface::User + Send + Sync> = std::sync::Arc::from(state.source.user_from_webhook(payload).await?);
 
     let mut target = state.target.write().await;
 

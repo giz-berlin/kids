@@ -397,6 +397,55 @@ impl SynapseApiMocker {
             .return_once(|_| Ok(()));
         self
     }
+
+    pub fn can_get_user_display_name(mut self, user: &MockSynapseUser, current_display_name: Option<String>) -> Self {
+        self.api_mock
+            .expect_get_user_display_name()
+            .with(eq(user.matrix_user_id.clone()))
+            .returning(move |_| Ok(current_display_name.clone()));
+        self
+    }
+
+    pub fn require_set_user_display_name(mut self, user_to_be_modified: &MockSynapseUser, new_display_name: &str) -> Self {
+        self.api_mock
+            .expect_set_user_display_name()
+            .with(eq(user_to_be_modified.matrix_user_id.clone()), eq(new_display_name.to_owned()))
+            .times(1)
+            .return_once(|_, _| Ok(()));
+        self
+    }
+
+    pub fn can_get_user_three_pids(mut self, user: &MockSynapseUser, current_email: Option<String>) -> Self {
+        self.api_mock
+            .expect_get_user_three_pids()
+            .with(eq(user.matrix_user_id.clone()))
+            .returning(move |_| {
+                Ok(if let Some(email) = current_email.as_ref() {
+                    vec![dto::ThreePID {
+                        medium: dto::ThreePIDMedium::Email,
+                        address: email.to_owned(),
+                    }]
+                } else {
+                    vec![]
+                })
+            });
+        self
+    }
+
+    pub fn require_set_user_three_pids(mut self, user_to_be_modified: &MockSynapseUser, new_email: &str) -> Self {
+        self.api_mock
+            .expect_set_user_three_pids()
+            .with(
+                eq(user_to_be_modified.matrix_user_id.clone()),
+                eq(vec![dto::ThreePID {
+                    medium: dto::ThreePIDMedium::Email,
+                    address: new_email.to_owned(),
+                }]),
+            )
+            .times(1)
+            .return_once(|_, _| Ok(()));
+        self
+    }
 }
 
 impl SynapseApiMocker {
@@ -408,6 +457,7 @@ impl SynapseApiMocker {
                 auth_provider: constants::DEFAULT_AUTH_PROVIDER.to_string(),
                 external_id: user.source_user_id.clone(),
             }]),
+            threepids: None,
         }
     }
 }
