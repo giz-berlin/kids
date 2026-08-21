@@ -14,6 +14,8 @@ pub struct KeycloakApiConfig {
     pub client_secret: String,
     /// Keycloak realm to fetch the data from.
     pub realm: String,
+    /// Whether service accounts should be fetched and handled like normal users.
+    pub fetch_service_accounts: bool,
     /// Whether to validate the server certificate of the external API.
     /// Only disable for local development purposes!
     pub insecure_disable_tls_verification: bool,
@@ -111,7 +113,11 @@ impl KeycloakApi for KeycloakServiceAccountClient {
                     None,
                     None,
                     None,
-                    None,
+                    // This sets the query parameter `exact` if service accounts should be included. The value does not matter, it could also be `false`.
+                    // The parameter does not filter the users if other attributes such as components of the name are not given. However, because a
+                    // "filtering" attribute is set, Keycloak handles the request differently and includes service accounts in the result.
+                    // This is hacky and can hopefully be replaced when github.com/keycloak/keycloak/pull/51788 is merged.
+                    if self.config.fetch_service_accounts { Some(true) } else { None },
                     None,
                     None,
                     None,
