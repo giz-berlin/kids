@@ -29,41 +29,37 @@ pub struct SynapseApiConfig {
 pub trait SynapseApi {
     fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool;
     fn homeserver_domain(&self) -> &str;
-    async fn get_joined_rooms_of_syncer(&mut self) -> Result<dto::JoinedRoomsResponse, error::KidsError>;
-    async fn syncer_leave_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError>;
-    async fn get_users(&mut self) -> Result<dto::AllUsersResponse, error::KidsError>;
-    async fn deactivate_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
-    async fn get_user_three_pids(&mut self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, error::KidsError>;
-    async fn set_user_three_pids(&mut self, matrix_user_id: &str, three_pids: &[dto::ThreePID]) -> Result<(), error::KidsError>;
-    async fn lock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
-    async fn unlock_user(&mut self, matrix_user_id: &str) -> Result<(), error::KidsError>;
-    async fn set_user_display_name(&mut self, matrix_user_id: &str, display_name: &str) -> Result<(), error::KidsError>;
-    async fn get_user_display_name(&mut self, matrix_user_id: &str) -> Result<Option<String>, error::KidsError>;
-    async fn create_user(&mut self, matrix_user_id: &str, source_user_id: &str) -> Result<dto::User, error::KidsError>;
+    async fn get_joined_rooms_of_syncer(&self) -> Result<dto::JoinedRoomsResponse, error::KidsError>;
+    async fn syncer_leave_room(&self, matrix_room_id: &str) -> Result<(), error::KidsError>;
+    async fn get_users(&self) -> Result<dto::AllUsersResponse, error::KidsError>;
+    async fn deactivate_user(&self, matrix_user_id: &str) -> Result<(), error::KidsError>;
+    async fn get_user_three_pids(&self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, error::KidsError>;
+    async fn set_user_three_pids(&self, matrix_user_id: &str, three_pids: &[dto::ThreePID]) -> Result<(), error::KidsError>;
+    async fn lock_user(&self, matrix_user_id: &str) -> Result<(), error::KidsError>;
+    async fn unlock_user(&self, matrix_user_id: &str) -> Result<(), error::KidsError>;
+    async fn set_user_display_name(&self, matrix_user_id: &str, display_name: &str) -> Result<(), error::KidsError>;
+    async fn get_user_display_name(&self, matrix_user_id: &str) -> Result<Option<String>, error::KidsError>;
+    async fn create_user(&self, matrix_user_id: &str, source_user_id: &str) -> Result<dto::User, error::KidsError>;
 
-    async fn create_room(&mut self, name: &str, path: &str) -> Result<dto::RoomCreationResponse, error::KidsError>;
-    async fn delete_room(&mut self, matrix_room_id: &str) -> Result<(), error::KidsError>;
-    async fn associate_source_group_id_to_room(
-        &mut self,
-        matrix_room_id: &str,
-        source_group_id: &types::SharedResourceIdentifier,
-    ) -> Result<(), error::KidsError>;
-    async fn get_room_associated_source_group_id(&mut self, matrix_room_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError>;
-    async fn get_room_associated_source_group_id_v1(&mut self, matrix_room_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError>;
-    async fn set_room_display_name(&mut self, matrix_room_id: &str, display_name: &str) -> Result<(), error::KidsError>;
-    async fn get_room_display_name(&mut self, matrix_room_id: &str) -> Result<String, error::KidsError>;
+    async fn create_room(&self, name: &str, path: &str) -> Result<dto::RoomCreationResponse, error::KidsError>;
+    async fn delete_room(&self, matrix_room_id: &str) -> Result<(), error::KidsError>;
+    async fn associate_source_group_id_to_room(&self, matrix_room_id: &str, source_group_id: &types::SharedResourceIdentifier) -> Result<(), error::KidsError>;
+    async fn get_room_associated_source_group_id(&self, matrix_room_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError>;
+    async fn get_room_associated_source_group_id_v1(&self, matrix_room_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError>;
+    async fn set_room_display_name(&self, matrix_room_id: &str, display_name: &str) -> Result<(), error::KidsError>;
+    async fn get_room_display_name(&self, matrix_room_id: &str) -> Result<String, error::KidsError>;
 
     fn full_room_alias(&self, group_path: &str) -> String;
-    async fn create_room_alias(&mut self, matrix_room_id: &str, alias: &str) -> Result<(), error::KidsError>;
-    async fn delete_room_alias(&mut self, alias: &str) -> Result<(), error::KidsError>;
-    async fn set_room_canonical_alias(&mut self, matrix_room_id: &str, canonical_alias: &str) -> Result<(), error::KidsError>;
-    async fn get_room_canonical_alias(&mut self, matrix_room_id: &str) -> Result<dto::RoomCanonicalAliasEvent, error::KidsError>;
+    async fn create_room_alias(&self, matrix_room_id: &str, alias: &str) -> Result<(), error::KidsError>;
+    async fn delete_room_alias(&self, alias: &str) -> Result<(), error::KidsError>;
+    async fn set_room_canonical_alias(&self, matrix_room_id: &str, canonical_alias: &str) -> Result<(), error::KidsError>;
+    async fn get_room_canonical_alias(&self, matrix_room_id: &str) -> Result<dto::RoomCanonicalAliasEvent, error::KidsError>;
 
-    async fn get_source_user_id_for_matrix_user_id(&mut self, matrix_user_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError>;
-    async fn get_user_joined_rooms(&mut self, matrix_user_id: &str) -> Result<dto::UserJoinedRoomsResponse, error::KidsError>;
-    async fn get_room_joined_users(&mut self, matrix_room_id: &str) -> Result<dto::RoomJoinedUsersResponse, error::KidsError>;
-    async fn join_user_to_room(&mut self, matrix_room_id: &str, matrix_user_id: &str) -> Result<(), error::KidsError>;
-    async fn kick_user_from_room(&mut self, matrix_room_id: &str, matrix_user_id: &str) -> Result<(), error::KidsError>;
+    async fn get_source_user_id_for_matrix_user_id(&self, matrix_user_id: &str) -> Result<types::SharedResourceIdentifier, error::KidsError>;
+    async fn get_user_joined_rooms(&self, matrix_user_id: &str) -> Result<dto::UserJoinedRoomsResponse, error::KidsError>;
+    async fn get_room_joined_users(&self, matrix_room_id: &str) -> Result<dto::RoomJoinedUsersResponse, error::KidsError>;
+    async fn join_user_to_room(&self, matrix_room_id: &str, matrix_user_id: &str) -> Result<(), error::KidsError>;
+    async fn kick_user_from_room(&self, matrix_room_id: &str, matrix_user_id: &str) -> Result<(), error::KidsError>;
 }
 
 pub struct SynapseClient {

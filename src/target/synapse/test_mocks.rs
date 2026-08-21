@@ -454,7 +454,6 @@ impl SynapseApiMocker {
     }
 
     pub fn require_create_user(mut self, matrix_user: MockSynapseUser) -> Self {
-        println!("Building expectation: {}, {}", matrix_user.matrix_user_id, matrix_user.source_user_id);
         self.api_mock
             .expect_create_user()
             .with(eq(matrix_user.matrix_user_id.clone()), eq(matrix_user.source_user_id.clone()))
