@@ -167,6 +167,19 @@ impl Connector {
             .expect("`generate_id_mappings` should have filled in `user_id_mapping`"))
     }
 
+    fn generate_matrix_user_id(&self, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<String, error::KidsError> {
+        let desired_username_part = match source_user.username() {
+            Some(username) => username,
+            None => {
+                const ERROR_CONTEXT: &str = "Generating matrix user id";
+                const ERROR_MSG: &str = "The matrix user id depends on the source username to be set but it was not.";
+                tracing::error!(user_id = source_user.id(), "{ERROR_CONTEXT}: {ERROR_MSG}");
+                return Err(error::KidsError::RequestFailed(ERROR_CONTEXT.to_owned(), anyhow::anyhow!("{ERROR_MSG}")));
+            }
+        };
+        Ok(format!("@{}:{}", desired_username_part, self.synapse_api.homeserver_domain()))
+    }
+
     async fn ensure_user_display_name(
         &mut self,
         matrix_user_id: &str,
@@ -374,21 +387,9 @@ impl interface::Target for Connector {
     }
 
     async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn source::interface::User + Send + Sync>) -> Result<(), error::KidsError> {
-        let matrix_user = match self.get_user_id_mapping().await?.get(source_user.id()) {
-            Some(matrix_user) => matrix_user,
-            None => {
-                tracing::debug!(
-                    source_user_id = source_user.id(),
-                    "Source user is not known to Matrix. Before the syncer can handle them, they need to login to Matrix manually first"
-                );
-                // This is not an error condition: The syncer is only supposed to handle users which have logged in before.
-                // We are not able to create users directly from the syncer.
-                return Ok(());
-            }
-        };
+        let matrix_user = self.get_or_create_user(source_user.as_ref()).await?;
 
-        let matrix_user_id = matrix_user.name.clone();
-        // Need to fetch this already here as we need to drop the mutable borrow.
+        let matrix_user_id = matrix_user.name;
         let is_matrix_user_locked = matrix_user.locked;
 
         self.ensure_user_display_name(matrix_user_id.as_str(), source_user.as_ref()).await?;
@@ -488,6 +489,24 @@ impl Connector {
                     Ok(()) => tracing::info!(room, "Migrated room"),
                     Err(e) => tracing::warn!(?e, room, "Failed to migrate room"),
                 };
+            }
+        }
+    }
+
+    async fn get_or_create_user(&mut self, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<dto::User, error::KidsError> {
+        match self.get_user_id_mapping().await?.get(source_user.id()) {
+            Some(matrix_user) => Ok(matrix_user.clone()),
+            None => {
+                let matrix_user_id = self.generate_matrix_user_id(source_user)?;
+                tracing::info!(
+                    source_user_id = source_user.id(),
+                    source_user_name = source_user.username(),
+                    matrix_user_id = matrix_user_id,
+                    "Creating user"
+                );
+                let matrix_user = self.synapse_api.create_user(matrix_user_id.as_str(), source_user.id()).await?;
+                self.get_user_id_mapping().await?.insert(source_user.id().clone(), matrix_user.clone());
+                Ok(matrix_user)
             }
         }
     }
@@ -1484,22 +1503,43 @@ mod test {
 
             #[rstest]
             #[tokio::test]
-            async fn create_user_succeeds_noop_without_being_present(mut connector: Connector) {
+            async fn create_user_succeeds(mut connector: Connector) {
                 // given
                 let group = super::manage_groups::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
-                let user = User::new("user", None, None, None, None, true, None, Some(vec![group.clone()]));
+                let user = User::new(
+                    "my-sub",
+                    Some("firstname.lastname".to_owned()),
+                    Some("Firstname".to_owned()),
+                    Some("Lastname".to_owned()),
+                    None,
+                    true,
+                    None,
+                    Some(vec![group.clone()]),
+                );
                 let user_id = user.id.clone();
+                let matrix_user = MockSynapseUserBuilder::default()
+                    .source_user_id(user_id.clone())
+                    .matrix_user_id("@firstname.lastname:testing.example.com")
+                    .build();
+                let room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
                 connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![MockSynapseRoomBuilder::default().source_room_id(group.id()).build()])
+                    .with_rooms(vec![room.clone()])
+                    .can_get_homeserver_domain("testing.example.com")
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_get_source_user_id_for_all_matrix_users()
                     .can_get_room_associated_source_group_id_v1()
                     .can_associate_source_group_id_to_room()
                     .can_get_all_rooms_associated_source_group_id()
+                    .require_create_user(matrix_user.clone())
+                    .can_get_user_display_name(&matrix_user, None)
+                    .require_set_user_display_name(&matrix_user, "Firstname Lastname")
+                    .can_get_user_three_pids(&matrix_user, None)
+                    .can_get_joined_rooms_of_user(&matrix_user, vec![])
+                    .require_join_user_to_room(&matrix_user, &room)
                     .into();
 
                 // when
@@ -1508,8 +1548,7 @@ mod test {
                 // then
                 created.expect("Error creating or updating user");
                 let all_users = connector.all_users().await.unwrap();
-                // Users need to login themselves to be present in Synapse.
-                assert!(!all_users.contains(&user_id));
+                assert!(all_users.contains(&user_id));
             }
 
             #[rstest]
