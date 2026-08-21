@@ -470,7 +470,17 @@ impl SynapseApi for SynapseClient {
                 "preset": "private_chat",
                 "initial_state": self.static_room_initial_state(),
                 "power_level_content_override": self.static_room_power_level_content_override(),
-                "room_alias_name": self.room_alias_local_part(path)
+                "room_alias_name": self.room_alias_local_part(path),
+                // Fix room version to 11.
+                // Version 12 changed some things about room creation.
+                // See https://rechenknecht.net/giz/matrix/keycloak-matrix-syncer/-/merge_requests/5
+                // for reference where we did the same in a similar project.
+                // See https://matrix.org/blog/2025/07/security-predisclosure/
+                // and https://faq.tickets.tu-dresden.de/otrs/public.pl?Action=PublicFAQZoom;ItemID=1304
+                // for more info on the migration to v12.
+                // Make sure to thoroughly test the effects of updating this value
+                // on all aspects of the syncer!
+                "room_version": "11"
             })),
         )
         .await
