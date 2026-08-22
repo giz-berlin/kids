@@ -160,25 +160,24 @@ impl KeycloakApi for KeycloakServiceAccountClient {
                     return Err(error::KidsError::InternalError(format!(
                         "Could not find client with clientId {}.",
                         self.config.client_id
-                    )))
+                    )));
                 }
                 len => {
                     return Err(error::KidsError::InternalError(format!(
                         "Search for client with clientId {} returned {} results",
                         self.config.client_id, len
-                    )))
+                    )));
                 }
             };
-            let client_uuid = match client_uuid {
+            match client_uuid {
                 Some(client_uuid) => client_uuid,
                 None => {
                     return Err(error::KidsError::InternalError(format!(
                         "Could not find client id for client with clientId {}.",
                         self.config.client_id
-                    )))
+                    )));
                 }
-            };
-            client_uuid
+            }
         };
         KeycloakServiceAccountClient::convert_error(
             "GET_USER_CLIENT_ROLES",

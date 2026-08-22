@@ -185,10 +185,12 @@ mod test {
         mock.expect_get_groups_of_user()
             .with(predicate::eq(constants::DEFAULT_SOURCE_USER_ID))
             .returning(|_| {
-                Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::DEFAULT_SOURCE_GROUP_ID)
-                    .parent_id(constants::ANOTHER_SOURCE_GROUP_ID)
-                    .build_into()])
+                Ok(vec![
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::DEFAULT_SOURCE_GROUP_ID)
+                        .parent_id(constants::ANOTHER_SOURCE_GROUP_ID)
+                        .build_into(),
+                ])
             });
         mock.expect_get_group()
             .with(predicate::eq(constants::ANOTHER_SOURCE_GROUP_ID))
