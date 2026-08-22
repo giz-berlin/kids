@@ -1806,6 +1806,11 @@ mod test {
             #[tokio::test]
             async fn update_user_locks_without_role_unlocks_with_role(mut connector: Connector) {
                 // given
+                let group = super::manage_groups::Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
                 let current_first_name = "First";
                 let mut user = User::new(
                     "user",
@@ -1815,14 +1820,17 @@ mod test {
                     None,
                     true,
                     None,
-                    None,
+                    Some(vec![group]),
                     None,
                 );
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![])
+                    .with_rooms(vec![synapse_room.clone()])
                     .with_users(vec![synapse_user.clone()])
+                    .can_get_room_associated_source_group_id_v1()
+                    .can_associate_source_group_id_to_room()
+                    .can_get_room_associated_source_group_id_for_room(&synapse_room)
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_get_source_user_id_for_all_matrix_users()
@@ -1836,6 +1844,7 @@ mod test {
                         }),
                     )
                     .can_get_user_three_pids(&synapse_user, None)
+                    .require_join_user_to_room(&synapse_user, &synapse_room)
                     .into();
                 let created = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
                 created.expect("Error creating or updating user");
@@ -1845,13 +1854,13 @@ mod test {
                 // when
                 user.roles = vec![];
                 connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![])
+                    .with_rooms(vec![synapse_room.clone()])
                     .with_users(vec![synapse_user.clone()])
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_get_source_user_id_for_all_matrix_users()
                     .require_lock_user(&synapse_user)
-                    .can_get_joined_rooms_of_user(&synapse_user, vec![])
+                    .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
                     .can_get_user_display_name(
                         &synapse_user,
                         Some({
@@ -1860,6 +1869,7 @@ mod test {
                         }),
                     )
                     .can_get_user_three_pids(&synapse_user, None)
+                    .require_kick_user_from_room(&synapse_user, &synapse_room)
                     .into();
                 let updated = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
 
@@ -1871,7 +1881,7 @@ mod test {
                 // when
                 user.roles = vec![REQUIRED_ROLE.to_owned()];
                 connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![])
+                    .with_rooms(vec![synapse_room.clone()])
                     .with_users(vec![synapse_user.clone()])
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
@@ -1887,6 +1897,7 @@ mod test {
                     .can_get_user_three_pids(&synapse_user, None)
                     // The user is no member of any (managed) room.
                     .can_get_joined_rooms_of_user(&synapse_user, vec![])
+                    .require_join_user_to_room(&synapse_user, &synapse_room)
                     .into();
                 let updated = connector.create_or_update_user(std::sync::Arc::new(user)).await;
 
