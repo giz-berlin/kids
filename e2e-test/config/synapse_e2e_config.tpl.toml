@@ -25,9 +25,11 @@ insecure_disable_tls_verification = true
 [target]
 source_room_name_attr = "matrixRoomName"
 room_deletion_strategy = "KickAll"
+# Do not set it to disable this feature in e2e tests.
+# required_role_name = "feature:authenticate"
 [target.synapse_api]
 matrix_homeserver_url = "https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
-matrix_source_oidc_provider_id = "keycloak"
+matrix_source_oidc_provider_id = "oidc-keycloak"
 matrix_syncer_user_id = "@admin:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
 matrix_syncer_password = "password"
 matrix_namespace = "$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"

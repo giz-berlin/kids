@@ -167,9 +167,11 @@ mod test {
         mock.expect_get_subgroups()
             .with(predicate::eq(constants::DEFAULT_SOURCE_GROUP_ID))
             .returning(|_| {
-                Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::ANOTHER_SOURCE_GROUP_ID)
-                    .build_into()])
+                Ok(vec![
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::ANOTHER_SOURCE_GROUP_ID)
+                        .build_into(),
+                ])
             });
 
         let group = std::sync::Arc::new(KeycloakGroup::new_from_group_representation(

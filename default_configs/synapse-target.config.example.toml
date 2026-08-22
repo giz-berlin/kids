@@ -22,6 +22,9 @@ source_room_name_attr = "matrixRoomName"
 #        The most effective and dangerous option. The room is completely deleted and all traces of
 #        it are removed from the database immediately.
 room_deletion_strategy = "Evacuate"
+# A role that must be present on the source user for it to be considered in Synapse.
+# Optional
+required_role_name = "feature:authenticate"
 
 [target.synapse_api]
 # URL of the Matrix homeserver (probably similar to https://matrix.example.com).

@@ -25,8 +25,10 @@ pub struct KeycloakApiConfig {
 #[mockall::automock]
 #[async_trait::async_trait]
 pub trait KeycloakApi: Send + Sync {
+    fn client_id(&self) -> &str;
     async fn get_users(&self) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, error::KidsError>;
     async fn get_user(&self, user_id: &str) -> Result<keycloak::types::UserRepresentation, error::KidsError>;
+    async fn get_user_client_roles(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::RoleRepresentation>, error::KidsError>;
     async fn get_groups_of_user(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
     async fn get_groups(&self) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
     async fn get_subgroups(&self, group_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, error::KidsError>;
@@ -104,6 +106,10 @@ const FETCH_ALL_ENTITIES: i32 = -1;
 
 #[async_trait::async_trait]
 impl KeycloakApi for KeycloakServiceAccountClient {
+    fn client_id(&self) -> &str {
+        &self.config.client_id
+    }
+
     async fn get_users(&self) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, error::KidsError> {
         KeycloakServiceAccountClient::convert_error(
             "GET_USERS",
@@ -137,6 +143,47 @@ impl KeycloakApi for KeycloakServiceAccountClient {
         KeycloakServiceAccountClient::convert_error(
             "GET_USER",
             self.keycloak_admin.realm_users_with_user_id_get(&self.config.realm, user_id, None).await,
+        )
+    }
+
+    async fn get_user_client_roles(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::RoleRepresentation>, error::KidsError> {
+        let client_uuid = {
+            let clients = KeycloakServiceAccountClient::convert_error(
+                "GET_REALM_CLIENTS",
+                self.keycloak_admin
+                    .realm_clients_get(&self.config.realm, Some(self.config.client_id.clone()), None, None, None, Some(true), None)
+                    .await,
+            )?;
+            let client_uuid = match clients.len() {
+                1 => clients.into_iter().next().expect("We have just ensured that there is one element").id,
+                0 => {
+                    return Err(error::KidsError::InternalError(format!(
+                        "Could not find client with clientId {}.",
+                        self.config.client_id
+                    )));
+                }
+                len => {
+                    return Err(error::KidsError::InternalError(format!(
+                        "Search for client with clientId {} returned {} results",
+                        self.config.client_id, len
+                    )));
+                }
+            };
+            match client_uuid {
+                Some(client_uuid) => client_uuid,
+                None => {
+                    return Err(error::KidsError::InternalError(format!(
+                        "Could not find client id for client with clientId {}.",
+                        self.config.client_id
+                    )));
+                }
+            }
+        };
+        KeycloakServiceAccountClient::convert_error(
+            "GET_USER_CLIENT_ROLES",
+            self.keycloak_admin
+                .realm_users_with_user_id_role_mappings_clients_with_client_id_composite_get(&self.config.realm, user_id, client_uuid.as_ref(), Some(true))
+                .await,
         )
     }
 

@@ -96,6 +96,12 @@ impl SynapseApiMocker {
         self
     }
 
+    pub fn can_get_homeserver_domain(mut self, homeserver_domain: impl Into<String>) -> Self {
+        let homeserver_domain = homeserver_domain.into();
+        self.api_mock.expect_homeserver_domain().return_const(homeserver_domain);
+        self
+    }
+
     pub fn can_get_joined_rooms_of_syncer(mut self) -> Self {
         let rooms: Vec<String> = self.synapse_rooms.iter().map(|room| room.matrix_room_id.clone()).collect();
         self.api_mock
@@ -444,6 +450,15 @@ impl SynapseApiMocker {
             )
             .times(1)
             .return_once(|_, _| Ok(()));
+        self
+    }
+
+    pub fn require_create_user(mut self, matrix_user: MockSynapseUser) -> Self {
+        self.api_mock
+            .expect_create_user()
+            .with(eq(matrix_user.matrix_user_id.clone()), eq(matrix_user.source_user_id.clone()))
+            .times(1)
+            .return_once(move |_, _| Ok(SynapseApiMocker::get_user_from(&matrix_user)));
         self
     }
 }
