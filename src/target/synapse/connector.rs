@@ -232,70 +232,38 @@ impl Connector {
         Ok(())
     }
 
-    /// Returns `true` when the user is locked because they do not have the required role.
+    /// Returns `true` when the user has the required role in Source.
     ///
-    /// This function does **not** unlock a user in case the role is now present.
-    /// For this use [`ensure_user_locked_state_in_sync`](Self::ensure_user_locked_state_in_sync).
-    async fn ensure_user_locked_due_to_missing_role(&mut self, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<bool, error::KidsError> {
-        if let Some(required_role_name) = self.config.required_role_name.clone() {
+    async fn source_user_has_required_role(&mut self, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<bool, error::KidsError> {
+        if let Some(required_role_name) = &self.config.required_role_name {
             let roles = source_user.roles().await?;
-            let required_role_present = roles.contains(&required_role_name);
-            if !required_role_present {
-                let matrix_user = self.get_user(source_user.id()).await?.cloned();
-                match matrix_user {
-                    Some(existing_matrix_user) => {
-                        let matrix_user_id = existing_matrix_user.name.as_str();
-                        if !existing_matrix_user.locked {
-                            tracing::warn!(
-                                matrix_user_id = matrix_user_id,
-                                source_user_id = source_user.id(),
-                                required_role = required_role_name,
-                                "Locking existing user that (no longer) has the role to use Matrix"
-                            );
-                            self.ensure_user_locked(&existing_matrix_user, source_user.id()).await?;
-                        } else {
-                            tracing::trace!(
-                                matrix_user_id = matrix_user_id,
-                                source_user_id = source_user.id(),
-                                required_role = required_role_name,
-                                "Ignoring user that has no longer access to Matrix"
-                            );
-                        }
-                    }
-                    None => {
-                        tracing::trace!(
-                            source_user_id = source_user.id(),
-                            required_role = required_role_name,
-                            "Ignoring user that has no access to Matrix"
-                        );
-                    }
-                }
-            }
-            Ok(!required_role_present)
-        } else {
-            Ok(false)
+            let required_role_present = roles.contains(required_role_name);
+            return Ok(required_role_present);
         }
+        // If no required role is set, pass this test
+        Ok(true)
     }
 
     async fn ensure_user_locked_state_in_sync(
         &mut self,
-        matrix_user: &dto::User,
         source_user: &(dyn source::interface::User + Send + Sync),
+        enforce_lock: bool,
     ) -> Result<(), error::KidsError> {
-        match source_user.enabled() {
+        match source_user.enabled() && !enforce_lock {
             // Note that we explicitly want to lock users here, NOT deactivate them.
             // Deactivating users appears to delete all keys of that user, so even when a
             // user is reactivated, they cannot log in with the same identity and lose
             // all of their direct message rooms.
             // With locking, this works properly and unlocked users will encounter the same
             // state they left off with before being locked.
-            false => self.ensure_user_locked(matrix_user, source_user.id()).await,
-            true => self.ensure_user_unlocked(matrix_user, source_user.id()).await,
+            false => self.ensure_user_locked(source_user.id()).await,
+            true => self.ensure_user_unlocked(source_user.id()).await,
         }
     }
 
-    async fn ensure_user_locked(&mut self, matrix_user: &dto::User, source_user_id: &str) -> Result<(), error::KidsError> {
-        let matrix_user_id = &matrix_user.name;
+    async fn ensure_user_locked(&mut self, source_user_id: &str) -> Result<(), error::KidsError> {
+        let matrix_user = self.get_user(source_user_id).await?;
+        let matrix_user_id = &matrix_user.name.clone();
         if !matrix_user.locked {
             // Note that we explicitly want to lock users here, NOT deactivate them.
             // Deactivating users appears to delete all keys of that user, so even when a
@@ -307,7 +275,7 @@ impl Connector {
                 Ok(()) => {
                     // Write lock state to user object.
                     // Note: `user` and `matrix_user` represent the exact same entity.
-                    let user = self.get_user(source_user_id).await?.unwrap();
+                    let user = self.get_user(source_user_id).await?;
                     user.locked = true;
                     tracing::info!(matrix_user_id, "Locked user");
                 }
@@ -317,14 +285,15 @@ impl Connector {
         Ok(())
     }
 
-    async fn ensure_user_unlocked(&mut self, matrix_user: &dto::User, source_user_id: &str) -> Result<(), error::KidsError> {
-        let matrix_user_id = &matrix_user.name;
+    async fn ensure_user_unlocked(&mut self, source_user_id: &str) -> Result<(), error::KidsError> {
+        let matrix_user = self.get_user(source_user_id).await?;
+        let matrix_user_id = &matrix_user.name.clone();
         if matrix_user.locked {
             match self.synapse_api.unlock_user(matrix_user_id).await {
                 Ok(()) => {
                     // Write lock state to user object.
                     // Note: `user` and `matrix_user` represent the exact same entity.
-                    let user = self.get_user(source_user_id).await?.unwrap();
+                    let user = self.get_user(source_user_id).await?;
                     user.locked = false;
                     tracing::info!(matrix_user_id, "Unlocked user");
                 }
@@ -334,7 +303,9 @@ impl Connector {
         Ok(())
     }
 
-    async fn ensure_user_rooms(&mut self, matrix_user_id: &str, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<(), error::KidsError> {
+    async fn ensure_user_rooms(&mut self, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<(), error::KidsError> {
+        let matrix_user_id = &self.get_user(source_user.id()).await?.name.clone();
+
         let desired_user_groups = source_user
             .groups(true)
             .await
@@ -548,7 +519,12 @@ impl interface::Target for Connector {
     }
 
     async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn source::interface::User + Send + Sync>) -> Result<(), error::KidsError> {
-        if self.ensure_user_locked_due_to_missing_role(source_user.as_ref()).await? {
+        let matrix_user_known = self.has_user(source_user.id()).await?;
+        let source_user_has_required_role = self.source_user_has_required_role(source_user.as_ref()).await?;
+        if !matrix_user_known && !source_user_has_required_role {
+            // Exit early and do not create the user as the user is missing the required role.
+            // If user already exists, it will be deactivated later
+            tracing::trace!(source_user_id = source_user.id(), "Ignoring user that has no access to Matrix");
             return Ok(());
         }
 
@@ -564,15 +540,16 @@ impl interface::Target for Connector {
         // You'd need to split the mappings off into its own struct that can be borrowed individually.
         // A first try of this is in https://rechenknecht.net/giz/keycloak/kids/-/tree/feat/synapse-create-users-wip
         // but this turned out to be quite complex and very ugly.
-        let matrix_user = self.get_or_create_user(source_user.as_ref()).await?.clone();
-        let matrix_user_id = matrix_user.name.as_str();
+        let matrix_user_id = &self.get_or_create_user(source_user.as_ref()).await?.name.clone();
 
-        self.ensure_user_locked_state_in_sync(&matrix_user, source_user.as_ref()).await?;
+        // Lock also if user has no requried role
+        self.ensure_user_locked_state_in_sync(source_user.as_ref(), !source_user_has_required_role)
+            .await?;
 
         self.ensure_user_display_name(matrix_user_id, source_user.as_ref()).await?;
         self.ensure_user_email(matrix_user_id, source_user.as_ref()).await?;
 
-        self.ensure_user_rooms(matrix_user_id, source_user.as_ref()).await?;
+        self.ensure_user_rooms(source_user.as_ref()).await?;
 
         Ok(())
     }
@@ -592,13 +569,24 @@ impl Connector {
         }
     }
 
-    async fn get_user(&mut self, source_user_id: &str) -> Result<Option<&mut dto::User>, error::KidsError> {
+    async fn has_user(&mut self, source_user_id: &str) -> Result<bool, error::KidsError> {
+        Ok(self.get_user_id_mapping().await?.contains_key(source_user_id))
+    }
+
+    async fn get_user_opt(&mut self, source_user_id: &str) -> Result<Option<&mut dto::User>, error::KidsError> {
         Ok(self.get_user_id_mapping().await?.get_mut(source_user_id))
+    }
+
+    async fn get_user(&mut self, source_user_id: &str) -> Result<&mut dto::User, error::KidsError> {
+        Ok(self
+            .get_user_opt(source_user_id)
+            .await?
+            .expect("User not found, although it should be guaranteed it exists"))
     }
 
     async fn get_or_create_user(&mut self, source_user: &(dyn source::interface::User + Send + Sync)) -> Result<&mut dto::User, error::KidsError> {
         // Unfortunately, `match` did not work here for lifetime reasons.
-        if self.get_user(source_user.id()).await?.is_none() {
+        if self.get_user_opt(source_user.id()).await?.is_none() {
             let matrix_user_id = self.generate_matrix_user_id(source_user)?;
             tracing::info!(
                 source_user_id = source_user.id(),
@@ -609,7 +597,7 @@ impl Connector {
             let matrix_user = self.synapse_api.create_user(matrix_user_id.as_str(), source_user.id()).await?;
             self.get_user_id_mapping().await?.insert(source_user.id().clone(), matrix_user.clone());
         }
-        Ok(self.get_user(source_user.id()).await?.expect("We have just added that user."))
+        Ok(self.get_user_opt(source_user.id()).await?.expect("We have just added that user."))
     }
 
     async fn get_or_create_room(&mut self, source_group: &std::sync::Arc<dyn source::interface::Group + Send + Sync>) -> Result<String, error::KidsError> {
@@ -1863,6 +1851,15 @@ mod test {
                     .can_get_users()
                     .can_get_source_user_id_for_all_matrix_users()
                     .require_lock_user(&synapse_user)
+                    .can_get_joined_rooms_of_user(&synapse_user, vec![])
+                    .can_get_user_display_name(
+                        &synapse_user,
+                        Some({
+                            use crate::source::interface::User;
+                            user.display_name().unwrap()
+                        }),
+                    )
+                    .can_get_user_three_pids(&synapse_user, None)
                     .into();
                 let updated = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
 
