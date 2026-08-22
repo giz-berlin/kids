@@ -36,6 +36,7 @@ pub struct ThreePID {
 
 #[derive(serde::Deserialize, Debug, PartialEq, Clone)]
 pub struct User {
+    /// Matrix user ID (named name here, what do I know why)
     pub name: String,
     pub locked: bool,
     pub external_ids: Option<Vec<ExternalId>>,
