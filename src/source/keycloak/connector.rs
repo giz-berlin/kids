@@ -140,16 +140,20 @@ mod test {
         // given
         let mut mock = external::MockKeycloakApi::new();
         mock.expect_get_groups().returning(|| {
-            Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
-                .id(constants::DEFAULT_SOURCE_GROUP_ID)
-                .build_into()])
+            Ok(vec![
+                external::test::KeycloakGroupRepresentationBuilder::default()
+                    .id(constants::DEFAULT_SOURCE_GROUP_ID)
+                    .build_into(),
+            ])
         });
         mock.expect_get_subgroups()
             .with(predicate::eq(constants::DEFAULT_SOURCE_GROUP_ID))
             .returning(|_| {
-                Ok(vec![external::test::KeycloakGroupRepresentationBuilder::default()
-                    .id(constants::ANOTHER_SOURCE_GROUP_ID)
-                    .build_into()])
+                Ok(vec![
+                    external::test::KeycloakGroupRepresentationBuilder::default()
+                        .id(constants::ANOTHER_SOURCE_GROUP_ID)
+                        .build_into(),
+                ])
             });
         mock.expect_get_subgroups()
             .with(predicate::eq(constants::ANOTHER_SOURCE_GROUP_ID))

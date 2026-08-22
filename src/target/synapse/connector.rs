@@ -1333,10 +1333,12 @@ mod test {
                         entry.push(new_group_name.to_owned());
                     });
                     connector.synapse_api = SynapseApiMocker::new()
-                        .with_rooms(vec![MockSynapseRoomBuilder::default()
-                            .source_room_id(group_id.clone())
-                            .matrix_room_id(matrix_room_id.clone())
-                            .build()])
+                        .with_rooms(vec![
+                            MockSynapseRoomBuilder::default()
+                                .source_room_id(group_id.clone())
+                                .matrix_room_id(matrix_room_id.clone())
+                                .build(),
+                        ])
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         // We disallow room creation here, it must use the existing one instead.
@@ -1431,10 +1433,12 @@ mod test {
                     connector.get_group_id_mapping().await.unwrap().get(&group_id).unwrap()
                 };
                 connector.synapse_api = {
-                    let mut mock_api = SynapseApiMocker::new().with_rooms(vec![MockSynapseRoomBuilder::default()
-                        .source_room_id(group_id.clone())
-                        .matrix_room_id(matrix_room_id.clone())
-                        .build()]);
+                    let mut mock_api = SynapseApiMocker::new().with_rooms(vec![
+                        MockSynapseRoomBuilder::default()
+                            .source_room_id(group_id.clone())
+                            .matrix_room_id(matrix_room_id.clone())
+                            .build(),
+                    ]);
                     if matches!(deletion_strategy, RoomDeletionStrategy::KickAll | RoomDeletionStrategy::Evacuate) {
                         // Managing room members is necessary to kick users.
                         mock_api = mock_api.can_manage_room_members(
@@ -1497,10 +1501,12 @@ mod test {
                 }
                 .to_owned();
                 connector.synapse_api = {
-                    let mut mock_api = SynapseApiMocker::new().with_rooms(vec![MockSynapseRoomBuilder::default()
-                        .source_room_id(group_id.clone())
-                        .matrix_room_id(matrix_room_id.clone())
-                        .build()]);
+                    let mut mock_api = SynapseApiMocker::new().with_rooms(vec![
+                        MockSynapseRoomBuilder::default()
+                            .source_room_id(group_id.clone())
+                            .matrix_room_id(matrix_room_id.clone())
+                            .build(),
+                    ]);
                     // Managing room members is necessary to kick users.
                     // We disallow the syncer to leave the room as we will fail kicking all users.
                     // In that case, the syncer must not leave the room.

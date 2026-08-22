@@ -187,17 +187,13 @@ impl interface::Target for Connector {
 
         let mut team_aliases: &Vec<String> = &vec![];
         let mut list_aliases: &Vec<String> = &vec![];
-        if has_teams_in_source {
-            if let Some(aliases) = source_group.attributes().get(&self.config.source_james_team_attr) {
-                team_aliases = aliases
-            }
+        if has_teams_in_source && let Some(aliases) = source_group.attributes().get(&self.config.source_james_team_attr) {
+            team_aliases = aliases
         }
         self.update_alias(&team_uuid_email, team_aliases).await?;
 
-        if has_lists_in_source {
-            if let Some(aliases) = source_group.attributes().get(&self.config.source_james_list_attr) {
-                list_aliases = aliases
-            }
+        if has_lists_in_source && let Some(aliases) = source_group.attributes().get(&self.config.source_james_list_attr) {
+            list_aliases = aliases
         }
         self.update_alias(&list_uuid_email, list_aliases).await?;
 
@@ -231,10 +227,10 @@ impl interface::Target for Connector {
         if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
             desired_aliases = attributes.clone();
         }
-        if let Some(email) = source_user.email() {
-            if !desired_aliases.contains(&email.to_string()) {
-                desired_aliases.push(email.to_string());
-            }
+        if let Some(email) = source_user.email()
+            && !desired_aliases.contains(&email.to_string())
+        {
+            desired_aliases.push(email.to_string());
         }
         self.update_alias(&user_uuid_email, &desired_aliases).await?;
 
@@ -611,7 +607,7 @@ impl Connector {
                         "user_id = {}, group_id = {}, Could not remove member from team",
                         self.get_local_part_from(&uuid_user_email),
                         self.get_local_part_from(team_uuid_email)
-                    )))
+                    )));
                 }
             };
         }
@@ -645,7 +641,7 @@ impl Connector {
                         "user_id = {}, group_id = {}, Could not remove member from list",
                         self.get_local_part_from(&member),
                         self.get_local_part_from(list_uuid_email)
-                    )))
+                    )));
                 }
             };
         }

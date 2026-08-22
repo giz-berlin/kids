@@ -105,7 +105,7 @@ impl SynapseClient {
             authentication: Authentication {
                 access_token: None,
                 refresh_token: None,
-                expires_at: None
+                expires_at: None,
             },
             parsed_homeserver_url,
         };
@@ -145,7 +145,9 @@ impl SynapseClient {
     async fn refresh_access_token_if_necessary(&mut self) -> Result<(), error::KidsError> {
         // In order to avoid the access token expiring between this check and the actual request,
         // we also refresh tokens that are not yet expired but will be soon.
-        if let Some(expires_at) = self.authentication.expires_at && expires_at - chrono::Duration::seconds(5) < chrono::Utc::now() {
+        if let Some(expires_at) = self.authentication.expires_at
+            && expires_at - chrono::Duration::seconds(5) < chrono::Utc::now()
+        {
             tracing::debug!("Refreshing access token");
             if self.authentication.refresh_token.is_none() {
                 return self.login().await;
@@ -173,11 +175,11 @@ impl SynapseClient {
                     } else {
                         self.authentication.expires_at = None
                     }
-                },
+                }
                 Err(error) => {
                     tracing::warn!(error=%error, "Unable to refresh access token by refresh token, trying again with re-login");
                     self.login().await?;
-                },
+                }
             }
         }
 
