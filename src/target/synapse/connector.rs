@@ -319,21 +319,21 @@ impl Connector {
         // clone the mapping to prevent lifetime issues, this is not the most efficient, but most readable solution
         let desired_user_rooms_group_id_mappings = self.get_group_id_mapping().await?.clone();
 
-        let mut desired_user_rooms: Vec<String> = desired_user_groups
-            .iter()
-            .filter_map(|group| {
-                // We only want to add the user to groups that have a corresponding matrix room.
-                // Note: Since rooms are being created before users, all valid rooms must be contained
-                // in the mapping at this point.
-                desired_user_rooms_group_id_mappings.get(group.id()).cloned()
-            })
-            .collect();
-
-        if !source_user.enabled() {
+        let desired_user_rooms: Vec<String> = if !self.get_user(source_user.id()).await?.locked {
+            desired_user_groups
+                .iter()
+                .filter_map(|group| {
+                    // We only want to add the user to groups that have a corresponding matrix room.
+                    // Note: Since rooms are being created before users, all valid rooms must be contained
+                    // in the mapping at this point.
+                    desired_user_rooms_group_id_mappings.get(group.id()).cloned()
+                })
+                .collect()
+        } else {
             // If user is not enabled, we want to remove it from all rooms it is in.
             // Simply clearing the desired rooms will have this effect using the logic below.
-            desired_user_rooms = vec![];
-        }
+            vec![]
+        };
 
         // Add user to all desired groups that they are not already joined to.
         for matrix_room_id in &desired_user_rooms {
