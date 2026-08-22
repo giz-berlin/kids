@@ -76,7 +76,7 @@ pub struct SynapseClient {
 struct Authentication {
     access_token: Option<String>,
     refresh_token: Option<String>,
-    expires_at: chrono::DateTime<chrono::Utc>,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Page size requested when loading users.
@@ -105,7 +105,7 @@ impl SynapseClient {
             authentication: Authentication {
                 access_token: None,
                 refresh_token: None,
-                expires_at: chrono::Utc::now(),
+                expires_at: None
             },
             parsed_homeserver_url,
         };
@@ -132,9 +132,12 @@ impl SynapseClient {
             )
             .await?;
         self.authentication.access_token = Some(token_response.access_token);
-        self.authentication.refresh_token = Some(token_response.refresh_token);
-        self.authentication.expires_at = chrono::Utc::now() + chrono::Duration::milliseconds(token_response.expires_in_ms);
-
+        self.authentication.refresh_token = token_response.refresh_token;
+        if let Some(expires_in_ms) = token_response.expires_in_ms {
+            self.authentication.expires_at = Some(chrono::Utc::now() + chrono::Duration::milliseconds(expires_in_ms));
+        } else {
+            self.authentication.expires_at = None
+        }
         tracing::info!(homeserver_url=%self.parsed_homeserver_url, "Logged in to homeserver");
         Ok(())
     }
@@ -142,12 +145,12 @@ impl SynapseClient {
     async fn refresh_access_token_if_necessary(&mut self) -> Result<(), error::KidsError> {
         // In order to avoid the access token expiring between this check and the actual request,
         // we also refresh tokens that are not yet expired but will be soon.
-        if self.authentication.expires_at - chrono::Duration::seconds(5) < chrono::Utc::now() {
+        if let Some(expires_at) = self.authentication.expires_at && expires_at - chrono::Duration::seconds(5) < chrono::Utc::now() {
             tracing::debug!("Refreshing access token");
             if self.authentication.refresh_token.is_none() {
-                panic!("Did not find a refresh token for synapse homeserver in a place where we should have one by invariant!")
+                return self.login().await;
             }
-            let token_response: dto::MatrixAuthentication = self
+            let token_response_res: Result<dto::MatrixAuthentication, error::KidsError> = self
                 .send_client_api_request_unauthenticated(
                     http::Method::POST,
                     "refresh".to_string(),
@@ -155,10 +158,27 @@ impl SynapseClient {
                         "refresh_token": self.authentication.refresh_token,
                     })),
                 )
-                .await?;
-            self.authentication.access_token = Some(token_response.access_token);
-            self.authentication.refresh_token = Some(token_response.refresh_token);
-            self.authentication.expires_at = chrono::Utc::now() + chrono::Duration::milliseconds(token_response.expires_in_ms);
+                .await;
+
+            // Refresh tokens might expire (although they are by default valid for infinite lifetime:
+            // https://element-hq.github.io/synapse/v1.159/usage/configuration/user_authentication/refresh_tokens.html)
+            match token_response_res {
+                Ok(token_response) => {
+                    self.authentication.access_token = Some(token_response.access_token);
+                    if let Some(refresh_token) = token_response.refresh_token {
+                        self.authentication.refresh_token = Some(refresh_token);
+                    }
+                    if let Some(expires_in_ms) = token_response.expires_in_ms {
+                        self.authentication.expires_at = Some(chrono::Utc::now() + chrono::Duration::milliseconds(expires_in_ms));
+                    } else {
+                        self.authentication.expires_at = None
+                    }
+                },
+                Err(error) => {
+                    tracing::warn!(error=%error, "Unable to refresh access token by refresh token, trying again with re-login");
+                    self.login().await?;
+                },
+            }
         }
 
         Ok(())
