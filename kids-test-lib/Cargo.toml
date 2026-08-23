@@ -1,0 +1,8 @@
+[package]
+name = "kids-test-lib"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rand = "0.9.0"
