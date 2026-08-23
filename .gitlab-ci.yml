@@ -3,7 +3,7 @@ image: dr.rechenknecht.net/bauhelfer/container/main/rust:ubuntu-jammy
 stages:
   - build
   - test
-  - build-container
+  - pack
   - test-e2e
 
 variables:
@@ -18,35 +18,36 @@ cache:
     - target
     - ${CI_PROJECT_DIR}/.cargo
 
+.binaries: &binaries
+  - keycloak-memory
+  - keycloak-synapse
+  - keycloak-james
+  - webhook-cli
+
+.build_matrix: &build_matrix
+  parallel:
+    matrix:
+      - BINARY: *binaries
+
 ############
 # Building
 ############
 
-build-release:
+build:
   stage: build
+  <<: *build_matrix
   script:
-    - cargo build --release --verbose
+    - cargo build --release --bin $BINARY
+    # We store the version number here as the binary does not run with other Linux variants
+    # (like this is built with GNU libc and the container with musl libc)
+    - target/release/$BINARY -V > target/release/${BINARY}-version
   artifacts:
     paths:
-      - target/release/keycloak-memory
-      - target/release/keycloak-synapse
-      - target/release/keycloak-james
-      - target/release/webhook-cli
+      - target/release/$BINARY
+      - target/release/${BINARY}-version
     expire_in: 1 week
     when: always
-
-build-debug:
-  stage: build
-  script:
-    - cargo build --verbose
-  artifacts:
-    paths:
-      - target/debug/keycloak-memory
-      - target/debug/keycloak-synapse
-      - target/debug/keycloak-james
-      - target/debug/webhook-cli
-    expire_in: 2 days
-    when: always
+  needs: []
 
 ############
 # Testing
@@ -57,16 +58,12 @@ lint:
   script:
     - rustup component add clippy
     - cargo clippy --all-targets -- -Dwarnings
-  needs:
-    - build-debug
 
 fmt-check:
   stage: test
   script:
     - rustup component add rustfmt
     - cargo fmt --all -- --check
-  needs:
-    - build-debug
 
 test-debug:
   stage: test
@@ -82,43 +79,49 @@ test-debug:
       coverage_report:
         coverage_format: cobertura
         path: target/llvm-cov/cobertura.xml
-  needs:
-    - build-debug
 
 ############
 # Build Container
 ############
 
-.docker-image-build: &docker-image-build
-  stage: build-container
+docker-image:
+  stage: pack
+  <<: *build_matrix
+  needs:
+    - job: build
+      artifacts: true
+      parallel:
+        matrix:
+          - BINARY: $BINARY
   image: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/library/docker:latest
   needs:
-    - job: build-release
+    - job: build
       artifacts: true
   tags:
-    # Use a privileged runner for building Docker containers.
+    # Use a privileged runner for building Docker container
     - privileged
   services:
     - name: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/library/docker:dind
       alias: docker
   variables:
-    IMAGE_NAME: $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG/$TARGET_BINARY
     # This will instruct Docker not to start over TLS.
     DOCKER_TLS_CERTDIR: ""
   script:
-    - export COMMIT_COUNT=`git rev-list --count HEAD`
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build --build-arg "BINARY=${TARGET_BINARY}" -t "${IMAGE_NAME}:latest" -t "${IMAGE_NAME}:${COMMIT_COUNT}-${CI_PIPELINE_IID}" --push .
-
-kids-james-container:
-  extends: .docker-image-build
-  variables:
-    TARGET_BINARY: keycloak-james
-
-kids-synapse-container:
-  extends: .docker-image-build
-  variables:
-    TARGET_BINARY: keycloak-synapse
+    - export IMAGE_NAME=$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG/$BINARY
+    - export BINARY_VERSION=`cat target/release/${BINARY}-version | cut -d ' ' -f2`
+    - export BINARY_VERSION_MAJOR=`echo $BINARY_VERSION | cut -d '.' -f1`
+    - export BINARY_VERSION_MINOR=`echo $BINARY_VERSION | cut -d '.' -f2`
+    - export BINARY_VERSION_PATCH=`echo $BINARY_VERSION | cut -d '.' -f3`
+    - docker build
+        --build-arg "BINARY=$BINARY"
+        -t "$IMAGE_NAME:latest"
+        -t "$IMAGE_NAME:pipeline-$CI_PIPELINE_IID"
+        -t "$IMAGE_NAME:v-$BINARY_VERSION_MAJOR"
+        -t "$IMAGE_NAME:v-$BINARY_VERSION_MAJOR.$BINARY_VERSION_MINOR"
+        -t "$IMAGE_NAME:v-$BINARY_VERSION_MAJOR.$BINARY_VERSION_MINOR.$BINARY_VERSION_PATCH"
+        --push
+        .
 
 ############
 # E2E Testing
@@ -128,7 +131,11 @@ test-synapse-e2e:
   stage: test-e2e
   image: quay.io/podman/stable:latest
   needs:
-    - job: kids-synapse-container
+    - job: docker-image
+      artifacts: true
+      parallel:
+        matrix:
+          - BINARY: keycloak-synapse
   tags:
     # Use a privileged runner for running (Docker) containers.
     - privileged
