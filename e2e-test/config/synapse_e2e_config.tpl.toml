@@ -3,7 +3,7 @@
 
 [controller.api]
 mode = "enabled"
-bind_addr = "0.0.0.0:3000"
+bind_addr = "0.0.0.0:4165"
 
 [controller.api.tls]
 mode = "insecure_disabled"
