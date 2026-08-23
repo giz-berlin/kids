@@ -57,6 +57,9 @@ pub struct Connector {
     synapse_api: Box<dyn external::SynapseApi + Send + Sync>,
     group_id_mapping: Option<collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>>,
     user_id_mapping: Option<collections::HashMap<kids_lib::types::SharedResourceIdentifier, dto::User>>,
+    /// The source id of the syncer user, if present.
+    /// This user will be ignored.
+    syncer_source_user_id: Option<String>,
 }
 
 impl Connector {
@@ -123,10 +126,20 @@ impl Connector {
 
         let mut new_user_id_mapping: collections::HashMap<String, dto::User> = collections::HashMap::new();
         for user in matrix_users.users {
-            let source_user_id = match self.synapse_api.get_source_user_id_for_matrix_user_id(&user.name).await {
-                Ok(source_user_id) => source_user_id,
-                Err(error) => {
+            let source_user_id = self.synapse_api.get_source_user_id_for_matrix_user_id(&user.name).await;
+            let is_syncer_user = user.name == self.config.synapse_api.matrix_syncer_user_id;
+            let source_user_id = match (source_user_id, is_syncer_user) {
+                (Ok(source_user_id), false) => source_user_id,
+                (Ok(source_user_id), true) => {
+                    self.syncer_source_user_id = Some(source_user_id);
+                    continue;
+                }
+                (Err(error), false) => {
                     tracing::warn!(%error, matrix_user_id=user.name, "Could not obtain source user ID for matrix user");
+                    continue;
+                }
+                (Err(error), true) => {
+                    tracing::trace!(%error, matrix_user_id=user.name, "Could not obtain source user ID for syncer user");
                     continue;
                 }
             };
@@ -149,10 +162,16 @@ impl Connector {
         Ok(())
     }
 
-    async fn get_group_id_mapping(&mut self) -> Result<&mut collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>, KidsError> {
-        if self.group_id_mapping.is_none() {
+    /// Ensure that both ID mappings are populated.
+    async fn ensure_id_mappings(&mut self) -> Result<(), KidsError> {
+        if self.group_id_mapping.is_none() || self.user_id_mapping.is_none() {
             self.generate_id_mappings().await?;
         }
+        Ok(())
+    }
+
+    async fn get_group_id_mapping(&mut self) -> Result<&mut collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>, KidsError> {
+        self.ensure_id_mappings().await?;
 
         Ok(self
             .group_id_mapping
@@ -161,9 +180,7 @@ impl Connector {
     }
 
     async fn get_user_id_mapping(&mut self) -> Result<&mut collections::HashMap<kids_lib::types::SharedResourceIdentifier, dto::User>, KidsError> {
-        if self.user_id_mapping.is_none() {
-            self.generate_id_mappings().await?;
-        }
+        self.ensure_id_mappings().await?;
 
         Ok(self
             .user_id_mapping
@@ -378,6 +395,7 @@ impl kids_lib::interface::target::Target for Connector {
             synapse_api,
             group_id_mapping: None,
             user_id_mapping: None,
+            syncer_source_user_id: None,
         })
     }
 
@@ -391,6 +409,7 @@ impl kids_lib::interface::target::Target for Connector {
         );
         self.group_id_mapping = None;
         self.user_id_mapping = None;
+        self.syncer_source_user_id = None;
 
         Ok(())
     }
@@ -430,6 +449,16 @@ impl kids_lib::interface::target::Target for Connector {
     }
 
     async fn delete_user(&mut self, user_id: &kids_lib::types::SharedResourceIdentifier) -> Result<(), KidsError> {
+        // Populate mapping before checking if it is syncer user.
+        // Otherwise, it might be `None` only because `full_sync_incoming` was called.
+        self.ensure_id_mappings().await?;
+        if let Some(syncer_source_user_id) = self.syncer_source_user_id.as_ref()
+            && syncer_source_user_id == user_id
+        {
+            tracing::trace!(source_user_id = user_id, "Ignoring Syncer user.");
+            return Ok(());
+        }
+
         // Synapse does not support deleting users.
         // Instead, we can only deactivate them, which will revoke all user sessions and prevent
         // the user from logging in again.
@@ -520,11 +549,21 @@ impl kids_lib::interface::target::Target for Connector {
     }
 
     async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>) -> Result<(), KidsError> {
+        // Populate mapping before checking if it is syncer user.
+        // Otherwise, it might be `None` only because `full_sync_incoming` was called.
+        self.ensure_id_mappings().await?;
+        if let Some(syncer_source_user_id) = self.syncer_source_user_id.as_ref()
+            && syncer_source_user_id == source_user.id()
+        {
+            tracing::trace!(source_user_id = source_user.id(), "Ignoring Syncer user.");
+            return Ok(());
+        }
+
         let matrix_user_known = self.has_user(source_user.id()).await?;
         let source_user_has_required_role = self.source_user_has_required_role(source_user.as_ref()).await?;
         if !matrix_user_known && !source_user_has_required_role {
             // Exit early and do not create the user as the user is missing the required role.
-            // If user already exists, it will be deactivated later
+            // If user already exists, it will be locked later
             tracing::trace!(source_user_id = source_user.id(), "Ignoring user that has no access to Matrix");
             return Ok(());
         }
@@ -803,6 +842,7 @@ mod test {
             synapse_api: Box::new(MockSynapseApi::default()),
             group_id_mapping: None,
             user_id_mapping: None,
+            syncer_source_user_id: None,
         }
     }
 
