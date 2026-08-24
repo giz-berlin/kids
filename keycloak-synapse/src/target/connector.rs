@@ -15,28 +15,10 @@ pub struct SynapseConfig {
     /// Note that this not only happens when the corresponding group is deleted in the source,
     /// but also when a group no longer has an attribute named like the value of
     /// `source_room_name_attr` (see above).
-    pub room_deletion_strategy: RoomDeletionStrategy,
+    pub room_deletion_strategy: crate::target::RoomDeletionStrategy,
     /// Only users who have set this role will be handled by the syncer.
     /// When this is not present, all users will be added to Matrix.
     pub required_role_name: Option<String>,
-}
-
-#[derive(serde::Deserialize, Debug, Clone, Copy)]
-pub enum RoomDeletionStrategy {
-    /// Do not modify the Matrix room. No users will be removed from it
-    /// and no attributes (name, alias, power levels) will be updated.
-    Ignore,
-    /// Kick all users except the sync user from the room. The room will continue to exist and
-    /// users may be added again later. Depending on the Matrix homeserver configuration, users
-    /// might access messages again if they could read/decrypt them before they were kicked.
-    KickAll,
-    /// Like [KickAll](RoomDeletionStrategy::KickAll), but the sync user also leaves the room.
-    /// With no members left, it is **impossible to re-add members**, the room is "bricked".
-    /// Synapse will shut down the room after some time and might delete messages from the database.
-    Evacuate,
-    /// The most effective and dangerous option. The room is completely deleted and all traces of
-    /// it are removed from the database immediately.
-    Delete,
 }
 
 // If the source_room_name_attr matches this value, instead of using its content as the
@@ -54,205 +36,30 @@ const DERIVE_DISPLAY_NAME_FROM_GROUP_NAME: &str = "_name_titlecase";
 /// edge cases is out of the scope of this implementation.
 pub struct Connector {
     config: SynapseConfig,
-    synapse_api: Box<dyn external::SynapseApi + Send + Sync>,
-    group_id_mapping: Option<collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>>,
-    user_id_mapping: Option<collections::HashMap<kids_lib::types::SharedResourceIdentifier, dto::User>>,
-    /// The source id of the syncer user, if present.
-    /// This user will be ignored.
-    syncer_source_user_id: Option<String>,
+    synapse_interactor: crate::target::SynapseInteractor,
+    mappings: crate::target::IdMapping,
 }
 
 impl Connector {
-    /// This function generates different id mappings required as user and group ids in
-    /// Keycloak are different than in Synapse.
-    ///
-    /// Therefore, we need a mapping between both, which is built in this function.
-    async fn generate_id_mappings(&mut self) -> Result<(), KidsError> {
-        let matrix_rooms = self
-            .synapse_api
-            .get_joined_rooms_of_syncer()
-            .await
-            .map_err(|e| e.with_context("Failed getting rooms syncer has joined"))?;
-
-        self.migrate(&matrix_rooms.joined_rooms).await;
-
-        let mut new_group_id_mapping = collections::HashMap::new();
-
-        for matrix_room_id in matrix_rooms.joined_rooms {
-            // If this request fails, we don't want to abort the whole method as it only affects a single room.
-            // Note that in this case, we might actually create a second room for the same group (if there exists a room mapped to the group
-            // in Synapse already, but we failed to obtain that mapping).
-            let source_group_id = match self.synapse_api.get_room_associated_source_group_id(&matrix_room_id).await {
-                Ok(source_group_id) => source_group_id,
-                Err(error) => {
-                    // To reach eventual consistency, we need to delete all rooms the syncer is in
-                    // that have no source groups associated to them.
-                    // This is because such a situation might happen when creation of a room succeeds, but
-                    // the subsequent request to associate the source ID fails. In that case, the syncer would retry
-                    // creating a room for the associated group, but that would fail because the desired alias
-                    // of that room would clash with the one previously created.
-                    if let KidsError::ApiOperationFailed(_, 404, ..) = error {
-                        tracing::error!(
-                            matrix_room_id,
-                            "Encountered a room the syncer has joined that has no source group associated to it. Deleting that room"
-                        );
-                        if let Err(e) = self.delete_room(&matrix_room_id, RoomDeletionStrategy::Delete).await {
-                            tracing::warn!(matrix_room_id, error=%e, "Could not delete room with no associated source group id");
-                        }
-                    } else {
-                        tracing::error!(?error, matrix_room_id, "Could not determine source group for room");
-                    }
-
-                    continue;
-                }
-            };
-            if new_group_id_mapping.contains_key(&source_group_id) {
-                tracing::warn!(
-                    source_group_id,
-                    first_room_id = matrix_room_id,
-                    second_room_id = new_group_id_mapping[&source_group_id],
-                    "Found duplicate mapping for source group"
-                );
-                // We don't really know which room really is the better one to use in case of duplicate mapping,
-                // so might as well go with the first one we already encountered earlier.
-                continue;
-            }
-
-            new_group_id_mapping.insert(source_group_id, matrix_room_id);
-        }
-        self.group_id_mapping = Some(new_group_id_mapping);
-
-        let matrix_users = self.synapse_api.get_users().await.map_err(|e| e.with_context("Failed getting matrix users"))?;
-
-        let mut new_user_id_mapping: collections::HashMap<String, dto::User> = collections::HashMap::new();
-        for user in matrix_users.users {
-            let source_user_id = self.synapse_api.get_source_user_id_for_matrix_user_id(&user.name).await;
-            let is_syncer_user = user.name == self.config.synapse_api.matrix_syncer_user_id;
-            let source_user_id = match (source_user_id, is_syncer_user) {
-                (Ok(source_user_id), false) => source_user_id,
-                (Ok(source_user_id), true) => {
-                    self.syncer_source_user_id = Some(source_user_id);
-                    continue;
-                }
-                (Err(error), false) => {
-                    tracing::warn!(%error, matrix_user_id=user.name, "Could not obtain source user ID for matrix user");
-                    continue;
-                }
-                (Err(error), true) => {
-                    tracing::trace!(%error, matrix_user_id=user.name, "Could not obtain source user ID for syncer user");
-                    continue;
-                }
-            };
-            if new_user_id_mapping.contains_key(&source_user_id) {
-                // This should not happen because matrix does not allow creating two users with equal source ids
-                // (otherwise, when logging in via SSO, matrix would not know which user to login).
-                tracing::error!(
-                    source_user_id,
-                    first_matrix_user_id = user.name,
-                    second_matrix_user_id = new_user_id_mapping[&source_user_id].name,
-                    "Found duplicate mapping for source user"
-                );
-                continue;
-            }
-
-            new_user_id_mapping.insert(source_user_id, user);
-        }
-        self.user_id_mapping = Some(new_user_id_mapping);
-
-        Ok(())
-    }
-
-    /// Ensure that both ID mappings are populated.
-    async fn ensure_id_mappings(&mut self) -> Result<(), KidsError> {
-        if self.group_id_mapping.is_none() || self.user_id_mapping.is_none() {
-            self.generate_id_mappings().await?;
-        }
-        Ok(())
-    }
-
-    async fn get_group_id_mapping(&mut self) -> Result<&mut collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>, KidsError> {
-        self.ensure_id_mappings().await?;
-
-        Ok(self
-            .group_id_mapping
-            .as_mut()
-            .expect("`generate_id_mappings` should have filled in `group_id_mapping`"))
-    }
-
-    async fn get_user_id_mapping(&mut self) -> Result<&mut collections::HashMap<kids_lib::types::SharedResourceIdentifier, dto::User>, KidsError> {
-        self.ensure_id_mappings().await?;
-
-        Ok(self
-            .user_id_mapping
-            .as_mut()
-            .expect("`generate_id_mappings` should have filled in `user_id_mapping`"))
-    }
-
-    fn generate_matrix_user_id(&self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<String, KidsError> {
-        let desired_username_part = match source_user.username() {
-            Some(username) => username,
-            None => {
-                const ERROR_CONTEXT: &str = "Generating matrix user id";
-                const ERROR_MSG: &str = "The matrix user id depends on the source username to be set but it was not.";
-                tracing::error!(user_id = source_user.id(), "{ERROR_CONTEXT}: {ERROR_MSG}");
-                return Err(KidsError::RequestFailed(ERROR_CONTEXT.to_owned(), anyhow::anyhow!("{ERROR_MSG}")));
-            }
-        };
-        Ok(format!("@{}:{}", desired_username_part, self.synapse_api.homeserver_domain()))
-    }
-
     async fn ensure_user_display_name(
         &mut self,
         matrix_user_id: &str,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<(), KidsError> {
-        let matrix_display_name = self.synapse_api.get_user_display_name(matrix_user_id).await?;
-        if matrix_display_name != source_user.display_name() {
-            tracing::debug!(
-                matrix_user_id = matrix_user_id,
-                user_id = source_user.id(),
-                old_display_name = matrix_display_name,
-                new_display_name = source_user.display_name(),
-                "Updating user's display name."
-            );
-            if let Some(username) = source_user.display_name() {
-                self.synapse_api.set_user_display_name(matrix_user_id, username.as_str()).await?;
-            } else {
-                const ERROR_CONTEXT: &str = "Creating or updating user";
-                const ERROR_MSG: &str = "Requested to unset the display name of a user (the username is unset). This is impossible in Matrix.";
-                tracing::error!(user_id = source_user.id(), "{ERROR_CONTEXT}: {ERROR_MSG}");
-                return Err(KidsError::RequestFailed(ERROR_CONTEXT.to_owned(), anyhow::anyhow!("{ERROR_MSG}")));
-            }
-        }
-        Ok(())
+        let desired_display_name = source_user.display_name();
+        self.synapse_interactor
+            .ensure_user_display_name(matrix_user_id, desired_display_name.as_deref(), source_user.id())
+            .await
     }
 
     async fn ensure_user_email(&mut self, matrix_user_id: &str, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<(), KidsError> {
-        let matrix_three_pids = self.synapse_api.get_user_three_pids(matrix_user_id).await?;
-        let desired_three_pids: &[dto::ThreePID] = if let Some(email) = source_user.email() {
-            &[dto::ThreePID {
-                medium: dto::ThreePIDMedium::Email,
-                address: email.to_owned(),
-            }]
-        } else {
-            &[]
-        };
-        if matrix_three_pids != desired_three_pids {
-            tracing::debug!(
-                matrix_user_id = matrix_user_id,
-                user_id = source_user.id(),
-                old_three_pids = ?matrix_three_pids,
-                new_three_pids = ?desired_three_pids,
-                "Updating user's 3PIDs."
-            );
-            self.synapse_api.set_user_three_pids(matrix_user_id, desired_three_pids).await?;
-        }
-        Ok(())
+        let desired_email = source_user.email();
+        self.synapse_interactor.ensure_user_email(matrix_user_id, desired_email, source_user.id()).await
     }
 
-    /// Returns `true` when the user has the required role in Source.
-    ///
-    async fn source_user_has_required_role(&mut self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<bool, KidsError> {
+    /// Returns `true` when the user has the required role in Source
+    /// or when the the config option `required_role_name` is unset.
+    async fn source_user_has_required_role(&self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<bool, KidsError> {
         if let Some(required_role_name) = &self.config.required_role_name {
             let roles = source_user.roles().await?;
             let required_role_present = roles.contains(required_role_name);
@@ -280,8 +87,8 @@ impl Connector {
     }
 
     async fn ensure_user_locked(&mut self, source_user_id: &str) -> Result<(), KidsError> {
-        let matrix_user = self.get_user(source_user_id).await?;
-        let matrix_user_id = &matrix_user.name.clone();
+        let matrix_user = self.mappings.get_user(source_user_id);
+        let matrix_user_id = matrix_user.name.as_str();
         if !matrix_user.locked {
             // Note that we explicitly want to lock users here, NOT deactivate them.
             // Deactivating users appears to delete all keys of that user, so even when a
@@ -289,13 +96,13 @@ impl Connector {
             // all of their direct message rooms.
             // With locking, this works properly and unlocked users will encounter the same
             // state they left off with before being locked.
-            match self.synapse_api.lock_user(matrix_user_id).await {
+            match self.synapse_interactor.synapse_api().lock_user(matrix_user_id).await {
                 Ok(()) => {
                     // Write lock state to user object.
                     // Note: `user` and `matrix_user` represent the exact same entity.
-                    let user = self.get_user(source_user_id).await?;
+                    let user = self.mappings.get_user_mut(source_user_id);
                     user.locked = true;
-                    tracing::info!(matrix_user_id, "Locked user");
+                    tracing::info!(matrix_user_id = user.name, "Locked user");
                 }
                 Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user"),
             };
@@ -304,16 +111,16 @@ impl Connector {
     }
 
     async fn ensure_user_unlocked(&mut self, source_user_id: &str) -> Result<(), KidsError> {
-        let matrix_user = self.get_user(source_user_id).await?;
-        let matrix_user_id = &matrix_user.name.clone();
+        let matrix_user = self.mappings.get_user(source_user_id);
+        let matrix_user_id = matrix_user.name.as_str();
         if matrix_user.locked {
-            match self.synapse_api.unlock_user(matrix_user_id).await {
+            match self.synapse_interactor.synapse_api().unlock_user(matrix_user_id).await {
                 Ok(()) => {
                     // Write lock state to user object.
                     // Note: `user` and `matrix_user` represent the exact same entity.
-                    let user = self.get_user(source_user_id).await?;
+                    let user = self.mappings.get_user_mut(source_user_id);
                     user.locked = false;
-                    tracing::info!(matrix_user_id, "Unlocked user");
+                    tracing::info!(matrix_user_id = user.name, "Unlocked user");
                 }
                 Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user"),
             };
@@ -322,29 +129,27 @@ impl Connector {
     }
 
     async fn ensure_user_rooms(&mut self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<(), KidsError> {
-        let matrix_user_id = &self.get_user(source_user.id()).await?.name.clone();
+        let matrix_user_id = self.mappings.get_user(source_user.id()).name.as_str();
 
         let desired_user_groups = source_user
             .groups(true)
             .await
             .map_err(|e| e.with_context(&format!("Could not get source groups associated with source user {}", source_user.id())))?;
         let current_user_rooms = self
-            .synapse_api
+            .synapse_interactor
+            .synapse_api()
             .get_user_joined_rooms(matrix_user_id)
             .await
             .map_err(|e| e.with_context(&format!("Could not get matrix rooms user {matrix_user_id} has currently joined")))?;
 
-        // clone the mapping to prevent lifetime issues, this is not the most efficient, but most readable solution
-        let desired_user_rooms_group_id_mappings = self.get_group_id_mapping().await?.clone();
-
-        let desired_user_rooms: Vec<String> = if !self.get_user(source_user.id()).await?.locked {
+        let desired_user_rooms: Vec<&String> = if !self.mappings.get_user(source_user.id()).locked {
             desired_user_groups
                 .iter()
                 .filter_map(|group| {
                     // We only want to add the user to groups that have a corresponding matrix room.
                     // Note: Since rooms are being created before users, all valid rooms must be contained
                     // in the mapping at this point.
-                    desired_user_rooms_group_id_mappings.get(group.id()).cloned()
+                    self.mappings.get_group_opt(group.id())
                 })
                 .collect()
         } else {
@@ -356,7 +161,7 @@ impl Connector {
         // Add user to all desired groups that they are not already joined to.
         for matrix_room_id in &desired_user_rooms {
             if !current_user_rooms.joined_rooms.contains(matrix_room_id) {
-                match self.synapse_api.join_user_to_room(matrix_room_id, matrix_user_id).await {
+                match self.synapse_interactor.synapse_api().join_user_to_room(matrix_room_id, matrix_user_id).await {
                     Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User joined matrix room"),
                     Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not join user to matrix room"),
                 }
@@ -367,8 +172,8 @@ impl Connector {
 
         // Remove user from all joined groups that are no longer desired.
         for matrix_room_id in &current_user_rooms.joined_rooms {
-            if !desired_user_rooms.contains(matrix_room_id) {
-                match self.synapse_api.kick_user_from_room(matrix_room_id, matrix_user_id).await {
+            if !desired_user_rooms.contains(&matrix_room_id) {
+                match self.synapse_interactor.synapse_api().kick_user_from_room(matrix_room_id, matrix_user_id).await {
                     Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User kicked from matrix room"),
                     Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not kick user from matrix room"),
                 };
@@ -385,17 +190,15 @@ impl kids_lib::interface::target::Target for Connector {
     type Config = SynapseConfig;
 
     async fn new(config: Self::Config) -> Result<Self, KidsError> {
-        let synapse_api = Box::new(
-            external::SynapseClient::new(config.synapse_api.clone())
-                .await
-                .map_err(|e| e.with_context("Failed to create Synapse API client"))?,
-        );
+        let synapse_api = external::SynapseClient::new(config.synapse_api.clone())
+            .await
+            .map_err(|e| e.with_context("Failed to create Synapse API client"))?;
+        let mut synapse_interactor = crate::target::SynapseInteractor::new(synapse_api);
+        let mappings = crate::target::IdMapping::generate(&mut synapse_interactor, &config.synapse_api.matrix_syncer_user_id).await?;
         Ok(Connector {
             config,
-            synapse_api,
-            group_id_mapping: None,
-            user_id_mapping: None,
-            syncer_source_user_id: None,
+            synapse_interactor,
+            mappings,
         })
     }
 
@@ -405,11 +208,9 @@ impl kids_lib::interface::target::Target for Connector {
 
     async fn full_sync_incoming(&mut self) -> Result<(), KidsError> {
         tracing::info!(
-            "To prepare for full sync, cleaning mapping between source group IDs and matrix room IDs, as well as source user IDs and matrix user IDs"
+            "To prepare for full sync, re-building mapping between source group IDs and matrix room IDs, as well as source user IDs and matrix user IDs"
         );
-        self.group_id_mapping = None;
-        self.user_id_mapping = None;
-        self.syncer_source_user_id = None;
+        self.mappings = crate::target::IdMapping::generate(&mut self.synapse_interactor, &self.config.synapse_api.matrix_syncer_user_id).await?;
 
         Ok(())
     }
@@ -418,16 +219,16 @@ impl kids_lib::interface::target::Target for Connector {
     /// These are exactly the ones we managed to obtain a mapping to a Matrix room for earlier.
     /// There might be additional rooms in Synapse not mapped to a Source group, which will not be considered in the result of this method.
     async fn all_groups(&mut self) -> Result<collections::HashSet<kids_lib::types::SharedResourceIdentifier>, KidsError> {
-        Ok(self.get_group_id_mapping().await?.keys().cloned().collect())
+        Ok(self.mappings.get_group_id_mapping().keys().cloned().collect())
     }
 
     async fn all_users(&mut self) -> Result<collections::HashSet<kids_lib::types::SharedResourceIdentifier>, KidsError> {
-        Ok(self.get_user_id_mapping().await?.keys().cloned().collect())
+        Ok(self.mappings.get_user_id_mapping().keys().cloned().collect())
     }
 
     async fn delete_group(&mut self, source_group_id: &kids_lib::types::SharedResourceIdentifier) -> Result<(), KidsError> {
-        let matrix_room_id = match self.get_group_id_mapping().await?.get(source_group_id) {
-            Some(matrix_room) => matrix_room.clone(),
+        let matrix_room_id = match self.mappings.get_group_opt(source_group_id) {
+            Some(matrix_room) => matrix_room,
             None => {
                 // Note: Since rooms are being created before users, all valid rooms must be contained
                 // in the mapping at this point.
@@ -441,18 +242,15 @@ impl kids_lib::interface::target::Target for Connector {
 
         tracing::info!(matrix_room_id, "Deleting room with strategy {:?}", self.config.room_deletion_strategy);
 
-        self.delete_room(&matrix_room_id.clone(), self.config.room_deletion_strategy).await?;
+        self.synapse_interactor.delete_room(matrix_room_id, self.config.room_deletion_strategy).await?;
 
-        self.get_group_id_mapping().await?.remove(source_group_id);
+        self.mappings.get_group_id_mapping_mut().remove(source_group_id);
 
         Ok(())
     }
 
     async fn delete_user(&mut self, user_id: &kids_lib::types::SharedResourceIdentifier) -> Result<(), KidsError> {
-        // Populate mapping before checking if it is syncer user.
-        // Otherwise, it might be `None` only because `full_sync_incoming` was called.
-        self.ensure_id_mappings().await?;
-        if let Some(syncer_source_user_id) = self.syncer_source_user_id.as_ref()
+        if let Some(syncer_source_user_id) = self.mappings.get_syncer_source_user_id()
             && syncer_source_user_id == user_id
         {
             tracing::trace!(source_user_id = user_id, "Ignoring Syncer user.");
@@ -472,7 +270,7 @@ impl kids_lib::interface::target::Target for Connector {
         // so recreating it will actually create a new user in the source, and the user will then
         // also register as a new user in the Synapse.
 
-        let matrix_user = match self.get_user_id_mapping().await?.get(user_id) {
+        let matrix_user = match self.mappings.get_user_opt(user_id) {
             Some(matrix_user) => matrix_user,
             None => {
                 // This should not happen, as the controller should only attempt to delete users that
@@ -482,13 +280,14 @@ impl kids_lib::interface::target::Target for Connector {
             }
         };
 
-        let matrix_user_id = matrix_user.name.clone();
+        let matrix_user_id = matrix_user.name.as_str();
         tracing::info!(matrix_user_id, "Deactivating matrix user");
-        self.synapse_api
-            .deactivate_user(&matrix_user_id)
+        self.synapse_interactor
+            .synapse_api()
+            .deactivate_user(matrix_user_id)
             .await
             .map_err(|e| e.with_context(&format!("Could not deactivate matrix user {matrix_user_id}")))?;
-        self.get_user_id_mapping().await?.remove(user_id);
+        self.mappings.get_user_id_mapping_mut().remove(user_id);
         Ok(())
     }
 
@@ -505,61 +304,55 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         // The target does only care about groups with the domain-specific attribute.
-        if !source_group.attributes().contains_key(&self.config.source_room_name_attr) {
-            match self.get_group_id_mapping().await?.get(source_group.id()) {
-                Some(matrix_room_id) => {
-                    tracing::warn!(
-                        source_group_id = source_group.id(),
-                        matrix_room_id,
-                        "The source_room_name_attr has been removed from a group that already had a corresponding Matrix room. Deleting that room now"
-                    );
-                    // Note that, even though we are in the create_or_update method, we have to delete the group here.
-                    // This is because the source_room_name_attr is target-specific and the source knows nothing about it;
-                    // in fact, the group will still be present in the source after this even though we are deleting the room
-                    // because the attribute is missing.
-                    // For this reason, the controller will not call the delete_group method in that case.
-                    self.delete_group(source_group.id()).await?;
+        let room_name_attr = match self.get_room_name_attr(source_group.as_ref()) {
+            Some(room_name_attr) => room_name_attr,
+            None => {
+                // if !source_group.attributes().contains_key(&self.config.source_room_name_attr) {
+                match self.mappings.get_group_opt(source_group.id()) {
+                    Some(matrix_room_id) => {
+                        tracing::warn!(
+                            source_group_id = source_group.id(),
+                            matrix_room_id,
+                            "The source_room_name_attr has been removed from a group that already had a corresponding Matrix room. Deleting that room now"
+                        );
+                        // Note that, even though we are in the create_or_update method, we have to delete the group here.
+                        // This is because the source_room_name_attr is target-specific and the source knows nothing about it;
+                        // in fact, the group will still be present in the source after this even though we are deleting the room
+                        // because the attribute is missing.
+                        // For this reason, the controller will not call the delete_group method in that case.
+                        self.delete_group(source_group.id()).await?;
+                    }
+                    None => {
+                        tracing::info!(
+                            source_group_id = source_group.id(),
+                            "Not creating room for group because it does not have the source_room_name_attr {}",
+                            self.config.source_room_name_attr
+                        );
+                    }
                 }
-                None => {
-                    tracing::info!(
-                        source_group_id = source_group.id(),
-                        "Not creating room for group because it does not have the source_room_name_attr {}",
-                        self.config.source_room_name_attr
-                    );
-                }
+
+                // This is not an error condition: We did succeed in performing the requested operation, it's
+                // just that we do not want to create a room for that group.
+                return Ok(());
             }
+        };
 
-            // This is not an error condition: We did succeed in performing the requested operation, it's
-            // just that we do not want to create a room for that group.
-            return Ok(());
-        }
-
-        if source_group.attributes()[&self.config.source_room_name_attr].len() > 1 {
-            tracing::warn!(
-                "Encountered multiple values for source_room_name_attr {}. Will only consider the first one for the room name",
-                self.config.source_room_name_attr
-            );
-        }
-
-        let matrix_room_id = self.get_or_create_room(&source_group).await?;
-        self.update_display_name(&matrix_room_id, &source_group).await;
-        self.update_canonical_alias(&matrix_room_id, &source_group).await;
+        let matrix_room_id = &self.get_or_create_room(&source_group).await?.to_owned();
+        self.update_display_name(matrix_room_id, room_name_attr, source_group.name()).await;
+        self.update_canonical_alias(matrix_room_id, &source_group).await;
 
         Ok(())
     }
 
     async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>) -> Result<(), KidsError> {
-        // Populate mapping before checking if it is syncer user.
-        // Otherwise, it might be `None` only because `full_sync_incoming` was called.
-        self.ensure_id_mappings().await?;
-        if let Some(syncer_source_user_id) = self.syncer_source_user_id.as_ref()
+        if let Some(syncer_source_user_id) = self.mappings.get_syncer_source_user_id()
             && syncer_source_user_id == source_user.id()
         {
             tracing::trace!(source_user_id = source_user.id(), "Ignoring Syncer user.");
             return Ok(());
         }
 
-        let matrix_user_known = self.has_user(source_user.id()).await?;
+        let matrix_user_known = self.mappings.has_user(source_user.id());
         let source_user_has_required_role = self.source_user_has_required_role(source_user.as_ref()).await?;
         if !matrix_user_known && !source_user_has_required_role {
             // Exit early and do not create the user as the user is missing the required role.
@@ -596,37 +389,24 @@ impl kids_lib::interface::target::Target for Connector {
 }
 
 impl Connector {
-    // The old syncer used a different event to associate matrix rooms to keycloak rooms
-    // Once the new syncer was successfully run once, we should be able to delete this method.
-    async fn migrate(&mut self, rooms: &Vec<String>) {
-        for room in rooms {
-            if let Ok(source_id) = self.synapse_api.get_room_associated_source_group_id_v1(room).await {
-                match self.synapse_api.associate_source_group_id_to_room(room, &source_id).await {
-                    Ok(()) => tracing::info!(room, "Migrated room"),
-                    Err(e) => tracing::warn!(?e, room, "Failed to migrate room"),
-                };
+    fn generate_matrix_user_id(&self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<String, KidsError> {
+        match source_user.username() {
+            Some(username) => Ok(self.synapse_interactor.generate_matrix_user_id(username)),
+            None => {
+                const ERROR_CONTEXT: &str = "Generating matrix user id";
+                const ERROR_MSG: &str = "The matrix user id depends on the source username to be set but it was not.";
+                tracing::error!(user_id = source_user.id(), "{ERROR_CONTEXT}: {ERROR_MSG}");
+                Err(kids_lib::error::KidsError::RequestFailed(
+                    ERROR_CONTEXT.to_owned(),
+                    anyhow::anyhow!("{ERROR_MSG}"),
+                ))
             }
         }
     }
 
-    async fn has_user(&mut self, source_user_id: &str) -> Result<bool, KidsError> {
-        Ok(self.get_user_id_mapping().await?.contains_key(source_user_id))
-    }
-
-    async fn get_user_opt(&mut self, source_user_id: &str) -> Result<Option<&mut dto::User>, KidsError> {
-        Ok(self.get_user_id_mapping().await?.get_mut(source_user_id))
-    }
-
-    async fn get_user(&mut self, source_user_id: &str) -> Result<&mut dto::User, KidsError> {
-        Ok(self
-            .get_user_opt(source_user_id)
-            .await?
-            .expect("User not found, although it should be guaranteed it exists"))
-    }
-
     async fn get_or_create_user(&mut self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<&mut dto::User, KidsError> {
         // Unfortunately, `match` did not work here for lifetime reasons.
-        if self.get_user_opt(source_user.id()).await?.is_none() {
+        if !self.mappings.has_user(source_user.id()) {
             let matrix_user_id = self.generate_matrix_user_id(source_user)?;
             tracing::info!(
                 source_user_id = source_user.id(),
@@ -634,181 +414,96 @@ impl Connector {
                 matrix_user_id = matrix_user_id,
                 "Creating user"
             );
-            let matrix_user = self.synapse_api.create_user(matrix_user_id.as_str(), source_user.id()).await?;
-            self.get_user_id_mapping().await?.insert(source_user.id().clone(), matrix_user.clone());
+            let matrix_user = self
+                .synapse_interactor
+                .synapse_api()
+                .create_user(matrix_user_id.as_str(), source_user.id())
+                .await?;
+            self.mappings.get_user_id_mapping_mut().insert(source_user.id().clone(), matrix_user);
         }
-        Ok(self.get_user_opt(source_user.id()).await?.expect("We have just added that user."))
+        Ok(self.mappings.get_user_opt_mut(source_user.id()).expect("We have just added that user."))
     }
 
-    async fn get_or_create_room(&mut self, source_group: &std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>) -> Result<String, KidsError> {
-        let matrix_room_id = match self.get_group_id_mapping().await?.get(source_group.id()) {
-            Some(matrix_room_id) => {
-                tracing::debug!(source_id = source_group.id(), "Room already exists");
-                matrix_room_id.clone()
-            }
-            None => {
-                tracing::info!(
-                    source_group_id = source_group.id(),
-                    source_group_name = source_group.name(),
-                    "Creating room for group"
-                );
-                let room_creation_response = self
-                    .synapse_api
-                    .create_room(source_group.name(), source_group.path())
-                    .await
-                    .map_err(|e| e.with_context("Could not create room"))?;
-                let matrix_room_id = room_creation_response.room_id;
-                self.synapse_api
-                    .associate_source_group_id_to_room(&matrix_room_id, source_group.id())
-                    .await
-                    .map_err(|e| e.with_context(&format!("Could not associate source group id {} to room {}", source_group.id(), matrix_room_id)))?;
-                self.get_group_id_mapping().await?.insert(source_group.id().to_owned(), matrix_room_id.clone());
-                tracing::info!(source_id = source_group.id(), group_name = source_group.name(), matrix_room_id, "Room created");
-                matrix_room_id
-            }
-        };
-        Ok(matrix_room_id)
+    async fn get_or_create_room(
+        &mut self,
+        source_group: &std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>,
+    ) -> Result<&mut String, KidsError> {
+        // Unfortunately, `match` did not work here for lifetime reasons.
+        if !self.mappings.has_group(source_group.id()) {
+            tracing::info!(
+                source_group_id = source_group.id(),
+                source_group_name = source_group.name(),
+                "Creating room for group"
+            );
+            let room_creation_response = self
+                .synapse_interactor
+                .synapse_api()
+                .create_room(source_group.name(), source_group.path())
+                .await
+                .map_err(|e| e.with_context("Could not create room"))?;
+            let matrix_room_id = room_creation_response.room_id;
+            self.synapse_interactor
+                .synapse_api()
+                .associate_source_group_id_to_room(&matrix_room_id, source_group.id())
+                .await
+                .map_err(|e| e.with_context(&format!("Could not associate source group id {} to room {}", source_group.id(), matrix_room_id)))?;
+            self.mappings.get_group_id_mapping_mut().insert(source_group.id().to_owned(), matrix_room_id);
+            tracing::info!(
+                source_id = source_group.id(),
+                group_name = source_group.name(),
+                matrix_room_id = self.mappings.get_group(source_group.id()),
+                "Room created"
+            );
+        }
+        Ok(self.mappings.get_group_opt_mut(source_group.id()).expect("We have just added that group."))
+    }
+
+    fn get_room_name_attr(&self, source_group: &(dyn kids_lib::interface::source::Group + Send + Sync)) -> Option<String> {
+        let attribute_name = self.config.source_room_name_attr.as_str();
+        match source_group.attributes().get(attribute_name) {
+            Some(attribute) => match attribute.len() {
+                0 => {
+                    tracing::warn!(
+                        source_group_id = source_group.id(),
+                        attribute_name,
+                        "Did find the configured attribute but it did not contain any data"
+                    );
+                    None
+                }
+                1 => Some(attribute.first().expect("We have just matched on the length").clone()),
+                2.. => {
+                    tracing::warn!(
+                        source_group_id = source_group.id(),
+                        attribute_name,
+                        "Encountered multiple values for the configured attribute. Will only consider the first one for the room name"
+                    );
+                    Some(attribute.first().expect("We have just matched on the length").clone())
+                }
+            },
+            None => None,
+        }
+    }
+
+    fn get_room_desired_display_name(&self, room_name_attr: String, source_group_name: &str) -> String {
+        if room_name_attr == DERIVE_DISPLAY_NAME_FROM_GROUP_NAME {
+            source_group_name.replace("_", " ").replace("-", " ")
+        } else {
+            room_name_attr
+        }
     }
 
     /// Update the display name of the room to match the one specified by the source group.
     ///
     /// This method expects the self.config.source_room_name_attr to be set on the source group.
     /// It should only be called on groups were that's the case (it will panic otherwise).
-    async fn update_display_name(&mut self, matrix_room_id: &str, source_group: &std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>) {
-        let old_display_name = self.synapse_api.get_room_display_name(matrix_room_id).await;
-        match old_display_name {
-            Ok(old_display_name) => {
-                let mut new_display_name = source_group.attributes()[&self.config.source_room_name_attr]
-                    .first()
-                    // We can unwrap here because we only process groups that have that attribute set
-                    // when we call this method from create_or_update_group().
-                    .expect("The `self.config.source_room_name_attr` must be set on the source group when calling this method")
-                    .to_owned();
-                if new_display_name == DERIVE_DISPLAY_NAME_FROM_GROUP_NAME {
-                    new_display_name = source_group.name().replace("_", " ").replace("-", " ");
-                }
-                if new_display_name != old_display_name {
-                    match self.synapse_api.set_room_display_name(matrix_room_id, &new_display_name).await {
-                        Ok(()) => tracing::debug!(old_display_name, new_display_name, matrix_room_id, "Updated display name of room"),
-                        Err(e) => tracing::warn!(?e, matrix_room_id, "Could not update display name of room"),
-                    }
-                }
-            }
-            Err(e) => tracing::warn!(?e, matrix_room_id, "Could not load display name of room"),
-        }
+    async fn update_display_name(&mut self, matrix_room_id: &str, room_name_attr: String, source_group_name: &str) {
+        let desired_name = self.get_room_desired_display_name(room_name_attr, source_group_name);
+        self.synapse_interactor.ensure_group_display_name(matrix_room_id, desired_name).await;
     }
 
     async fn update_canonical_alias(&mut self, matrix_room_id: &str, source_group: &std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>) {
-        let full_room_alias = self.synapse_api.full_room_alias(source_group.path());
-        let canonical_alias_event = self.synapse_api.get_room_canonical_alias(matrix_room_id).await;
-        match canonical_alias_event {
-            Ok(canonical_alias_event) => {
-                tracing::trace!(?canonical_alias_event, matrix_room_id, "Found canonical alias for room");
-
-                if canonical_alias_event.alias == full_room_alias {
-                    return;
-                }
-
-                match self.synapse_api.create_room_alias(matrix_room_id, &full_room_alias).await {
-                    Ok(()) => tracing::debug!(matrix_room_id, full_room_alias, "Created new room alias"),
-                    Err(e) => {
-                        tracing::warn!(?e, matrix_room_id, "Could not create new alias for room. Aborting update of canonical alias");
-                        return;
-                    }
-                }
-
-                match self.synapse_api.set_room_canonical_alias(matrix_room_id, &full_room_alias).await {
-                    Ok(()) => tracing::debug!(matrix_room_id, full_room_alias, "Updated canonical alias for room"),
-                    Err(e) => {
-                        tracing::warn!(?e, matrix_room_id, "Could not update canonical alias for room. Retaining old alias");
-                        return;
-                    }
-                }
-
-                // Note: In the very rare case that above request succeeds and below fails, we will "leak"
-                // room aliases in the sense that we will forget retrying deletion of this alias on the
-                // next invocation of this method.
-                // If you notice a room having multiple aliases, this is probably what has happened
-                // (every room should, by invariant, only have exactly one alias).
-                // We postpone handling of this edge case for now.
-                match self.synapse_api.delete_room_alias(&canonical_alias_event.alias).await {
-                    Ok(()) => tracing::debug!(matrix_room_id, old_alias = canonical_alias_event.alias, "Deleted canonical alias from room"),
-                    Err(e) => tracing::warn!(
-                        ?e,
-                        matrix_room_id,
-                        old_alias = canonical_alias_event.alias,
-                        "Could not delete canonical alias for room"
-                    ),
-                };
-            }
-            Err(e) => tracing::warn!(?e, matrix_room_id, "Could not determine current room canonical alias"),
-        }
-    }
-
-    async fn delete_room(&mut self, matrix_room_id: &str, room_deletion_strategy: RoomDeletionStrategy) -> Result<(), KidsError> {
-        match room_deletion_strategy {
-            RoomDeletionStrategy::KickAll | RoomDeletionStrategy::Evacuate => {
-                let joined_members = self
-                    .synapse_api
-                    .get_room_joined_users(matrix_room_id)
-                    .await
-                    .map_err(|e| e.with_context("Could not get joined users for room deletion. Could not delete room"))?;
-                tracing::info!(matrix_room_id, ?joined_members, "Kicking members from room");
-
-                let mut all_kicked = true;
-                for member in joined_members.joined.keys() {
-                    tracing::debug!(matrix_room_id, member, "Kicking member from room");
-                    if self.synapse_api.user_is_matrix_syncer(member) {
-                        continue;
-                    }
-                    if let Err(e) = self.synapse_api.kick_user_from_room(matrix_room_id, member).await {
-                        tracing::error!(matrix_room_id, member, error = ?e, "Could not kick member from room");
-                        all_kicked = false;
-                    }
-                }
-
-                if !all_kicked {
-                    // Note: Need to return early here because the syncer should only leave the room
-                    // if all users have been kicked successfully.
-                    return Err(KidsError::InternalError(format!("Could not kick all members from room {matrix_room_id}")));
-                }
-
-                if matches!(room_deletion_strategy, RoomDeletionStrategy::Evacuate) {
-                    tracing::info!(matrix_room_id, "Syncer leaving room");
-                    self.synapse_api
-                        .syncer_leave_room(matrix_room_id)
-                        .await
-                        .map_err(|e| e.with_context("Could not leave room"))?;
-                }
-            }
-            RoomDeletionStrategy::Delete => {
-                tracing::info!(matrix_room_id, "Deleting room");
-                self.synapse_api
-                    .delete_room(matrix_room_id)
-                    .await
-                    .map_err(|e| e.with_context("Could not delete room"))?;
-            }
-            RoomDeletionStrategy::Ignore => {}
-        }
-
-        // Note: If strategy is delete, alias has already been deleted with the room.
-        if matches!(room_deletion_strategy, RoomDeletionStrategy::Evacuate) {
-            // Each room should only have one alias at a time when being managed by the syncer.
-            // In order to avoid issues when evacuating a room but trying to recreate it later (which
-            // might use the same alias), make sure to disassociate the alias from the old room.
-            tracing::info!(matrix_room_id, "Deleting old alias for room");
-            let canonical_alias_event = self
-                .synapse_api
-                .get_room_canonical_alias(matrix_room_id)
-                .await
-                .map_err(|e| e.with_context("Could not obtain canonical alias for room"))?;
-            self.synapse_api
-                .delete_room_alias(&canonical_alias_event.alias)
-                .await
-                .map_err(|e| e.with_context("Could not delete canonical alias for room"))?;
-        }
-
-        Ok(())
+        let full_room_alias = self.synapse_interactor.synapse_api().full_room_alias(source_group.path());
+        self.synapse_interactor.ensure_group_canonical_alias(matrix_room_id, full_room_alias).await;
     }
 }
 
@@ -835,14 +530,22 @@ mod test {
                     matrix_namespace: "".to_string(),
                     insecure_disable_tls_verification: true,
                 },
-                room_deletion_strategy: RoomDeletionStrategy::Ignore,
+                room_deletion_strategy: crate::target::RoomDeletionStrategy::Ignore,
                 source_room_name_attr: "test".to_string(),
                 required_role_name: Some(REQUIRED_ROLE.to_owned()),
             },
-            synapse_api: Box::new(MockSynapseApi::default()),
-            group_id_mapping: None,
-            user_id_mapping: None,
-            syncer_source_user_id: None,
+            synapse_interactor: crate::target::SynapseInteractor::new(MockSynapseApi::default()),
+            mappings: crate::target::IdMapping::empty(),
+        }
+    }
+
+    impl Connector {
+        /// Replaces the API mock **and** performs a full sync.
+        ///
+        /// This allows you to refer to new users not added via the [Connector] itself.
+        async fn replace_api_mock(&mut self, synapse_api: crate::target::test_mocks::SynapseApiMocker) {
+            self.synapse_interactor = synapse_api.into();
+            self.full_sync_incoming().await.expect("full_sync_incoming should not fail");
         }
     }
 
@@ -851,22 +554,24 @@ mod test {
         assert_eq!(connector.info(), "Synapse Connector!")
     }
 
-    mod when_full_sync_incoming_and_generate_id_mappings {
+    mod when_full_sync_incoming {
         use super::*;
 
         #[rstest]
         #[tokio::test]
         async fn then_return_ok(mut connector: Connector) {
             // given
-            connector.synapse_api = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new()
                 .can_get_joined_rooms_of_syncer()
                 .can_associate_source_group_id_to_room()
                 .can_get_users()
                 .into();
 
-            // when & then
-            assert!(connector.full_sync_incoming().await.is_ok());
-            assert!(connector.generate_id_mappings().await.is_ok());
+            // when
+            let full_sync_incoming_result = connector.full_sync_incoming().await;
+
+            // then
+            assert!(full_sync_incoming_result.is_ok());
         }
 
         #[rstest]
@@ -876,7 +581,7 @@ mod test {
             let room1 = MockSynapseRoomBuilder::default().build();
             let room2 = MockSynapseRoomBuilder::default().build();
 
-            connector.synapse_api = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new()
                 .with_rooms(vec![room1.clone(), room2.clone()])
                 .can_get_joined_rooms_of_syncer()
                 .can_get_room_associated_source_group_id_v1()
@@ -889,15 +594,10 @@ mod test {
             assert!(connector.full_sync_incoming().await.is_ok());
 
             // then
-            assert_eq!(connector.get_group_id_mapping().await.unwrap().len(), 2);
-            assert_eq!(
-                connector.get_group_id_mapping().await.unwrap().get(&room1.source_room_id).unwrap(),
-                &room1.matrix_room_id
-            );
-            assert_eq!(
-                connector.get_group_id_mapping().await.unwrap().get(&room2.source_room_id).unwrap(),
-                &room2.matrix_room_id
-            );
+            let group_id_mapping = connector.mappings.get_group_id_mapping();
+            assert_eq!(group_id_mapping.len(), 2);
+            assert_eq!(group_id_mapping.get(&room1.source_room_id).unwrap(), &room1.matrix_room_id);
+            assert_eq!(group_id_mapping.get(&room2.source_room_id).unwrap(), &room2.matrix_room_id);
             assert_eq!(
                 connector.all_groups().await.unwrap(),
                 std::collections::HashSet::from([room1.source_room_id, room2.source_room_id])
@@ -911,7 +611,7 @@ mod test {
             let user1 = MockSynapseUserBuilder::default().build();
             let user2 = MockSynapseUserBuilder::default().build();
 
-            connector.synapse_api = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new()
                 .with_users(vec![user1.clone(), user2.clone()])
                 .can_get_joined_rooms_of_syncer()
                 .can_get_users()
@@ -922,15 +622,10 @@ mod test {
             assert!(connector.full_sync_incoming().await.is_ok());
 
             // then
-            assert_eq!(connector.get_user_id_mapping().await.unwrap().len(), 2);
-            assert_eq!(
-                connector.get_user_id_mapping().await.unwrap().get(&user1.source_user_id).unwrap(),
-                &SynapseApiMocker::get_user_from(&user1)
-            );
-            assert_eq!(
-                connector.get_user_id_mapping().await.unwrap().get(&user2.source_user_id).unwrap(),
-                &SynapseApiMocker::get_user_from(&user2)
-            );
+            let user_id_mapping = connector.mappings.get_user_id_mapping();
+            assert_eq!(user_id_mapping.len(), 2);
+            assert_eq!(user_id_mapping.get(&user1.source_user_id).unwrap(), &SynapseApiMocker::get_user_from(&user1));
+            assert_eq!(user_id_mapping.get(&user2.source_user_id).unwrap(), &SynapseApiMocker::get_user_from(&user2));
             assert_eq!(
                 connector.all_users().await.unwrap(),
                 std::collections::HashSet::from([user1.source_user_id, user2.source_user_id])
@@ -939,15 +634,15 @@ mod test {
 
         #[rstest]
         #[tokio::test]
-        async fn then_completely_clear_mappings_before_rebuild(mut connector: Connector) {
+        async fn then_completely_clears_mappings(mut connector: Connector) {
             // given
-            connector.synapse_api = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().can_get_users().into();
+            connector.synapse_interactor = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().can_get_users().into();
 
-            connector.get_group_id_mapping().await.unwrap().insert(
+            connector.mappings.get_group_id_mapping_mut().insert(
                 kids_test_lib::util::constants::DEFAULT_SOURCE_GROUP_ID.to_string(),
                 kids_test_lib::util::constants::DEFAULT_TARGET_ROOM_ID.to_string(),
             );
-            connector.get_user_id_mapping().await.unwrap().insert(
+            connector.mappings.get_user_id_mapping_mut().insert(
                 kids_test_lib::util::constants::DEFAULT_SOURCE_USER_ID.to_string(),
                 dto::User {
                     name: kids_test_lib::util::constants::DEFAULT_TARGET_USER_ID.to_string(),
@@ -961,8 +656,8 @@ mod test {
             assert!(connector.full_sync_incoming().await.is_ok());
 
             // then
-            assert!(connector.get_user_id_mapping().await.unwrap().is_empty());
-            assert!(connector.get_group_id_mapping().await.unwrap().is_empty());
+            assert!(connector.mappings.get_user_id_mapping().is_empty());
+            assert!(connector.mappings.get_group_id_mapping().is_empty());
         }
 
         #[rstest]
@@ -975,7 +670,7 @@ mod test {
             let user1 = MockSynapseUserBuilder::default().build();
             let user2 = MockSynapseUserBuilder::default().source_user_id(user1.source_user_id.clone()).build();
 
-            connector.synapse_api = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new()
                 .with_rooms(vec![room1.clone(), room2.clone()])
                 .with_users(vec![user1.clone(), user2.clone()])
                 .can_get_joined_rooms_of_syncer()
@@ -990,14 +685,8 @@ mod test {
             assert!(connector.full_sync_incoming().await.is_ok());
 
             // then
-            assert_eq!(
-                connector.get_group_id_mapping().await.unwrap().get(&room1.source_room_id).unwrap(),
-                &room1.matrix_room_id
-            );
-            assert_eq!(
-                connector.get_user_id_mapping().await.unwrap().get(&user1.source_user_id).unwrap(),
-                &SynapseApiMocker::get_user_from(&user1)
-            );
+            assert_eq!(connector.mappings.get_group(&room1.source_room_id), &room1.matrix_room_id);
+            assert_eq!(connector.mappings.get_user(&user1.source_user_id), &SynapseApiMocker::get_user_from(&user1));
         }
 
         #[rstest]
@@ -1008,7 +697,7 @@ mod test {
             let room2 = MockSynapseRoomBuilder::default().build();
             let room3 = MockSynapseRoomBuilder::default().build();
 
-            connector.synapse_api = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new()
                 .with_rooms(vec![room1.clone(), room2.clone(), room3.clone()])
                 .can_get_joined_rooms_of_syncer()
                 .can_get_room_associated_source_group_id_v1()
@@ -1023,9 +712,9 @@ mod test {
             assert!(connector.full_sync_incoming().await.is_ok());
 
             // then
-            assert!(connector.get_group_id_mapping().await.unwrap().contains_key(&room1.source_room_id));
-            assert!(!connector.get_group_id_mapping().await.unwrap().contains_key(&room2.source_room_id));
-            assert!(connector.get_group_id_mapping().await.unwrap().contains_key(&room3.source_room_id));
+            assert!(connector.mappings.has_group(&room1.source_room_id));
+            assert!(!connector.mappings.has_group(&room2.source_room_id));
+            assert!(connector.mappings.has_group(&room3.source_room_id));
         }
 
         #[rstest]
@@ -1036,7 +725,7 @@ mod test {
             let user2 = MockSynapseUserBuilder::default().build();
             let user3 = MockSynapseUserBuilder::default().build();
 
-            connector.synapse_api = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new()
                 .with_users(vec![user1.clone(), user2.clone(), user3.clone()])
                 .can_get_joined_rooms_of_syncer()
                 .can_get_users()
@@ -1049,31 +738,35 @@ mod test {
             assert!(connector.full_sync_incoming().await.is_ok());
 
             // then
-            assert!(connector.get_user_id_mapping().await.unwrap().contains_key(&user1.source_user_id));
-            assert!(!connector.get_user_id_mapping().await.unwrap().contains_key(&user2.source_user_id));
-            assert!(connector.get_user_id_mapping().await.unwrap().contains_key(&user3.source_user_id));
+            assert!(connector.mappings.has_user(&user1.source_user_id));
+            assert!(!connector.mappings.has_user(&user2.source_user_id));
+            assert!(connector.mappings.has_user(&user3.source_user_id));
         }
 
         #[rstest]
         #[tokio::test]
         async fn but_cannot_get_joined_rooms_of_syncer_then_return_err(mut connector: Connector) {
             // given
-            connector.synapse_api = SynapseApiMocker::new().cannot_get_joined_rooms_of_syncer().into();
+            connector.synapse_interactor = SynapseApiMocker::new().cannot_get_joined_rooms_of_syncer().into();
 
-            // when & then
-            assert!(connector.full_sync_incoming().await.is_ok());
-            assert!(connector.generate_id_mappings().await.is_err());
+            // when
+            let full_sync_incoming_result = connector.full_sync_incoming().await;
+
+            // then
+            assert!(full_sync_incoming_result.is_err());
         }
 
         #[rstest]
         #[tokio::test]
         async fn but_cannot_get_users_then_return_err(mut connector: Connector) {
             // given
-            connector.synapse_api = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().cannot_get_users().into();
+            connector.synapse_interactor = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().cannot_get_users().into();
 
-            // when & then
-            assert!(connector.full_sync_incoming().await.is_ok());
-            assert!(connector.generate_id_mappings().await.is_err());
+            // when
+            let full_sync_incoming_result = connector.full_sync_incoming().await;
+
+            // then
+            assert!(full_sync_incoming_result.is_err());
         }
     }
 
@@ -1141,7 +834,7 @@ mod test {
                 // given
                 let group = Group::new("group", None);
                 let group_id = group.id.clone();
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .cannot_create_room()
@@ -1165,7 +858,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let group_id = group.id.clone();
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1195,7 +888,7 @@ mod test {
                 let group_id = group.id.clone();
                 {
                     // 1. Add
-                    connector.synapse_api = SynapseApiMocker::new()
+                    connector.synapse_interactor = SynapseApiMocker::new()
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         .can_create_room()
@@ -1215,7 +908,7 @@ mod test {
                 }
                 {
                     // 2. Do nothing
-                    connector.synapse_api = SynapseApiMocker::new()
+                    connector.synapse_interactor = SynapseApiMocker::new()
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         // We disallow room creation here, it must use the existing one instead.
@@ -1243,7 +936,7 @@ mod test {
             async fn create_group_fails_with_invalid_group_name(mut connector: Connector, #[case] invalid_group_name: &'static str) {
                 // given
                 let group = Group::new(invalid_group_name, None);
-                connector.synapse_api = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().can_get_users().into();
+                connector.synapse_interactor = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().can_get_users().into();
 
                 // when
                 let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
@@ -1267,7 +960,7 @@ mod test {
                 // given
                 let mut group = Group::new("group", None);
                 let group_id = group.id.clone();
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1330,7 +1023,7 @@ mod test {
                 let group_id = group.id.clone();
                 let matrix_room_id = {
                     // 1. Add
-                    connector.synapse_api = SynapseApiMocker::new()
+                    connector.synapse_interactor = SynapseApiMocker::new()
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         .can_create_room()
@@ -1347,7 +1040,7 @@ mod test {
                     created.expect("Error creating or updating group");
                     let all_groups = connector.all_groups().await.unwrap();
                     assert!(all_groups.contains(&group_id));
-                    connector.get_group_id_mapping().await.unwrap().get(&group_id).unwrap()
+                    connector.mappings.get_group(&group_id)
                 }
                 .to_owned();
                 {
@@ -1357,7 +1050,7 @@ mod test {
                         entry.clear();
                         entry.push(new_group_name.to_owned());
                     });
-                    connector.synapse_api = SynapseApiMocker::new()
+                    connector.synapse_interactor = SynapseApiMocker::new()
                         .with_rooms(vec![
                             MockSynapseRoomBuilder::default()
                                 .source_room_id(group_id.clone())
@@ -1400,7 +1093,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let group_id = group.id.clone();
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1428,12 +1121,15 @@ mod test {
 
             #[rstest]
             #[tokio::test]
-            #[case(RoomDeletionStrategy::KickAll)]
+            #[case(crate::target::RoomDeletionStrategy::KickAll)]
             #[tokio::test]
-            #[case(RoomDeletionStrategy::Evacuate)]
+            #[case(crate::target::RoomDeletionStrategy::Evacuate)]
             #[tokio::test]
-            #[case(RoomDeletionStrategy::Delete)]
-            async fn delete_group_kickall_evacuate_delete_room_deletion(mut connector: Connector, #[case] deletion_strategy: RoomDeletionStrategy) {
+            #[case(crate::target::RoomDeletionStrategy::Delete)]
+            async fn delete_group_kickall_evacuate_delete_room_deletion(
+                mut connector: Connector,
+                #[case] deletion_strategy: crate::target::RoomDeletionStrategy,
+            ) {
                 // given
                 let group = Group::new(
                     "group",
@@ -1441,7 +1137,7 @@ mod test {
                 );
                 let group_id = group.id.clone();
                 connector.config.room_deletion_strategy = deletion_strategy;
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1455,25 +1151,28 @@ mod test {
                     created.expect("Error creating or updating group");
                     let all_groups = connector.all_groups().await.unwrap();
                     assert!(all_groups.contains(&group_id));
-                    connector.get_group_id_mapping().await.unwrap().get(&group_id).unwrap()
+                    connector.mappings.get_group(&group_id)
                 };
-                connector.synapse_api = {
+                connector.synapse_interactor = {
                     let mut mock_api = SynapseApiMocker::new().with_rooms(vec![
                         MockSynapseRoomBuilder::default()
                             .source_room_id(group_id.clone())
                             .matrix_room_id(matrix_room_id.clone())
                             .build(),
                     ]);
-                    if matches!(deletion_strategy, RoomDeletionStrategy::KickAll | RoomDeletionStrategy::Evacuate) {
+                    if matches!(
+                        deletion_strategy,
+                        crate::target::RoomDeletionStrategy::KickAll | crate::target::RoomDeletionStrategy::Evacuate
+                    ) {
                         // Managing room members is necessary to kick users.
                         mock_api = mock_api.can_manage_room_members(
                             matrix_room_id,
                             "syncer-user",
                             ["user-1", "user-2"],
-                            matches!(deletion_strategy, RoomDeletionStrategy::Evacuate),
+                            matches!(deletion_strategy, crate::target::RoomDeletionStrategy::Evacuate),
                             None,
                         );
-                        if matches!(deletion_strategy, RoomDeletionStrategy::Evacuate) {
+                        if matches!(deletion_strategy, crate::target::RoomDeletionStrategy::Evacuate) {
                             mock_api = mock_api.can_get_room_canonical_alias_all_rooms().can_delete_room_alias_all_aliases();
                         }
                     } else {
@@ -1494,12 +1193,12 @@ mod test {
 
             #[rstest]
             #[tokio::test]
-            #[case(RoomDeletionStrategy::KickAll)]
+            #[case(crate::target::RoomDeletionStrategy::KickAll)]
             #[tokio::test]
-            #[case(RoomDeletionStrategy::Evacuate)]
+            #[case(crate::target::RoomDeletionStrategy::Evacuate)]
             async fn delete_group_kickall_evacuate_room_deletion_fails_without_kicking(
                 mut connector: Connector,
-                #[case] deletion_strategy: RoomDeletionStrategy,
+                #[case] deletion_strategy: crate::target::RoomDeletionStrategy,
             ) {
                 // given
                 let group = Group::new(
@@ -1508,7 +1207,7 @@ mod test {
                 );
                 let group_id = group.id.clone();
                 connector.config.room_deletion_strategy = deletion_strategy;
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1522,10 +1221,10 @@ mod test {
                     created.expect("Error creating or updating group");
                     let all_groups = connector.all_groups().await.unwrap();
                     assert!(all_groups.contains(&group_id));
-                    connector.get_group_id_mapping().await.unwrap().get(&group_id).unwrap()
+                    connector.mappings.get_group(&group_id)
                 }
                 .to_owned();
-                connector.synapse_api = {
+                connector.synapse_interactor = {
                     let mut mock_api = SynapseApiMocker::new().with_rooms(vec![
                         MockSynapseRoomBuilder::default()
                             .source_room_id(group_id.clone())
@@ -1665,22 +1364,25 @@ mod test {
                     .matrix_user_id("@firstname.lastname:testing.example.com")
                     .build();
                 let room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![room.clone()])
-                    .can_get_homeserver_domain("testing.example.com")
-                    .can_get_joined_rooms_of_syncer()
-                    .can_get_users()
-                    .can_get_source_user_id_for_all_matrix_users()
-                    .can_get_room_associated_source_group_id_v1()
-                    .can_associate_source_group_id_to_room()
-                    .can_get_all_rooms_associated_source_group_id()
-                    .require_create_user(matrix_user.clone())
-                    .can_get_user_display_name(&matrix_user, None)
-                    .require_set_user_display_name(&matrix_user, "Firstname Lastname")
-                    .can_get_user_three_pids(&matrix_user, None)
-                    .can_get_joined_rooms_of_user(&matrix_user, vec![])
-                    .require_join_user_to_room(&matrix_user, &room)
-                    .into();
+                connector
+                    .replace_api_mock(
+                        SynapseApiMocker::new()
+                            .with_rooms(vec![room.clone()])
+                            .can_get_homeserver_domain("testing.example.com")
+                            .can_get_joined_rooms_of_syncer()
+                            .can_get_users()
+                            .can_get_source_user_id_for_all_matrix_users()
+                            .can_get_room_associated_source_group_id_v1()
+                            .can_associate_source_group_id_to_room()
+                            .can_get_all_rooms_associated_source_group_id()
+                            .require_create_user(matrix_user.clone())
+                            .can_get_user_display_name(&matrix_user, None)
+                            .require_set_user_display_name(&matrix_user, "Firstname Lastname")
+                            .can_get_user_three_pids(&matrix_user, None)
+                            .can_get_joined_rooms_of_user(&matrix_user, vec![])
+                            .require_join_user_to_room(&matrix_user, &room),
+                    )
+                    .await;
 
                 // when
                 let created = connector.create_or_update_user(std::sync::Arc::new(user)).await;
@@ -1712,7 +1414,7 @@ mod test {
                 );
                 let user_id = user.id.clone();
                 let room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .with_rooms(vec![room.clone()])
                     .can_get_homeserver_domain("testing.example.com")
                     .can_get_joined_rooms_of_syncer()
@@ -1744,16 +1446,19 @@ mod test {
                 let user = User::new("user", None, None, None, None, true, None, Some(vec![group]), None);
                 let user_id = user.id;
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
-                connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![synapse_room])
-                    .with_users(vec![synapse_user])
-                    .can_get_joined_rooms_of_syncer()
-                    .can_get_users()
-                    .can_get_source_user_id_for_all_matrix_users()
-                    .can_get_room_associated_source_group_id_v1()
-                    .can_associate_source_group_id_to_room()
-                    .can_get_all_rooms_associated_source_group_id()
-                    .into();
+                connector
+                    .replace_api_mock(
+                        SynapseApiMocker::new()
+                            .with_rooms(vec![synapse_room])
+                            .with_users(vec![synapse_user])
+                            .can_get_joined_rooms_of_syncer()
+                            .can_get_users()
+                            .can_get_source_user_id_for_all_matrix_users()
+                            .can_get_room_associated_source_group_id_v1()
+                            .can_associate_source_group_id_to_room()
+                            .can_get_all_rooms_associated_source_group_id(),
+                    )
+                    .await;
 
                 // when
                 // nothing
@@ -1789,23 +1494,26 @@ mod test {
                 let new_email = "my-new-email@example.com";
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
-                connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![])
-                    .with_users(vec![synapse_user.clone()])
-                    .can_get_joined_rooms_of_syncer()
-                    .can_get_users()
-                    .can_get_source_user_id_for_all_matrix_users()
-                    // The user is no member of any (managed) room.
-                    .can_get_joined_rooms_of_user(&synapse_user, vec![])
-                    .can_get_user_display_name(
-                        &synapse_user,
-                        Some({
-                            use kids_lib::interface::source::User;
-                            user.display_name().unwrap()
-                        }),
+                connector
+                    .replace_api_mock(
+                        SynapseApiMocker::new()
+                            .with_rooms(vec![])
+                            .with_users(vec![synapse_user.clone()])
+                            .can_get_joined_rooms_of_syncer()
+                            .can_get_users()
+                            .can_get_source_user_id_for_all_matrix_users()
+                            // The user is no member of any (managed) room.
+                            .can_get_joined_rooms_of_user(&synapse_user, vec![])
+                            .can_get_user_display_name(
+                                &synapse_user,
+                                Some({
+                                    use kids_lib::interface::source::User;
+                                    user.display_name().unwrap()
+                                }),
+                            )
+                            .can_get_user_three_pids(&synapse_user, Some(current_email.to_owned())),
                     )
-                    .can_get_user_three_pids(&synapse_user, Some(current_email.to_owned()))
-                    .into();
+                    .await;
                 let created = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
                 created.expect("Error creating or updating user");
                 let all_users = connector.all_users().await.unwrap();
@@ -1818,7 +1526,7 @@ mod test {
                 };
                 user.first_name = Some(new_first_name.to_owned());
                 user.email = Some(new_email.to_owned());
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .with_rooms(vec![])
                     .with_users(vec![synapse_user.clone()])
                     .can_get_joined_rooms_of_syncer()
@@ -1862,27 +1570,30 @@ mod test {
                 );
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
-                connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![synapse_room.clone()])
-                    .with_users(vec![synapse_user.clone()])
-                    .can_get_room_associated_source_group_id_v1()
-                    .can_associate_source_group_id_to_room()
-                    .can_get_room_associated_source_group_id_for_room(&synapse_room)
-                    .can_get_joined_rooms_of_syncer()
-                    .can_get_users()
-                    .can_get_source_user_id_for_all_matrix_users()
-                    // The user is no member of any (managed) room.
-                    .can_get_joined_rooms_of_user(&synapse_user, vec![])
-                    .can_get_user_display_name(
-                        &synapse_user,
-                        Some({
-                            use kids_lib::interface::source::User;
-                            user.display_name().unwrap()
-                        }),
+                connector
+                    .replace_api_mock(
+                        SynapseApiMocker::new()
+                            .with_rooms(vec![synapse_room.clone()])
+                            .with_users(vec![synapse_user.clone()])
+                            .can_get_room_associated_source_group_id_v1()
+                            .can_associate_source_group_id_to_room()
+                            .can_get_room_associated_source_group_id_for_room(&synapse_room)
+                            .can_get_joined_rooms_of_syncer()
+                            .can_get_users()
+                            .can_get_source_user_id_for_all_matrix_users()
+                            // The user is no member of any (managed) room.
+                            .can_get_joined_rooms_of_user(&synapse_user, vec![])
+                            .can_get_user_display_name(
+                                &synapse_user,
+                                Some({
+                                    use kids_lib::interface::source::User;
+                                    user.display_name().unwrap()
+                                }),
+                            )
+                            .can_get_user_three_pids(&synapse_user, None)
+                            .require_join_user_to_room(&synapse_user, &synapse_room),
                     )
-                    .can_get_user_three_pids(&synapse_user, None)
-                    .require_join_user_to_room(&synapse_user, &synapse_room)
-                    .into();
+                    .await;
                 let created = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
                 created.expect("Error creating or updating user");
                 let all_users = connector.all_users().await.unwrap();
@@ -1890,7 +1601,7 @@ mod test {
 
                 // when
                 user.roles = vec![];
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .with_rooms(vec![synapse_room.clone()])
                     .with_users(vec![synapse_user.clone()])
                     .can_get_joined_rooms_of_syncer()
@@ -1917,7 +1628,7 @@ mod test {
 
                 // when
                 user.roles = vec![REQUIRED_ROLE.to_owned()];
-                connector.synapse_api = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new()
                     .with_rooms(vec![synapse_room.clone()])
                     .with_users(vec![synapse_user.clone()])
                     .can_get_joined_rooms_of_syncer()
@@ -1956,22 +1667,25 @@ mod test {
                 let user = User::new("user", None, None, None, None, true, None, Some(vec![group]), None);
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
-                connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![synapse_room.clone()])
-                    .with_users(vec![synapse_user.clone()])
-                    .can_get_joined_rooms_of_syncer()
-                    .can_get_users()
-                    .can_get_source_user_id_for_all_matrix_users()
-                    .can_get_room_associated_source_group_id_v1()
-                    .can_associate_source_group_id_to_room()
-                    .can_get_all_rooms_associated_source_group_id()
-                    .can_get_user_display_name(&synapse_user, None)
-                    .can_get_user_three_pids(&synapse_user, None)
-                    // Assume the user is not yet member of any (managed) room.
-                    .can_get_joined_rooms_of_user(&synapse_user, vec![])
-                    // This is the core assertion here: The user gets added to the room.
-                    .require_join_user_to_room(&synapse_user, &synapse_room)
-                    .into();
+                connector
+                    .replace_api_mock(
+                        SynapseApiMocker::new()
+                            .with_rooms(vec![synapse_room.clone()])
+                            .with_users(vec![synapse_user.clone()])
+                            .can_get_joined_rooms_of_syncer()
+                            .can_get_users()
+                            .can_get_source_user_id_for_all_matrix_users()
+                            .can_get_room_associated_source_group_id_v1()
+                            .can_associate_source_group_id_to_room()
+                            .can_get_all_rooms_associated_source_group_id()
+                            .can_get_user_display_name(&synapse_user, None)
+                            .can_get_user_three_pids(&synapse_user, None)
+                            // Assume the user is not yet member of any (managed) room.
+                            .can_get_joined_rooms_of_user(&synapse_user, vec![])
+                            // This is the core assertion here: The user gets added to the room.
+                            .require_join_user_to_room(&synapse_user, &synapse_room),
+                    )
+                    .await;
 
                 // when
                 let created = connector.create_or_update_user(std::sync::Arc::new(user)).await;
@@ -1994,22 +1708,25 @@ mod test {
                 let user = User::new("user", None, None, None, None, true, None, None, None);
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
-                connector.synapse_api = SynapseApiMocker::new()
-                    .with_rooms(vec![synapse_room.clone()])
-                    .with_users(vec![synapse_user.clone()])
-                    .can_get_joined_rooms_of_syncer()
-                    .can_get_users()
-                    .can_get_source_user_id_for_all_matrix_users()
-                    .can_get_room_associated_source_group_id_v1()
-                    .can_associate_source_group_id_to_room()
-                    .can_get_all_rooms_associated_source_group_id()
-                    .can_get_user_display_name(&synapse_user, None)
-                    .can_get_user_three_pids(&synapse_user, None)
-                    // Assume the user is still member of the managed room.
-                    .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
-                    // This is the core assertion here: The user gets kicked from the room.
-                    .require_kick_user_from_room(&synapse_user, &synapse_room)
-                    .into();
+                connector
+                    .replace_api_mock(
+                        SynapseApiMocker::new()
+                            .with_rooms(vec![synapse_room.clone()])
+                            .with_users(vec![synapse_user.clone()])
+                            .can_get_joined_rooms_of_syncer()
+                            .can_get_users()
+                            .can_get_source_user_id_for_all_matrix_users()
+                            .can_get_room_associated_source_group_id_v1()
+                            .can_associate_source_group_id_to_room()
+                            .can_get_all_rooms_associated_source_group_id()
+                            .can_get_user_display_name(&synapse_user, None)
+                            .can_get_user_three_pids(&synapse_user, None)
+                            // Assume the user is still member of the managed room.
+                            .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
+                            // This is the core assertion here: The user gets kicked from the room.
+                            .require_kick_user_from_room(&synapse_user, &synapse_room),
+                    )
+                    .await;
 
                 // when
                 let created = connector.create_or_update_user(std::sync::Arc::new(user)).await;
@@ -2049,18 +1766,18 @@ mod test {
                 {
                     // 1. Create as unlocked.
                     // when
-                    connector.synapse_api = get_api_mocker(vec![&synapse_room]).into();
+                    connector.replace_api_mock(get_api_mocker(vec![&synapse_room])).await;
 
                     // then
                     let all_users = connector.all_users().await.unwrap();
                     assert!(all_users.contains(&user_id));
-                    let user_via_connector = connector.get_user_id_mapping().await.unwrap().get(&user_id).unwrap();
+                    let user_via_connector = connector.mappings.get_user(&user_id);
                     assert!(!user_via_connector.locked);
                 }
                 {
                     // 2. Update to locked.
                     user.enabled = false;
-                    connector.synapse_api = get_api_mocker(vec![&synapse_room])
+                    connector.synapse_interactor = get_api_mocker(vec![&synapse_room])
                         .require_lock_user(&synapse_user)
                         .require_kick_user_from_room(&synapse_user, &synapse_room)
                         .into();
@@ -2072,13 +1789,13 @@ mod test {
                     created.expect("Error creating or updating user");
                     let all_users = connector.all_users().await.unwrap();
                     assert!(all_users.contains(&user_id));
-                    let user_via_connector = connector.get_user_id_mapping().await.unwrap().get(&user_id).unwrap();
+                    let user_via_connector = connector.mappings.get_user(&user_id);
                     assert!(user_via_connector.locked);
                 }
                 {
                     // 3. Update to unlocked.
                     user.enabled = true;
-                    connector.synapse_api = get_api_mocker(vec![])
+                    connector.synapse_interactor = get_api_mocker(vec![])
                         .require_unlock_user(&synapse_user)
                         .require_join_user_to_room(&synapse_user, &synapse_room)
                         .into();
@@ -2090,7 +1807,7 @@ mod test {
                     created.expect("Error creating or updating user");
                     let all_users = connector.all_users().await.unwrap();
                     assert!(all_users.contains(&user_id));
-                    let user_via_connector = connector.get_user_id_mapping().await.unwrap().get(&user_id).unwrap();
+                    let user_via_connector = connector.mappings.get_user(&user_id);
                     assert!(!user_via_connector.locked);
                 }
             }
@@ -2102,8 +1819,8 @@ mod test {
             #[rstest]
             #[tokio::test]
             async fn delete_user_deactivates_it(mut connector: Connector) {
+                // given
                 let group = super::manage_groups::Group::new(
-                    // given
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
@@ -2113,22 +1830,25 @@ mod test {
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 {
                     // 1. Create user.
-                    connector.synapse_api = SynapseApiMocker::new()
-                        .with_rooms(vec![synapse_room])
-                        .with_users(vec![synapse_user.clone()])
-                        .can_get_joined_rooms_of_syncer()
-                        .can_get_users()
-                        .can_get_source_user_id_for_all_matrix_users()
-                        .can_get_room_associated_source_group_id_v1()
-                        .can_associate_source_group_id_to_room()
-                        .can_get_all_rooms_associated_source_group_id()
-                        .into();
+                    connector
+                        .replace_api_mock(
+                            SynapseApiMocker::new()
+                                .with_rooms(vec![synapse_room])
+                                .with_users(vec![synapse_user.clone()])
+                                .can_get_joined_rooms_of_syncer()
+                                .can_get_users()
+                                .can_get_source_user_id_for_all_matrix_users()
+                                .can_get_room_associated_source_group_id_v1()
+                                .can_associate_source_group_id_to_room()
+                                .can_get_all_rooms_associated_source_group_id(),
+                        )
+                        .await;
                     let all_users = connector.all_users().await.unwrap();
                     assert!(all_users.contains(&user_id));
                 }
                 {
                     // 2. Delete user.
-                    connector.synapse_api = SynapseApiMocker::new().require_deactivate_user(&synapse_user).into();
+                    connector.synapse_interactor = SynapseApiMocker::new().require_deactivate_user(&synapse_user).into();
 
                     // when
                     let deleted = connector.delete_user(&user_id).await;

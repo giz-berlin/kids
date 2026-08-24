@@ -2,8 +2,8 @@ use mockall::predicate::eq;
 
 use kids_lib::error::KidsError;
 
+use crate::target::dto;
 use crate::target::external::MockSynapseApi;
-use crate::target::{dto, external};
 
 // The builder macro appears to confuse clippy in some way.
 // For example, it thinks the build_into() methods and the entity_number fields are unused, but they aren't.
@@ -477,8 +477,8 @@ impl SynapseApiMocker {
     }
 }
 
-impl From<SynapseApiMocker> for Box<dyn external::SynapseApi + Send + Sync> {
-    fn from(val: SynapseApiMocker) -> Self {
-        Box::new(val.api_mock)
+impl From<SynapseApiMocker> for crate::target::SynapseInteractor {
+    fn from(value: SynapseApiMocker) -> Self {
+        Self::new(value.api_mock)
     }
 }
