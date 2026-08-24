@@ -8,7 +8,7 @@
 # Omit this section (or set mode = "disabled") to disable the HTTP API and run full syncs only.
 [controller.api]
 mode = "enabled"
-# Address with port to bind the HTTP server to, e.g. 127.0.0.1:3000
+# Address with port to bind the HTTP server to, e.g. 127.0.0.1:4165
 bind_addr = ""
 
 # TLS configuration.

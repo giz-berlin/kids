@@ -8,7 +8,7 @@ use url::Url;
 #[derive(Parser)]
 #[command(name = "webhook-cli", about = "CLI for interacting with webhook endpoints")]
 struct Cli {
-    #[arg(long, value_hint = ValueHint::Url, default_value = "http://127.0.0.1:3000")]
+    #[arg(long, value_hint = ValueHint::Url, default_value = "http://127.0.0.1:4165")]
     endpoint: Url,
 
     /// Path to a PEM certificate to trust as the server's CA, for endpoints using a self-signed
