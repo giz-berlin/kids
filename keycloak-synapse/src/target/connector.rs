@@ -194,7 +194,7 @@ impl kids_lib::interface::target::Target for Connector {
             .await
             .map_err(|e| e.with_context("Failed to create Synapse API client"))?;
         let mut synapse_interactor = crate::target::SynapseInteractor::new(synapse_api);
-        let mappings = crate::target::IdMapping::generate(&mut synapse_interactor, &config.synapse_api.matrix_syncer_user_id).await?;
+        let mappings = crate::target::IdMapping::generate(&mut synapse_interactor).await?;
         Ok(Connector {
             config,
             synapse_interactor,
@@ -210,7 +210,7 @@ impl kids_lib::interface::target::Target for Connector {
         tracing::info!(
             "To prepare for full sync, re-building mapping between source group IDs and matrix room IDs, as well as source user IDs and matrix user IDs"
         );
-        self.mappings = crate::target::IdMapping::generate(&mut self.synapse_interactor, &self.config.synapse_api.matrix_syncer_user_id).await?;
+        self.mappings = crate::target::IdMapping::generate(&mut self.synapse_interactor).await?;
 
         Ok(())
     }
@@ -510,13 +510,13 @@ impl Connector {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::target::external::MockSynapseApi;
     use crate::target::test_mocks::{MockSynapseRoomBuilder, MockSynapseUserBuilder, SynapseApiMocker};
     use kids_lib::interface::source::Group;
     use kids_lib::interface::target::Target;
     use rstest::*;
 
     const REQUIRED_ROLE: &str = "feature:authenticate";
+    const SYNCER_USER_ID: &str = "syncer-user";
 
     #[fixture]
     pub fn connector() -> Connector {
@@ -534,7 +534,7 @@ mod test {
                 source_room_name_attr: "test".to_string(),
                 required_role_name: Some(REQUIRED_ROLE.to_owned()),
             },
-            synapse_interactor: crate::target::SynapseInteractor::new(MockSynapseApi::default()),
+            synapse_interactor: SynapseApiMocker::new(SYNCER_USER_ID).into(),
             mappings: crate::target::IdMapping::empty(),
         }
     }
@@ -561,7 +561,7 @@ mod test {
         #[tokio::test]
         async fn then_return_ok(mut connector: Connector) {
             // given
-            connector.synapse_interactor = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                 .can_get_joined_rooms_of_syncer()
                 .can_associate_source_group_id_to_room()
                 .can_get_users()
@@ -581,7 +581,7 @@ mod test {
             let room1 = MockSynapseRoomBuilder::default().build();
             let room2 = MockSynapseRoomBuilder::default().build();
 
-            connector.synapse_interactor = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                 .with_rooms(vec![room1.clone(), room2.clone()])
                 .can_get_joined_rooms_of_syncer()
                 .can_get_room_associated_source_group_id_v1()
@@ -611,7 +611,7 @@ mod test {
             let user1 = MockSynapseUserBuilder::default().build();
             let user2 = MockSynapseUserBuilder::default().build();
 
-            connector.synapse_interactor = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                 .with_users(vec![user1.clone(), user2.clone()])
                 .can_get_joined_rooms_of_syncer()
                 .can_get_users()
@@ -636,7 +636,7 @@ mod test {
         #[tokio::test]
         async fn then_completely_clears_mappings(mut connector: Connector) {
             // given
-            connector.synapse_interactor = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().can_get_users().into();
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID).can_get_joined_rooms_of_syncer().can_get_users().into();
 
             connector.mappings.get_group_id_mapping_mut().insert(
                 kids_test_lib::util::constants::DEFAULT_SOURCE_GROUP_ID.to_string(),
@@ -670,7 +670,7 @@ mod test {
             let user1 = MockSynapseUserBuilder::default().build();
             let user2 = MockSynapseUserBuilder::default().source_user_id(user1.source_user_id.clone()).build();
 
-            connector.synapse_interactor = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                 .with_rooms(vec![room1.clone(), room2.clone()])
                 .with_users(vec![user1.clone(), user2.clone()])
                 .can_get_joined_rooms_of_syncer()
@@ -697,7 +697,7 @@ mod test {
             let room2 = MockSynapseRoomBuilder::default().build();
             let room3 = MockSynapseRoomBuilder::default().build();
 
-            connector.synapse_interactor = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                 .with_rooms(vec![room1.clone(), room2.clone(), room3.clone()])
                 .can_get_joined_rooms_of_syncer()
                 .can_get_room_associated_source_group_id_v1()
@@ -725,7 +725,7 @@ mod test {
             let user2 = MockSynapseUserBuilder::default().build();
             let user3 = MockSynapseUserBuilder::default().build();
 
-            connector.synapse_interactor = SynapseApiMocker::new()
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                 .with_users(vec![user1.clone(), user2.clone(), user3.clone()])
                 .can_get_joined_rooms_of_syncer()
                 .can_get_users()
@@ -747,7 +747,7 @@ mod test {
         #[tokio::test]
         async fn but_cannot_get_joined_rooms_of_syncer_then_return_err(mut connector: Connector) {
             // given
-            connector.synapse_interactor = SynapseApiMocker::new().cannot_get_joined_rooms_of_syncer().into();
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID).cannot_get_joined_rooms_of_syncer().into();
 
             // when
             let full_sync_incoming_result = connector.full_sync_incoming().await;
@@ -760,7 +760,7 @@ mod test {
         #[tokio::test]
         async fn but_cannot_get_users_then_return_err(mut connector: Connector) {
             // given
-            connector.synapse_interactor = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().cannot_get_users().into();
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID).can_get_joined_rooms_of_syncer().cannot_get_users().into();
 
             // when
             let full_sync_incoming_result = connector.full_sync_incoming().await;
@@ -834,7 +834,7 @@ mod test {
                 // given
                 let group = Group::new("group", None);
                 let group_id = group.id.clone();
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .cannot_create_room()
@@ -858,7 +858,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let group_id = group.id.clone();
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -888,7 +888,7 @@ mod test {
                 let group_id = group.id.clone();
                 {
                     // 1. Add
-                    connector.synapse_interactor = SynapseApiMocker::new()
+                    connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         .can_create_room()
@@ -908,7 +908,7 @@ mod test {
                 }
                 {
                     // 2. Do nothing
-                    connector.synapse_interactor = SynapseApiMocker::new()
+                    connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         // We disallow room creation here, it must use the existing one instead.
@@ -936,7 +936,7 @@ mod test {
             async fn create_group_fails_with_invalid_group_name(mut connector: Connector, #[case] invalid_group_name: &'static str) {
                 // given
                 let group = Group::new(invalid_group_name, None);
-                connector.synapse_interactor = SynapseApiMocker::new().can_get_joined_rooms_of_syncer().can_get_users().into();
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID).can_get_joined_rooms_of_syncer().can_get_users().into();
 
                 // when
                 let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
@@ -960,7 +960,7 @@ mod test {
                 // given
                 let mut group = Group::new("group", None);
                 let group_id = group.id.clone();
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1023,7 +1023,7 @@ mod test {
                 let group_id = group.id.clone();
                 let matrix_room_id = {
                     // 1. Add
-                    connector.synapse_interactor = SynapseApiMocker::new()
+                    connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         .can_create_room()
@@ -1050,7 +1050,7 @@ mod test {
                         entry.clear();
                         entry.push(new_group_name.to_owned());
                     });
-                    connector.synapse_interactor = SynapseApiMocker::new()
+                    connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                         .with_rooms(vec![
                             MockSynapseRoomBuilder::default()
                                 .source_room_id(group_id.clone())
@@ -1093,7 +1093,7 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let group_id = group.id.clone();
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1137,7 +1137,7 @@ mod test {
                 );
                 let group_id = group.id.clone();
                 connector.config.room_deletion_strategy = deletion_strategy;
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1154,7 +1154,7 @@ mod test {
                     connector.mappings.get_group(&group_id)
                 };
                 connector.synapse_interactor = {
-                    let mut mock_api = SynapseApiMocker::new().with_rooms(vec![
+                    let mut mock_api = SynapseApiMocker::new(SYNCER_USER_ID).with_rooms(vec![
                         MockSynapseRoomBuilder::default()
                             .source_room_id(group_id.clone())
                             .matrix_room_id(matrix_room_id.clone())
@@ -1167,7 +1167,6 @@ mod test {
                         // Managing room members is necessary to kick users.
                         mock_api = mock_api.can_manage_room_members(
                             matrix_room_id,
-                            "syncer-user",
                             ["user-1", "user-2"],
                             matches!(deletion_strategy, crate::target::RoomDeletionStrategy::Evacuate),
                             None,
@@ -1207,7 +1206,7 @@ mod test {
                 );
                 let group_id = group.id.clone();
                 connector.config.room_deletion_strategy = deletion_strategy;
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_create_room()
@@ -1225,7 +1224,7 @@ mod test {
                 }
                 .to_owned();
                 connector.synapse_interactor = {
-                    let mut mock_api = SynapseApiMocker::new().with_rooms(vec![
+                    let mut mock_api = SynapseApiMocker::new(SYNCER_USER_ID).with_rooms(vec![
                         MockSynapseRoomBuilder::default()
                             .source_room_id(group_id.clone())
                             .matrix_room_id(matrix_room_id.clone())
@@ -1234,7 +1233,7 @@ mod test {
                     // Managing room members is necessary to kick users.
                     // We disallow the syncer to leave the room as we will fail kicking all users.
                     // In that case, the syncer must not leave the room.
-                    mock_api = mock_api.can_manage_room_members(matrix_room_id.clone(), "syncer-user", ["user-1", "user-2"], false, Some("user-1"));
+                    mock_api = mock_api.can_manage_room_members(matrix_room_id.clone(), ["user-1", "user-2"], false, Some("user-1"));
                     mock_api.into()
                 };
                 {
@@ -1366,7 +1365,7 @@ mod test {
                 let room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
                 connector
                     .replace_api_mock(
-                        SynapseApiMocker::new()
+                        SynapseApiMocker::new(SYNCER_USER_ID)
                             .with_rooms(vec![room.clone()])
                             .can_get_homeserver_domain("testing.example.com")
                             .can_get_joined_rooms_of_syncer()
@@ -1414,7 +1413,7 @@ mod test {
                 );
                 let user_id = user.id.clone();
                 let room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .with_rooms(vec![room.clone()])
                     .can_get_homeserver_domain("testing.example.com")
                     .can_get_joined_rooms_of_syncer()
@@ -1448,7 +1447,7 @@ mod test {
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
                     .replace_api_mock(
-                        SynapseApiMocker::new()
+                        SynapseApiMocker::new(SYNCER_USER_ID)
                             .with_rooms(vec![synapse_room])
                             .with_users(vec![synapse_user])
                             .can_get_joined_rooms_of_syncer()
@@ -1496,7 +1495,7 @@ mod test {
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
                     .replace_api_mock(
-                        SynapseApiMocker::new()
+                        SynapseApiMocker::new(SYNCER_USER_ID)
                             .with_rooms(vec![])
                             .with_users(vec![synapse_user.clone()])
                             .can_get_joined_rooms_of_syncer()
@@ -1526,7 +1525,7 @@ mod test {
                 };
                 user.first_name = Some(new_first_name.to_owned());
                 user.email = Some(new_email.to_owned());
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .with_rooms(vec![])
                     .with_users(vec![synapse_user.clone()])
                     .can_get_joined_rooms_of_syncer()
@@ -1572,7 +1571,7 @@ mod test {
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
                     .replace_api_mock(
-                        SynapseApiMocker::new()
+                        SynapseApiMocker::new(SYNCER_USER_ID)
                             .with_rooms(vec![synapse_room.clone()])
                             .with_users(vec![synapse_user.clone()])
                             .can_get_room_associated_source_group_id_v1()
@@ -1601,7 +1600,7 @@ mod test {
 
                 // when
                 user.roles = vec![];
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .with_rooms(vec![synapse_room.clone()])
                     .with_users(vec![synapse_user.clone()])
                     .can_get_joined_rooms_of_syncer()
@@ -1628,7 +1627,7 @@ mod test {
 
                 // when
                 user.roles = vec![REQUIRED_ROLE.to_owned()];
-                connector.synapse_interactor = SynapseApiMocker::new()
+                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .with_rooms(vec![synapse_room.clone()])
                     .with_users(vec![synapse_user.clone()])
                     .can_get_joined_rooms_of_syncer()
@@ -1669,7 +1668,7 @@ mod test {
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
                     .replace_api_mock(
-                        SynapseApiMocker::new()
+                        SynapseApiMocker::new(SYNCER_USER_ID)
                             .with_rooms(vec![synapse_room.clone()])
                             .with_users(vec![synapse_user.clone()])
                             .can_get_joined_rooms_of_syncer()
@@ -1710,7 +1709,7 @@ mod test {
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
                     .replace_api_mock(
-                        SynapseApiMocker::new()
+                        SynapseApiMocker::new(SYNCER_USER_ID)
                             .with_rooms(vec![synapse_room.clone()])
                             .with_users(vec![synapse_user.clone()])
                             .can_get_joined_rooms_of_syncer()
@@ -1750,7 +1749,7 @@ mod test {
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 let get_api_mocker = |joined_room: Vec<&crate::target::test_mocks::MockSynapseRoom>| {
-                    SynapseApiMocker::new()
+                    SynapseApiMocker::new(SYNCER_USER_ID)
                         .with_rooms(vec![synapse_room.clone()])
                         .with_users(vec![synapse_user.clone()])
                         .can_get_joined_rooms_of_syncer()
@@ -1832,7 +1831,7 @@ mod test {
                     // 1. Create user.
                     connector
                         .replace_api_mock(
-                            SynapseApiMocker::new()
+                            SynapseApiMocker::new(SYNCER_USER_ID)
                                 .with_rooms(vec![synapse_room])
                                 .with_users(vec![synapse_user.clone()])
                                 .can_get_joined_rooms_of_syncer()
@@ -1848,7 +1847,7 @@ mod test {
                 }
                 {
                     // 2. Delete user.
-                    connector.synapse_interactor = SynapseApiMocker::new().require_deactivate_user(&synapse_user).into();
+                    connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID).require_deactivate_user(&synapse_user).into();
 
                     // when
                     let deleted = connector.delete_user(&user_id).await;

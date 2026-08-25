@@ -13,3 +13,6 @@ kids-lib = { path = "../kids-lib" }
 serde = { version = "1.0.218", features = ["serde_derive"] }
 source-keycloak-lib = { path = "../source-keycloak-lib" }
 tracing = "0.1"
+
+[lints]
+workspace = true

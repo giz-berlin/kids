@@ -176,7 +176,7 @@ impl SynapseClient {
         if let Some(expires_in_ms) = token_response.expires_in_ms {
             self.authentication.expires_at = Some(chrono::Utc::now() + chrono::Duration::milliseconds(expires_in_ms));
         } else {
-            self.authentication.expires_at = None
+            self.authentication.expires_at = None;
         }
         tracing::info!(homeserver_url=%self.parsed_homeserver_url, "Logged in to homeserver");
         Ok(())
@@ -226,7 +226,7 @@ impl SynapseClient {
         Ok(())
     }
 
-    fn construct_unauthenticated_request<B: serde::Serialize>(&mut self, method: http::Method, url: String, body: Option<B>) -> RequestBuilder {
+    fn construct_unauthenticated_request<B: serde::Serialize>(&self, method: http::Method, url: String, body: Option<B>) -> RequestBuilder {
         let mut builder = self.http_client.request(method, &url);
         if let Some(body) = body {
             builder = builder.json(&body)
@@ -247,7 +247,7 @@ impl SynapseClient {
         Ok(builder)
     }
 
-    async fn send_request<T: serde::de::DeserializeOwned>(&mut self, request: RequestBuilder) -> Result<T, KidsError> {
+    async fn send_request<T: serde::de::DeserializeOwned>(&self, request: RequestBuilder) -> Result<T, KidsError> {
         match request.send().await {
             Ok(response) => {
                 let status = response.status();
@@ -290,7 +290,7 @@ impl SynapseClient {
     }
 
     async fn send_client_api_request_unauthenticated<B: serde::Serialize, T: serde::de::DeserializeOwned>(
-        &mut self,
+        &self,
         method: http::Method,
         path: ApiPath,
         body: Option<B>,

@@ -1,1 +1,2 @@
 warn-on-all-wildcard-imports = true
+avoid-breaking-exported-api = false

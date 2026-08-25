@@ -129,7 +129,6 @@ impl IdMapping {
 
     async fn generate_user_id_mapping(
         synapse_interactor: &mut crate::target::SynapseInteractor,
-        matrix_syncer_user_id: &kids_lib::types::SharedResourceIdentifier,
     ) -> Result<
         (
             std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User>,
@@ -147,7 +146,7 @@ impl IdMapping {
         let mut user_id_mapping: std::collections::HashMap<String, crate::target::dto::User> = std::collections::HashMap::new();
         for user in matrix_users.users {
             let source_user_id = synapse_interactor.synapse_api().get_source_user_id_for_matrix_user_id(&user.name).await;
-            let is_syncer_user = user.name == *matrix_syncer_user_id;
+            let is_syncer_user = synapse_interactor.synapse_api().user_is_matrix_syncer(user.name.as_str());
             let source_user_id = match (source_user_id, is_syncer_user) {
                 (Ok(source_user_id), false) => source_user_id,
                 (Ok(source_user_id), true) => {
@@ -163,6 +162,7 @@ impl IdMapping {
                     continue;
                 }
             };
+
             if user_id_mapping.contains_key(&source_user_id) {
                 // This should not happen because matrix does not allow creating two users with equal source ids
                 // (otherwise, when logging in via SSO, matrix would not know which user to login).
@@ -184,13 +184,10 @@ impl IdMapping {
     /// Keycloak are different than in Synapse.
     ///
     /// Therefore, we need a mapping between both, which is built in this function.
-    pub async fn generate(
-        synapse_interactor: &mut crate::target::SynapseInteractor,
-        matrix_syncer_user_id: &kids_lib::types::SharedResourceIdentifier,
-    ) -> Result<Self, kids_lib::error::KidsError> {
+    pub async fn generate(synapse_interactor: &mut crate::target::SynapseInteractor) -> Result<Self, kids_lib::error::KidsError> {
         let group_id_mapping = Self::generate_group_id_mapping(synapse_interactor).await?;
 
-        let (user_id_mapping, syncer_source_user_id) = Self::generate_user_id_mapping(synapse_interactor, matrix_syncer_user_id).await?;
+        let (user_id_mapping, syncer_source_user_id) = Self::generate_user_id_mapping(synapse_interactor).await?;
 
         Ok(Self {
             group_id_mapping,

@@ -9,6 +9,9 @@ members = [
     "webhook-cli",
 ]
 
+[workspace.lints.clippy]
+needless_pass_by_ref_mut = "deny"
+
 [profile.test.package."*"]
 # To make recompiling tests a bit faster, see
 # https://www.reddit.com/r/bevy/comments/1jtrcdy/unit_tests_recompile_all_dependencies_every_time/
