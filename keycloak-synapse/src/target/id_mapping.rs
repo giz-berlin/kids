@@ -66,7 +66,7 @@ impl IdMapping {
     }
 
     async fn generate_group_id_mapping(
-        synapse_interactor: &mut crate::target::SynapseInteractor,
+        synapse_interactor: &crate::target::SynapseInteractor,
     ) -> Result<std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>, kids_lib::error::KidsError> {
         let matrix_syncer_joined_rooms = synapse_interactor
             .synapse_api()
@@ -128,7 +128,7 @@ impl IdMapping {
     }
 
     async fn generate_user_id_mapping(
-        synapse_interactor: &mut crate::target::SynapseInteractor,
+        synapse_interactor: &crate::target::SynapseInteractor,
     ) -> Result<
         (
             std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User>,
@@ -184,7 +184,7 @@ impl IdMapping {
     /// Keycloak are different than in Synapse.
     ///
     /// Therefore, we need a mapping between both, which is built in this function.
-    pub async fn generate(synapse_interactor: &mut crate::target::SynapseInteractor) -> Result<Self, kids_lib::error::KidsError> {
+    pub async fn generate(synapse_interactor: &crate::target::SynapseInteractor) -> Result<Self, kids_lib::error::KidsError> {
         let group_id_mapping = Self::generate_group_id_mapping(synapse_interactor).await?;
 
         let (user_id_mapping, syncer_source_user_id) = Self::generate_user_id_mapping(synapse_interactor).await?;

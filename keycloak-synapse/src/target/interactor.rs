@@ -9,8 +9,8 @@ impl SynapseInteractor {
         }
     }
 
-    pub fn synapse_api(&mut self) -> &mut (dyn crate::target::external::SynapseApi + Send + Sync) {
-        self.synapse_api.as_mut()
+    pub fn synapse_api(&self) -> &(dyn crate::target::external::SynapseApi + Send + Sync) {
+        self.synapse_api.as_ref()
     }
 
     pub fn generate_matrix_user_id(&self, username: &str) -> String {
@@ -18,7 +18,7 @@ impl SynapseInteractor {
     }
 
     pub async fn ensure_user_display_name(
-        &mut self,
+        &self,
         matrix_user_id: &str,
         desired_name_opt: Option<&str>,
         source_user_id: &str,
@@ -47,12 +47,7 @@ impl SynapseInteractor {
         Ok(())
     }
 
-    pub async fn ensure_user_email(
-        &mut self,
-        matrix_user_id: &str,
-        desired_email: Option<&str>,
-        source_user_id: &str,
-    ) -> Result<(), kids_lib::error::KidsError> {
+    pub async fn ensure_user_email(&self, matrix_user_id: &str, desired_email: Option<&str>, source_user_id: &str) -> Result<(), kids_lib::error::KidsError> {
         let matrix_three_pids = self.synapse_api.get_user_three_pids(matrix_user_id).await?;
         let desired_three_pids: &[crate::target::dto::ThreePID] = if let Some(email) = desired_email {
             &[crate::target::dto::ThreePID {
@@ -78,7 +73,7 @@ impl SynapseInteractor {
     /// The old syncer used a different event to associate matrix rooms to keycloak rooms.
     /// This function migrates rooms to the new format.
     /// Once the new syncer was successfully run once, we should be able to delete this method.
-    pub async fn migrate(&mut self, rooms: &[String]) {
+    pub async fn migrate(&self, rooms: &[String]) {
         for room in rooms {
             if let Ok(source_id) = self.synapse_api.get_room_associated_source_group_id_v1(room).await {
                 match self.synapse_api.associate_source_group_id_to_room(room, &source_id).await {
@@ -89,7 +84,7 @@ impl SynapseInteractor {
         }
     }
 
-    pub async fn ensure_group_display_name(&mut self, matrix_room_id: &str, desired_name: String) {
+    pub async fn ensure_group_display_name(&self, matrix_room_id: &str, desired_name: String) {
         let old_display_name = self.synapse_api.get_room_display_name(matrix_room_id).await;
         match old_display_name {
             Ok(old_display_name) if old_display_name != desired_name => match self.synapse_api.set_room_display_name(matrix_room_id, &desired_name).await {
@@ -103,7 +98,7 @@ impl SynapseInteractor {
         }
     }
 
-    pub async fn ensure_group_canonical_alias(&mut self, matrix_room_id: &str, desired_alias: String) {
+    pub async fn ensure_group_canonical_alias(&self, matrix_room_id: &str, desired_alias: String) {
         let canonical_alias_event = self.synapse_api.get_room_canonical_alias(matrix_room_id).await;
         match canonical_alias_event {
             Ok(canonical_alias_event) => {
@@ -150,7 +145,7 @@ impl SynapseInteractor {
     }
 
     pub async fn delete_room(
-        &mut self,
+        &self,
         matrix_room_id: &str,
         room_deletion_strategy: crate::target::RoomDeletionStrategy,
     ) -> Result<(), kids_lib::error::KidsError> {

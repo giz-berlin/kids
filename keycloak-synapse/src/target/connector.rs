@@ -42,7 +42,7 @@ pub struct Connector {
 
 impl Connector {
     async fn ensure_user_display_name(
-        &mut self,
+        &self,
         matrix_user_id: &str,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<(), KidsError> {
@@ -52,7 +52,7 @@ impl Connector {
             .await
     }
 
-    async fn ensure_user_email(&mut self, matrix_user_id: &str, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<(), KidsError> {
+    async fn ensure_user_email(&self, matrix_user_id: &str, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<(), KidsError> {
         let desired_email = source_user.email();
         self.synapse_interactor.ensure_user_email(matrix_user_id, desired_email, source_user.id()).await
     }
@@ -128,7 +128,7 @@ impl Connector {
         Ok(())
     }
 
-    async fn ensure_user_rooms(&mut self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<(), KidsError> {
+    async fn ensure_user_rooms(&self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<(), KidsError> {
         let matrix_user_id = self.mappings.get_user(source_user.id()).name.as_str();
 
         let desired_user_groups = source_user
@@ -193,8 +193,8 @@ impl kids_lib::interface::target::Target for Connector {
         let synapse_api = external::SynapseClient::new(config.synapse_api.clone())
             .await
             .map_err(|e| e.with_context("Failed to create Synapse API client"))?;
-        let mut synapse_interactor = crate::target::SynapseInteractor::new(synapse_api);
-        let mappings = crate::target::IdMapping::generate(&mut synapse_interactor).await?;
+        let synapse_interactor = crate::target::SynapseInteractor::new(synapse_api);
+        let mappings = crate::target::IdMapping::generate(&synapse_interactor).await?;
         Ok(Connector {
             config,
             synapse_interactor,
@@ -210,7 +210,7 @@ impl kids_lib::interface::target::Target for Connector {
         tracing::info!(
             "To prepare for full sync, re-building mapping between source group IDs and matrix room IDs, as well as source user IDs and matrix user IDs"
         );
-        self.mappings = crate::target::IdMapping::generate(&mut self.synapse_interactor).await?;
+        self.mappings = crate::target::IdMapping::generate(&self.synapse_interactor).await?;
 
         Ok(())
     }
@@ -496,12 +496,12 @@ impl Connector {
     ///
     /// This method expects the self.config.source_room_name_attr to be set on the source group.
     /// It should only be called on groups were that's the case (it will panic otherwise).
-    async fn update_display_name(&mut self, matrix_room_id: &str, room_name_attr: String, source_group_name: &str) {
+    async fn update_display_name(&self, matrix_room_id: &str, room_name_attr: String, source_group_name: &str) {
         let desired_name = self.get_room_desired_display_name(room_name_attr, source_group_name);
         self.synapse_interactor.ensure_group_display_name(matrix_room_id, desired_name).await;
     }
 
-    async fn update_canonical_alias(&mut self, matrix_room_id: &str, source_group: &std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>) {
+    async fn update_canonical_alias(&self, matrix_room_id: &str, source_group: &std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>) {
         let full_room_alias = self.synapse_interactor.synapse_api().full_room_alias(source_group.path());
         self.synapse_interactor.ensure_group_canonical_alias(matrix_room_id, full_room_alias).await;
     }
