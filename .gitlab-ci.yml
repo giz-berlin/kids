@@ -94,9 +94,6 @@ docker-image:
         matrix:
           - BINARY: $BINARY
   image: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/library/docker:latest
-  needs:
-    - job: build
-      artifacts: true
   tags:
     # Use a privileged runner for building Docker container
     - privileged
