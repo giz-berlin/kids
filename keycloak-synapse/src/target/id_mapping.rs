@@ -1,50 +1,14 @@
-pub struct IdMapping {
-    group_id_mapping: std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>,
-    user_id_mapping: std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User>,
-    /// The source id of the syncer user, if present.
-    /// This user will be ignored.
-    syncer_source_user_id: Option<kids_lib::types::SharedResourceIdentifier>,
+pub struct GroupMapping {
+    pub group_id_mapping: std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>,
 }
 
-impl IdMapping {
+impl GroupMapping {
     pub const fn get_group_id_mapping(&self) -> &std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, String> {
         &self.group_id_mapping
     }
-    pub const fn get_user_id_mapping(&self) -> &std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User> {
-        &self.user_id_mapping
-    }
+
     pub const fn get_group_id_mapping_mut(&mut self) -> &mut std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, String> {
         &mut self.group_id_mapping
-    }
-    pub const fn get_user_id_mapping_mut(&mut self) -> &mut std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User> {
-        &mut self.user_id_mapping
-    }
-    pub const fn get_syncer_source_user_id(&self) -> Option<&kids_lib::types::SharedResourceIdentifier> {
-        self.syncer_source_user_id.as_ref()
-    }
-
-    pub fn has_user(&self, source_user_id: &str) -> bool {
-        self.get_user_opt(source_user_id).is_some()
-    }
-
-    pub fn get_user_opt(&self, source_user_id: &str) -> Option<&crate::target::dto::User> {
-        self.get_user_id_mapping().get(source_user_id)
-    }
-
-    pub fn get_user_opt_mut(&mut self, source_user_id: &str) -> Option<&mut crate::target::dto::User> {
-        self.get_user_id_mapping_mut().get_mut(source_user_id)
-    }
-
-    /// This method panics when the user cannot be found.
-    pub fn get_user(&self, source_user_id: &str) -> &crate::target::dto::User {
-        self.get_user_opt(source_user_id)
-            .expect("User not found, although it should be guaranteed it exists")
-    }
-
-    /// This method panics when the user cannot be found.
-    pub fn get_user_mut(&mut self, source_user_id: &str) -> &mut crate::target::dto::User {
-        self.get_user_opt_mut(source_user_id)
-            .expect("User not found, although it should be guaranteed it exists")
     }
 
     pub fn has_group(&self, source_group_id: &str) -> bool {
@@ -65,9 +29,7 @@ impl IdMapping {
             .expect("Group not found, although it should be guaranteed it exists")
     }
 
-    async fn generate_group_id_mapping(
-        synapse_interactor: &crate::target::SynapseInteractor,
-    ) -> Result<std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, String>, kids_lib::error::KidsError> {
+    async fn generate(synapse_interactor: &crate::target::SynapseInteractor) -> Result<Self, kids_lib::error::KidsError> {
         let matrix_syncer_joined_rooms = synapse_interactor
             .synapse_api()
             .get_joined_rooms_of_syncer()
@@ -124,18 +86,54 @@ impl IdMapping {
 
             group_id_mapping.insert(source_group_id, matrix_room_id);
         }
-        Ok(group_id_mapping)
+        Ok(Self { group_id_mapping })
     }
 
-    async fn generate_user_id_mapping(
-        synapse_interactor: &crate::target::SynapseInteractor,
-    ) -> Result<
-        (
-            std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User>,
-            Option<kids_lib::types::SharedResourceIdentifier>,
-        ),
-        kids_lib::error::KidsError,
-    > {
+    #[cfg(test)]
+    fn empty() -> Self {
+        Self {
+            group_id_mapping: std::collections::HashMap::new(),
+        }
+    }
+}
+
+pub struct UserMapping {
+    user_id_mapping: std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User>,
+    /// The source id of the syncer user, if present.
+    /// This user will be ignored.
+    syncer_source_user_id: Option<kids_lib::types::SharedResourceIdentifier>,
+}
+
+impl UserMapping {
+    pub const fn get_user_id_mapping(&self) -> &std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User> {
+        &self.user_id_mapping
+    }
+    pub const fn get_user_id_mapping_mut(&mut self) -> &mut std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User> {
+        &mut self.user_id_mapping
+    }
+    pub const fn get_syncer_source_user_id(&self) -> Option<&kids_lib::types::SharedResourceIdentifier> {
+        self.syncer_source_user_id.as_ref()
+    }
+
+    pub fn has_user(&self, source_user_id: &str) -> bool {
+        self.get_user_opt(source_user_id).is_some()
+    }
+
+    pub fn get_user_opt(&self, source_user_id: &str) -> Option<&crate::target::dto::User> {
+        self.get_user_id_mapping().get(source_user_id)
+    }
+
+    pub fn get_user_opt_mut(&mut self, source_user_id: &str) -> Option<&mut crate::target::dto::User> {
+        self.get_user_id_mapping_mut().get_mut(source_user_id)
+    }
+
+    /// This method panics when the user cannot be found.
+    pub fn get_user(&self, source_user_id: &str) -> &crate::target::dto::User {
+        self.get_user_opt(source_user_id)
+            .expect("User not found, although it should be guaranteed it exists")
+    }
+
+    async fn generate(synapse_interactor: &crate::target::SynapseInteractor) -> Result<Self, kids_lib::error::KidsError> {
         let matrix_users = synapse_interactor
             .synapse_api()
             .get_users()
@@ -177,21 +175,38 @@ impl IdMapping {
 
             user_id_mapping.insert(source_user_id, user);
         }
-        Ok((user_id_mapping, syncer_source_user_id))
+        Ok(Self {
+            user_id_mapping,
+            syncer_source_user_id,
+        })
     }
 
+    #[cfg(test)]
+    fn empty() -> Self {
+        Self {
+            syncer_source_user_id: None,
+            user_id_mapping: std::collections::HashMap::new(),
+        }
+    }
+}
+
+pub struct IdMapping {
+    pub(crate) group_id_mapping: GroupMapping,
+    pub(crate) user_id_mapping: UserMapping,
+}
+
+impl IdMapping {
     /// This function generates different id mappings required as user and group ids in
     /// Keycloak are different than in Synapse.
     ///
     /// Therefore, we need a mapping between both, which is built in this function.
     pub async fn generate(synapse_interactor: &crate::target::SynapseInteractor) -> Result<Self, kids_lib::error::KidsError> {
-        let group_id_mapping = Self::generate_group_id_mapping(synapse_interactor).await?;
+        let group_id_mapping = GroupMapping::generate(synapse_interactor).await?;
 
-        let (user_id_mapping, syncer_source_user_id) = Self::generate_user_id_mapping(synapse_interactor).await?;
+        let user_id_mapping = UserMapping::generate(synapse_interactor).await?;
 
         Ok(Self {
             group_id_mapping,
-            syncer_source_user_id,
             user_id_mapping,
         })
     }
@@ -201,9 +216,8 @@ impl IdMapping {
 impl IdMapping {
     pub fn empty() -> Self {
         Self {
-            group_id_mapping: std::collections::HashMap::new(),
-            user_id_mapping: std::collections::HashMap::new(),
-            syncer_source_user_id: None,
+            group_id_mapping: GroupMapping::empty(),
+            user_id_mapping: UserMapping::empty(),
         }
     }
 }

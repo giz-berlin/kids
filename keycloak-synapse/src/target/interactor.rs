@@ -47,15 +47,20 @@ impl SynapseInteractor {
         Ok(())
     }
 
-    pub async fn ensure_user_email(&self, matrix_user_id: &str, desired_email: Option<&str>, source_user_id: &str) -> Result<(), kids_lib::error::KidsError> {
+    pub async fn ensure_user_email(
+        &self,
+        matrix_user_id: &str,
+        desired_email: Option<&str>,
+        source_user_id: &str,
+    ) -> Result<Option<Vec<crate::target::dto::ThreePID>>, kids_lib::error::KidsError> {
         let matrix_three_pids = self.synapse_api.get_user_three_pids(matrix_user_id).await?;
-        let desired_three_pids: &[crate::target::dto::ThreePID] = if let Some(email) = desired_email {
-            &[crate::target::dto::ThreePID {
+        let desired_three_pids = if let Some(email) = desired_email {
+            vec![crate::target::dto::ThreePID {
                 medium: crate::target::dto::ThreePIDMedium::Email,
                 address: email.to_owned(),
             }]
         } else {
-            &[]
+            vec![]
         };
         if matrix_three_pids != desired_three_pids {
             tracing::debug!(
@@ -65,9 +70,9 @@ impl SynapseInteractor {
                 new_three_pids = ?desired_three_pids,
                 "Updating user's 3PIDs."
             );
-            self.synapse_api.set_user_three_pids(matrix_user_id, desired_three_pids).await?;
+            self.synapse_api.set_user_three_pids(matrix_user_id, desired_three_pids.as_slice()).await?;
         }
-        Ok(())
+        Ok(if desired_three_pids.is_empty() { None } else { Some(desired_three_pids) })
     }
 
     /// The old syncer used a different event to associate matrix rooms to keycloak rooms.

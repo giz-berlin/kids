@@ -8,6 +8,6 @@ mod room_deletion_strategy;
 mod test_mocks;
 
 pub use connector::Connector;
-use id_mapping::IdMapping;
+use id_mapping::{GroupMapping, IdMapping, UserMapping};
 pub use interactor::SynapseInteractor;
 pub use room_deletion_strategy::RoomDeletionStrategy;
