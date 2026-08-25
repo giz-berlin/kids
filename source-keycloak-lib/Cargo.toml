@@ -1,13 +1,12 @@
 [package]
 name = "source-keycloak-lib"
+description = "Keycloak source connector — reads users and groups from a Keycloak identity provider for synchronization to external targets"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
-[lib]
-
 [dependencies]
-kids-lib = { path="../kids-lib" }
+kids-lib = { path = "../kids-lib" }
 anyhow = "1"
 serde = { version = "1.0.218", features = ["serde_derive"] }
 tokio = { version = "1", features = ["full"] }
@@ -21,4 +20,4 @@ uuid = { version = "1.16.0", features = ["v4", "serde"] }
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
 
 [dev-dependencies]
-kids-test-lib = { path="../kids-test-lib" }
+kids-test-lib = { path = "../kids-test-lib" }

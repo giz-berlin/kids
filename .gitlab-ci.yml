@@ -92,7 +92,7 @@ docker-image:
       artifacts: true
       parallel:
         matrix:
-          - BINARY: $BINARY
+          - BINARY: *binaries
   image: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/library/docker:latest
   tags:
     # Use a privileged runner for building Docker container

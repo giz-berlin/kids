@@ -1,12 +1,14 @@
 [package]
 name = "keycloak-synapse"
+description = "Keycloak to Synapse identity syncer — synchronizes users and groups from Keycloak to a Synapse Matrix homeserver via webhook endpoints"
+homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-synapse"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [dependencies]
-kids-lib = { path="../kids-lib" }
-source-keycloak-lib = { path="../source-keycloak-lib" }
+kids-lib = { path = "../kids-lib" }
+source-keycloak-lib = { path = "../source-keycloak-lib" }
 anyhow = "1"
 serde = { version = "1.0.218", features = ["serde_derive"] }
 tokio = { version = "1", features = ["full"] }
@@ -23,5 +25,5 @@ chrono = { version = "0.4.41", features = ["serde"] }
 urlencoding = "2.1.3"
 
 [dev-dependencies]
-kids-test-lib = { path="../kids-test-lib" }
+kids-test-lib = { path = "../kids-test-lib" }
 rstest = "0.25.0"

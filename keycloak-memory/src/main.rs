@@ -4,5 +4,5 @@ mod target;
 /// target for local and E2E testing of core functionality without having to spin
 /// up an entire external service.
 fn main() -> anyhow::Result<()> {
-    kids_lib::cli::run::<source_keycloak_lib::Connector, target::Connector>()
+    kids_lib::cli_run!(source_keycloak_lib::Connector, target::Connector)
 }

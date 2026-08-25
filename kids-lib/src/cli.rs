@@ -1,19 +1,60 @@
 use std::str::FromStr;
 
 use anyhow::Context;
-use clap::Parser;
+use clap::{ArgMatches, Command};
 use tracing_subscriber::Layer;
 
-#[derive(clap::Parser, Debug)]
-#[command(author, version, about, long_about = "KIDS - Keycloak Identity Syncer")]
+/// KIDS - Keycloak Identity Syncer
+#[derive(Debug)]
 pub struct CliArguments {
-    #[clap(long, short, default_value = "config.toml", help = "Path to the config file")]
-    config: std::path::PathBuf,
+    pub config: std::path::PathBuf,
 }
 
-pub fn run<S: crate::interface::source::Source + Send + Sync + 'static, T: crate::interface::target::Target + Send + Sync + 'static>() -> anyhow::Result<()> {
-    let args = CliArguments::parse();
+/// Build a default clap [`Command`].
+/// Pass all string arguments as `env!("CARGO_PKG_*")` from your binary crate.
+pub fn parse_command(
+    name: &'static str,
+    version: &'static str,
+    author: &'static str,
+    about: &'static str,
+    long_about: &'static str,
+    homepage: &'static str,
+) -> Command {
+    Command::new(name)
+        .version(version)
+        .author(author)
+        .about(about)
+        .long_about(long_about)
+        .after_help(homepage)
+        .arg(
+            clap::Arg::new("config")
+                .long("config")
+                .short('c')
+                .default_value("config.toml")
+                .value_name("FILE")
+                .help("Path to the config file"),
+        )
+}
 
+impl CliArguments {
+    /// Parse [`CliArguments`] from clap [`ArgMatches`].
+    pub fn from_arg_matches(matches: &ArgMatches) -> anyhow::Result<Self> {
+        let config = matches
+            .get_one::<String>("config")
+            .map(std::path::PathBuf::from)
+            .context("failed to parse config path argument")?;
+
+        Ok(CliArguments { config })
+    }
+}
+
+/// Run the sync engine with pre-parsed CLI arguments.
+///
+/// Most binary crates should use the [`cli_run!`] macro instead, which handles
+/// argument parsing using that crate's own `CARGO_PKG_*` environment variables.
+pub fn run_with_args<S: crate::interface::source::Source + Send + Sync + 'static, T: crate::interface::target::Target + Send + Sync + 'static>(
+    args: CliArguments,
+) -> anyhow::Result<()> {
     let config = crate::config::Config::<S::Config, T::Config>::try_from(args.config)?;
 
     // Install default CryptoProvider for Rustls crate features.
@@ -66,6 +107,37 @@ pub fn run<S: crate::interface::source::Source + Send + Sync + 'static, T: crate
     });
 
     Ok(())
+}
+
+/// Convenience macro that parses CLI arguments using the *calling crate's*
+/// `CARGO_PKG_NAME`, `CARGO_PKG_VERSION`, `CARGO_PKG_AUTHORS`,
+/// `CARGO_PKG_DESCRIPTION` and `CARGO_PKG_HOMEPAGE` environment variables,
+/// then runs the sync loop with the given source and target types.
+///
+/// # Example
+/// ```ignore
+/// fn main() -> anyhow::Result<()> {
+///     kids_lib::cli_run!(source_keycloak_lib::Connector, target::Connector)
+/// }
+/// ```
+#[macro_export]
+macro_rules! cli_run {
+    ($source:path, $target:path) => {{
+        fn _run_inner() -> std::result::Result<(), anyhow::Error> {
+            let command = $crate::cli::parse_command(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_PKG_AUTHORS"),
+                concat!("KIDS - Keycloak Identity Syncer: ", env!("CARGO_PKG_NAME")),
+                env!("CARGO_PKG_DESCRIPTION"),
+                concat!("See also the project website at ", env!("CARGO_PKG_HOMEPAGE")),
+            );
+            let matches = command.get_matches();
+            let args = $crate::cli::CliArguments::from_arg_matches(&matches)?;
+            $crate::cli::run_with_args::<$source, $target>(args)
+        }
+        _run_inner()
+    }};
 }
 
 fn init_logging() -> anyhow::Result<()> {
