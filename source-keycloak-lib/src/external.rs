@@ -23,7 +23,7 @@ pub struct KeycloakApiConfig {
 }
 
 /// Abstraction of the external Keycloak API, reduced to the set of methods and parameters required for this library.
-#[mockall::automock]
+#[cfg_attr(test, mockall::automock)]
 #[async_trait::async_trait]
 pub trait KeycloakApi: Send + Sync {
     fn client_id(&self) -> &str;
