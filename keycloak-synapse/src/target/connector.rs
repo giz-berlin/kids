@@ -1351,8 +1351,6 @@ mod test {
             }
         }
 
-        /// Note that [`create_or_update_user`](Connector::create_or_update_user) can never create a new user account.
-        /// We require that the user handles the first login manually, e.g. to setup the recovery key.
         mod create {
             use super::*;
 
