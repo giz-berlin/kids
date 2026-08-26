@@ -1,11 +1,11 @@
 [workspace]
 resolver = "3"
 members = [
-    "kids-lib",
-    "source-keycloak-lib",
-    "keycloak-synapse",
     "keycloak-james",
     "keycloak-memory",
+    "keycloak-synapse",
+    "kids-lib",
+    "source-keycloak-lib",
     "webhook-cli",
 ]
 

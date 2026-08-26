@@ -7,9 +7,9 @@ edition = "2024"
 publish = false
 
 [dependencies]
-kids-lib = { path = "../kids-lib" }
-source-keycloak-lib = { path = "../source-keycloak-lib" }
 anyhow = "1"
-serde = { version = "1.0.218", features = ["serde_derive"] }
-tracing = "0.1"
 async-trait = "0.1.88"
+kids-lib = { path = "../kids-lib" }
+serde = { version = "1.0.218", features = ["serde_derive"] }
+source-keycloak-lib = { path = "../source-keycloak-lib" }
+tracing = "0.1"
