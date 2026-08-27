@@ -791,58 +791,6 @@ mod test {
     mod manage_groups {
         use super::*;
 
-        #[derive(Debug, PartialEq, Eq, Clone)]
-        pub(super) struct Group {
-            id: String,
-            attributes: std::collections::HashMap<String, Vec<String>>,
-        }
-
-        impl Group {
-            pub fn new(id: impl Into<String>, attributes: Option<std::collections::HashMap<String, Vec<String>>>) -> Self {
-                Self {
-                    id: id.into(),
-                    attributes: attributes.unwrap_or_default(),
-                }
-            }
-        }
-
-        impl From<Group> for std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync> {
-            fn from(value: Group) -> Self {
-                std::sync::Arc::new(value)
-            }
-        }
-
-        #[async_trait::async_trait(?Send)]
-        impl kids_lib::interface::source::Group for Group {
-            fn id(&self) -> &kids_lib::types::SharedResourceIdentifier {
-                &self.id
-            }
-
-            fn name(&self) -> &str {
-                &self.id
-            }
-
-            fn path(&self) -> &str {
-                &self.id
-            }
-
-            fn attributes(&self) -> &std::collections::HashMap<String, Vec<String>> {
-                &self.attributes
-            }
-
-            fn root_group(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn kids_lib::interface::source::Group> {
-                self
-            }
-
-            fn parent_group(&self) -> Option<std::sync::Arc<dyn kids_lib::interface::source::Group>> {
-                None
-            }
-
-            async fn sub_groups(self: std::sync::Arc<Self>) -> Result<Vec<std::sync::Arc<dyn kids_lib::interface::source::Group>>, KidsError> {
-                Ok(vec![])
-            }
-        }
-
         mod create {
             use super::*;
 
@@ -850,7 +798,7 @@ mod test {
             #[tokio::test]
             async fn create_group_succeeds_without_attribute(mut connector: Connector) {
                 // given
-                let group = Group::new("group", None);
+                let group = kids_test_lib::Group::new("group", None);
                 let group_id = group.id.clone();
                 connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .can_get_joined_rooms_of_syncer()
@@ -871,7 +819,7 @@ mod test {
             #[tokio::test]
             async fn create_group_succeeds_with_attribute(mut connector: Connector) {
                 // given
-                let group = Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
@@ -899,7 +847,7 @@ mod test {
             #[tokio::test]
             async fn create_group_is_idempotent(mut connector: Connector) {
                 // given
-                let group = Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
@@ -953,7 +901,7 @@ mod test {
             #[case("/usr/bin")]
             async fn create_group_fails_with_invalid_group_name(mut connector: Connector, #[case] invalid_group_name: &'static str) {
                 // given
-                let group = Group::new(invalid_group_name, None);
+                let group = kids_test_lib::Group::new(invalid_group_name, None);
                 connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID).can_get_joined_rooms_of_syncer().can_get_users().into();
 
                 // when
@@ -976,7 +924,7 @@ mod test {
             #[tokio::test]
             async fn update_group_succeeds_updates_room_existence(mut connector: Connector) {
                 // given
-                let mut group = Group::new("group", None);
+                let mut group = kids_test_lib::Group::new("group", None);
                 let group_id = group.id.clone();
                 connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .can_get_joined_rooms_of_syncer()
@@ -1033,7 +981,7 @@ mod test {
             #[case(DERIVE_DISPLAY_NAME_FROM_GROUP_NAME, "group Group Group group")]
             async fn update_group_changes_name(mut connector: Connector, #[case] attr: &'static str, #[case] expected_name: &'static str) {
                 // given
-                let mut group = Group::new(
+                let mut group = kids_test_lib::Group::new(
                     // Complex pattern for `DERIVE_DISPLAY_NAME_FROM_GROUP_NAME` handling.
                     "group-Group_Group group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
@@ -1106,7 +1054,7 @@ mod test {
             #[tokio::test]
             async fn delete_group_ignore_room_deletion(mut connector: Connector) {
                 // given
-                let group = Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
@@ -1149,7 +1097,7 @@ mod test {
                 #[case] deletion_strategy: crate::target::RoomDeletionStrategy,
             ) {
                 // given
-                let group = Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
@@ -1218,7 +1166,7 @@ mod test {
                 #[case] deletion_strategy: crate::target::RoomDeletionStrategy,
             ) {
                 // given
-                let group = Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
@@ -1274,83 +1222,6 @@ mod test {
     mod manage_users {
         use super::*;
 
-        #[derive(Debug, PartialEq, Eq, Clone)]
-        struct User {
-            id: String,
-            username: Option<String>,
-            first_name: Option<String>,
-            last_name: Option<String>,
-            email: Option<String>,
-            enabled: bool,
-            attributes: std::collections::HashMap<String, Vec<String>>,
-            groups: Vec<super::manage_groups::Group>,
-            roles: Vec<String>,
-        }
-
-        impl User {
-            #[expect(clippy::too_many_arguments)]
-            pub fn new(
-                id: impl Into<String>,
-                username: Option<String>,
-                first_name: Option<String>,
-                last_name: Option<String>,
-                email: Option<String>,
-                enabled: bool,
-                attributes: Option<std::collections::HashMap<String, Vec<String>>>,
-                groups: Option<Vec<super::manage_groups::Group>>,
-                roles: Option<Vec<String>>,
-            ) -> Self {
-                Self {
-                    id: id.into(),
-                    username,
-                    first_name,
-                    last_name,
-                    email,
-                    enabled,
-                    attributes: attributes.unwrap_or_default(),
-                    groups: groups.unwrap_or_default(),
-                    // Use required role if nothing else is put in.
-                    roles: roles.unwrap_or(vec![REQUIRED_ROLE.to_owned()]),
-                }
-            }
-        }
-
-        #[async_trait::async_trait]
-        impl kids_lib::interface::source::User for User {
-            fn id(&self) -> &kids_lib::types::SharedResourceIdentifier {
-                &self.id
-            }
-            fn enabled(&self) -> bool {
-                self.enabled
-            }
-            fn username(&self) -> Option<&str> {
-                self.username.as_deref()
-            }
-            fn first_name(&self) -> Option<&str> {
-                self.first_name.as_deref()
-            }
-            fn last_name(&self) -> Option<&str> {
-                self.last_name.as_deref()
-            }
-            fn email(&self) -> Option<&str> {
-                self.email.as_ref().map(|s| s.as_ref())
-            }
-            fn attributes(&self) -> &collections::HashMap<String, Vec<String>> {
-                &self.attributes
-            }
-
-            async fn groups(
-                &self,
-                _include_transitive_groups: bool,
-            ) -> Result<Vec<std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>>, KidsError> {
-                Ok(self.groups.clone().into_iter().map(Into::into).collect())
-            }
-
-            async fn roles(&self) -> Result<Vec<String>, KidsError> {
-                Ok(self.roles.to_vec())
-            }
-        }
-
         mod create {
             use super::*;
 
@@ -1358,21 +1229,19 @@ mod test {
             #[tokio::test]
             async fn create_user_succeeds(mut connector: Connector) {
                 // given
-                let group = super::manage_groups::Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
-                let user = User::new(
-                    "my-sub",
-                    Some("firstname.lastname".to_owned()),
-                    Some("Firstname".to_owned()),
-                    Some("Lastname".to_owned()),
-                    None,
-                    true,
-                    None,
-                    Some(vec![group.clone()]),
-                    None,
-                );
+                let user = kids_test_lib::User::builder()
+                    .id("my-sub")
+                    .username("firstname.lastname")
+                    .first_name("Firstname")
+                    .last_name("Lastname")
+                    .enabled(true)
+                    .with_group(group.clone())
+                    .with_role(REQUIRED_ROLE)
+                    .build();
                 let user_id = user.id.clone();
                 let matrix_user = MockSynapseUserBuilder::default()
                     .source_user_id(user_id.clone())
@@ -1412,21 +1281,18 @@ mod test {
             #[tokio::test]
             async fn create_user_ignores_missing_role(mut connector: Connector) {
                 // given
-                let group = super::manage_groups::Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
-                let user = User::new(
-                    "my-sub",
-                    Some("firstname.lastname".to_owned()),
-                    Some("Firstname".to_owned()),
-                    Some("Lastname".to_owned()),
-                    None,
-                    true,
-                    None,
-                    Some(vec![group.clone()]),
-                    Some(vec![]),
-                );
+                let user = kids_test_lib::User::builder()
+                    .id("my-sub")
+                    .username("firstname.lastname")
+                    .first_name("Firstname")
+                    .last_name("Lastname")
+                    .enabled(true)
+                    .with_group(group.clone())
+                    .build();
                 let user_id = user.id.clone();
                 let room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
                 connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
@@ -1453,12 +1319,17 @@ mod test {
             #[tokio::test]
             async fn not_create_user_succeeds_adding_user(mut connector: Connector) {
                 // given
-                let group = super::manage_groups::Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let user = User::new("user", None, None, None, None, true, None, Some(vec![group]), None);
+                let user = kids_test_lib::User::builder()
+                    .id("user")
+                    .enabled(true)
+                    .with_group(group.clone())
+                    .with_role(REQUIRED_ROLE)
+                    .build();
                 let user_id = user.id;
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
@@ -1493,17 +1364,14 @@ mod test {
                 // given
                 let current_first_name = "First";
                 let current_email = "my-email@example.com";
-                let mut user = User::new(
-                    "user",
-                    None,
-                    Some(current_first_name.to_owned()),
-                    Some("Lastname".to_owned()),
-                    Some(current_email.to_owned()),
-                    true,
-                    None,
-                    None,
-                    None,
-                );
+                let mut user = kids_test_lib::User::builder()
+                    .id("user")
+                    .first_name(current_first_name)
+                    .last_name("Lastname")
+                    .email(current_email)
+                    .enabled(true)
+                    .with_role(REQUIRED_ROLE)
+                    .build();
                 let new_first_name = "New First";
                 let new_display_name = "New First Lastname";
                 let new_email = "my-new-email@example.com";
@@ -1566,23 +1434,20 @@ mod test {
             #[tokio::test]
             async fn update_user_locks_without_role_unlocks_with_role(mut connector: Connector) {
                 // given
-                let group = super::manage_groups::Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
                 let current_first_name = "First";
-                let mut user = User::new(
-                    "user",
-                    None,
-                    Some(current_first_name.to_owned()),
-                    Some("Lastname".to_owned()),
-                    None,
-                    true,
-                    None,
-                    Some(vec![group]),
-                    None,
-                );
+                let mut user = kids_test_lib::User::builder()
+                    .id("user")
+                    .first_name(current_first_name)
+                    .last_name("Lastname")
+                    .enabled(true)
+                    .with_group(group.clone())
+                    .with_role(REQUIRED_ROLE)
+                    .build();
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
@@ -1674,12 +1539,17 @@ mod test {
             #[tokio::test]
             async fn update_user_adds_room(mut connector: Connector) {
                 // given
-                let group = super::manage_groups::Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let user = User::new("user", None, None, None, None, true, None, Some(vec![group]), None);
+                let user = kids_test_lib::User::builder()
+                    .id("user")
+                    .enabled(true)
+                    .with_group(group.clone())
+                    .with_role(REQUIRED_ROLE)
+                    .build();
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
@@ -1715,12 +1585,12 @@ mod test {
             #[tokio::test]
             async fn update_user_leaves_room(mut connector: Connector) {
                 // given
-                let group = super::manage_groups::Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let user = User::new("user", None, None, None, None, true, None, None, None);
+                let user = kids_test_lib::User::builder().id("user").enabled(true).with_role(REQUIRED_ROLE).build();
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 connector
@@ -1756,12 +1626,17 @@ mod test {
             #[tokio::test]
             async fn update_user_locking(mut connector: Connector) {
                 // given
-                let group = super::manage_groups::Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let mut user = User::new("user", None, None, None, None, true, None, Some(vec![group]), None);
+                let mut user = kids_test_lib::User::builder()
+                    .id("user")
+                    .enabled(true)
+                    .with_group(group.clone())
+                    .with_role(REQUIRED_ROLE)
+                    .build();
                 let user_id = user.id.clone();
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 let get_api_mocker = |joined_room: Vec<&crate::target::test_mocks::MockSynapseRoom>| {
@@ -1835,12 +1710,17 @@ mod test {
             #[tokio::test]
             async fn delete_user_deactivates_it(mut connector: Connector) {
                 // given
-                let group = super::manage_groups::Group::new(
+                let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let user = User::new("user", None, None, None, None, true, None, Some(vec![group]), None);
+                let user = kids_test_lib::User::builder()
+                    .id("user")
+                    .enabled(true)
+                    .with_group(group.clone())
+                    .with_role(REQUIRED_ROLE)
+                    .build();
                 let user_id = user.id;
                 let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
                 {
