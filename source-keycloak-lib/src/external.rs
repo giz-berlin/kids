@@ -152,7 +152,15 @@ impl KeycloakApi for KeycloakServiceAccountClient {
             let clients = KeycloakServiceAccountClient::convert_error(
                 "GET_REALM_CLIENTS",
                 self.keycloak_admin
-                    .realm_clients_get(&self.config.realm, Some(self.config.client_id.clone()), None, None, None, Some(true), None)
+                    .realm_clients_get(
+                        &self.config.realm,
+                        Some(self.config.client_id.clone()),
+                        None,
+                        Some(FETCH_ALL_ENTITIES),
+                        None,
+                        Some(true),
+                        None,
+                    )
                     .await,
             )?;
             let client_uuid = match clients.len() {
