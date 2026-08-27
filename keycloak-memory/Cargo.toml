@@ -1,0 +1,15 @@
+[package]
+name = "keycloak-memory"
+description = "In-memory target for Keycloak identity sync — provides a testable, no-dependency target implementation for local development and E2E testing without external services"
+homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-memory"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1.88"
+kids-lib = { path = "../kids-lib" }
+serde = { version = "1.0.218", features = ["serde_derive"] }
+source-keycloak-lib = { path = "../source-keycloak-lib" }
+tracing = "0.1"

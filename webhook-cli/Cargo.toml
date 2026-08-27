@@ -1,0 +1,13 @@
+[package]
+name = "webhook-cli"
+description = "CLI testing tool for interacting with Keycloak Identity Syncer webhook endpoints"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+clap = { version = "4.5.31", features = ["derive"] }
+reqwest = { version = "0.12.15", features = ["default-tls", "native-tls"] }
+source-keycloak-lib = { path = "../source-keycloak-lib" }
+tokio = { version = "1", features = ["full"] }
+url = "2.5.4"
