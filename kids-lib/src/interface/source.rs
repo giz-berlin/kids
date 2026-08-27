@@ -104,7 +104,7 @@ impl fmt::Debug for dyn User + Send + Sync {
 }
 
 /// A group entity within a data [Source].
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 pub trait Group {
     /// Identifier of the [Group].
     fn id(&self) -> &types::SharedResourceIdentifier;
@@ -129,6 +129,10 @@ pub trait Group {
     fn parent_group(&self) -> Option<std::sync::Arc<dyn Group>>;
     /// All direct subgroups of this [Group]. Will not contain transitive subgroups (i.e. grandchildren or deeper).
     async fn sub_groups(self: std::sync::Arc<Self>) -> Result<Vec<std::sync::Arc<dyn Group>>, error::KidsError>;
+    /// Get all [User]s included in this [Group].
+    /// If `include_subgroup_users` is `true`, the result also contains every [User]
+    /// contained in any subgroup transitively.
+    async fn users(&self, include_subgroup_users: bool) -> Result<Vec<std::sync::Arc<dyn User + Send + Sync>>, error::KidsError>;
 }
 
 impl fmt::Debug for dyn Group + Send + Sync {

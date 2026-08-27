@@ -304,6 +304,7 @@ impl kids_lib::interface::target::Target for Connector {
     }
 
     async fn create_or_update_group(&mut self, source_group: std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>) -> Result<(), KidsError> {
+        tracing::debug!(source_group_id = source_group.id(), "Create or update group");
         // Note that groups containing the below-mentioned characters will lead to ambiguitive group paths,
         // which is why we do not allow them.
         // For example, a subgroup "B" of group "A" will receive the path "/A/B", but so will a group named "A/B" directly.
@@ -357,6 +358,7 @@ impl kids_lib::interface::target::Target for Connector {
     }
 
     async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>) -> Result<(), KidsError> {
+        tracing::debug!(source_user_id = source_user.id(), "Create or update user");
         if let Some(syncer_source_user_id) = self.mappings.user_id_mapping.get_syncer_source_user_id()
             && syncer_source_user_id == source_user.id()
         {
