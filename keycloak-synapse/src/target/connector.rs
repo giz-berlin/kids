@@ -354,6 +354,13 @@ impl kids_lib::interface::target::Target for Connector {
         self.update_display_name(matrix_room_id, room_name_attr, source_group.name()).await;
         self.update_canonical_alias(matrix_room_id, &source_group).await;
 
+        // Update all contained users (transitively).
+        // Otherwise, a room newly containing the room name attr would not be populated
+        // as users are only added to rooms when they are themselves updated.
+        for source_user in source_group.users(true).await? {
+            self.create_or_update_user(source_user).await?;
+        }
+
         Ok(())
     }
 
