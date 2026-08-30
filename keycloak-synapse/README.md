@@ -4,13 +4,14 @@ Synchronizes source groups to Matrix rooms on a Synapse homeserver.
 
 ## Working principles
 
-For each source group with the `source_room_name_attr` (see [configuration](connector.rs)), a room with the same members
+For each source group with the `source_room_name_attr` (see [configuration](src/target/connector.rs)), a room with the same members
 will be created and managed.
 Users added to the group will be [force-joined](https://matrix-org.github.io/synapse/latest/admin_api/room_membership.html)
 to the room and users removed will be kicked. Matrix allows users to leave any room at any time, but they will be re-joined
 on the next sync.
-**Note** that only users are affected that have logged in to Matrix at least once. Newly joined users will have
-to wait for the sync to run in order to be added to their rooms.
+Users with the `required_role_name` (see [configuration](src/target/connector.rs)) will be created if they do not exist already.
+They will be joined to their rooms immediately.
+**Note** that users need to login once before being able to read any messages in any room using encryption.
 
 Matrix requires that any action with regard to a room must be initiated by a user with sufficient access rights
 ([power levels](https://spec.matrix.org/v1.5/client-server-api/#permissions)).
