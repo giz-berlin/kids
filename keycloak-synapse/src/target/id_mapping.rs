@@ -71,15 +71,15 @@ impl GroupMapping {
                 }
             };
             if group_id_mapping.contains_key(&source_group_id) {
-                tracing::warn!(
+                tracing::error!(
                     source_group_id,
                     first_room_id = matrix_room_id,
                     second_room_id = group_id_mapping[&source_group_id],
                     "Found duplicate mapping for source group"
                 );
-                // We don't really know which room really is the better one to use in case of duplicate mapping,
-                // so might as well go with the first one we already encountered earlier.
-                continue;
+                // We don't really know which room really is the better one to use in case of duplicate mapping.
+                // As this is a situation that should never arise, we error out.
+                return Err(kids_lib::error::KidsError::InternalError("Duplicate source group mapping".to_owned()));
             }
 
             group_id_mapping.insert(source_group_id, matrix_room_id);
@@ -168,7 +168,7 @@ impl UserMapping {
                     second_matrix_user_id = user_id_mapping[&source_user_id].name,
                     "Found duplicate mapping for source user"
                 );
-                continue;
+                return Err(kids_lib::error::KidsError::InternalError("Duplicate source user mapping".to_owned()));
             }
 
             user_id_mapping.insert(source_user_id, user);

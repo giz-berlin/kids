@@ -677,10 +677,38 @@ mod test {
 
         #[rstest]
         #[tokio::test]
-        async fn and_mapping_ambiguous_then_use_first_encountered_value(mut connector: Connector) {
+        async fn and_group_mapping_ambiguous_then_error(mut connector: Connector) {
             // given
             let room1 = MockSynapseRoomBuilder::default().build();
             let room2 = MockSynapseRoomBuilder::default().source_room_id(room1.source_room_id.clone()).build();
+
+            let user1 = MockSynapseUserBuilder::default().build();
+            let user2 = MockSynapseUserBuilder::default().build();
+
+            connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
+                .with_rooms(vec![room1.clone(), room2.clone()])
+                .with_users(vec![user1.clone(), user2.clone()])
+                .can_get_joined_rooms_of_syncer()
+                .can_get_room_associated_source_group_id_v1()
+                .can_associate_source_group_id_to_room()
+                .can_get_all_rooms_associated_source_group_id()
+                .can_get_users()
+                .can_get_source_user_id_for_all_matrix_users()
+                .into();
+
+            // when
+            let full_sync_result = connector.full_sync_incoming().await;
+
+            // then
+            full_sync_result.expect_err("Full sync should fail on duplicate group mappings");
+        }
+
+        #[rstest]
+        #[tokio::test]
+        async fn and_user_mapping_ambiguous_then_error(mut connector: Connector) {
+            // given
+            let room1 = MockSynapseRoomBuilder::default().build();
+            let room2 = MockSynapseRoomBuilder::default().build();
 
             let user1 = MockSynapseUserBuilder::default().build();
             let user2 = MockSynapseUserBuilder::default().source_user_id(user1.source_user_id.clone()).build();
@@ -697,14 +725,10 @@ mod test {
                 .into();
 
             // when
-            assert!(connector.full_sync_incoming().await.is_ok());
+            let full_sync_result = connector.full_sync_incoming().await;
 
             // then
-            assert_eq!(connector.mappings.group_id_mapping.get_group(&room1.source_room_id), &room1.matrix_room_id);
-            assert_eq!(
-                connector.mappings.user_id_mapping.get_user(&user1.source_user_id),
-                &SynapseApiMocker::get_user_from(&user1)
-            );
+            full_sync_result.expect_err("Full sync should fail on duplicate user mappings");
         }
 
         #[rstest]
