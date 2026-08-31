@@ -42,9 +42,6 @@ impl GroupMapping {
         let mut group_id_mapping = std::collections::HashMap::new();
 
         for matrix_room_id in matrix_syncer_joined_rooms {
-            // If this request fails, we don't want to abort the whole method as it only affects a single room.
-            // Note that in this case, we might actually create a second room for the same group (if there exists a room mapped to the group
-            // in Synapse already, but we failed to obtain that mapping).
             let source_group_id = match synapse_interactor.synapse_api().get_room_associated_source_group_id(&matrix_room_id).await {
                 Ok(source_group_id) => source_group_id,
                 Err(error) => {
@@ -55,7 +52,7 @@ impl GroupMapping {
                     // creating a room for the associated group, but that would fail because the desired alias
                     // of that room would clash with the one previously created.
                     if let kids_lib::error::KidsError::ApiOperationFailed(_, 404, ..) = error {
-                        tracing::error!(
+                        tracing::warn!(
                             matrix_room_id,
                             "Encountered a room the syncer has joined that has no source group associated to it. Deleting that room"
                         );
@@ -63,13 +60,14 @@ impl GroupMapping {
                             .delete_room(&matrix_room_id, crate::target::RoomDeletionStrategy::Delete)
                             .await
                         {
-                            tracing::warn!(matrix_room_id, error=%e, "Could not delete room with no associated source group id");
+                            tracing::error!(matrix_room_id, error=%e, "Could not delete room with no associated source group id");
+                            return Err(e);
                         }
+                        continue;
                     } else {
                         tracing::error!(?error, matrix_room_id, "Could not determine source group for room");
+                        return Err(error);
                     }
-
-                    continue;
                 }
             };
             if group_id_mapping.contains_key(&source_group_id) {

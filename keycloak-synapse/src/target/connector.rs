@@ -709,7 +709,7 @@ mod test {
 
         #[rstest]
         #[tokio::test]
-        async fn and_obtaining_mapping_for_one_room_fails_then_still_process_other_rooms(mut connector: Connector) {
+        async fn and_obtaining_mapping_for_one_room_fails_then_error(mut connector: Connector) {
             // given
             let room1 = MockSynapseRoomBuilder::default().build();
             let room2 = MockSynapseRoomBuilder::default().build();
@@ -727,12 +727,10 @@ mod test {
                 .into();
 
             // when
-            assert!(connector.full_sync_incoming().await.is_ok());
+            let full_sync_result = connector.full_sync_incoming().await;
 
             // then
-            assert!(connector.mappings.group_id_mapping.has_group(&room1.source_room_id));
-            assert!(!connector.mappings.group_id_mapping.has_group(&room2.source_room_id));
-            assert!(connector.mappings.group_id_mapping.has_group(&room3.source_room_id));
+            full_sync_result.expect_err("Full sync should fail when getting mapping for a room fails");
         }
 
         #[rstest]
