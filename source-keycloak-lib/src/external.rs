@@ -30,6 +30,7 @@ pub trait KeycloakApi: Send + Sync {
     async fn get_users(&self) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, KidsError>;
     async fn get_user(&self, user_id: &str) -> Result<keycloak::types::UserRepresentation, KidsError>;
     async fn get_user_client_roles(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::RoleRepresentation>, KidsError>;
+    async fn get_users_of_group(&self, group_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, KidsError>;
     async fn get_groups_of_user(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, KidsError>;
     async fn get_groups(&self) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, KidsError>;
     async fn get_subgroups(&self, group_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::GroupRepresentation>, KidsError>;
@@ -192,6 +193,15 @@ impl KeycloakApi for KeycloakServiceAccountClient {
             "GET_USER_CLIENT_ROLES",
             self.keycloak_admin
                 .realm_users_with_user_id_role_mappings_clients_with_client_id_composite_get(&self.config.realm, user_id, client_uuid.as_ref(), Some(true))
+                .await,
+        )
+    }
+
+    async fn get_users_of_group(&self, group_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::UserRepresentation>, KidsError> {
+        KeycloakServiceAccountClient::convert_error(
+            "GET_USERS_OF_GROUP",
+            self.keycloak_admin
+                .realm_groups_with_group_id_members_get(&self.config.realm, group_id, Some(false), None, Some(FETCH_ALL_ENTITIES))
                 .await,
         )
     }

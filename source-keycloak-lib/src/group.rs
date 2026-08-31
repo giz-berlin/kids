@@ -101,7 +101,7 @@ pub async fn resolve_group_with_ancestors(
     Ok(())
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl kids_lib::interface::source::Group for KeycloakGroup {
     fn id(&self) -> &kids_lib::types::SharedResourceIdentifier {
         // We can unwrap here because every Keycloak group has got an ID.
@@ -145,6 +145,62 @@ impl kids_lib::interface::source::Group for KeycloakGroup {
                     as std::sync::Arc<dyn kids_lib::interface::source::Group>
             })
             .collect())
+    }
+
+    async fn users(
+        &self,
+        include_subgroup_users: bool,
+    ) -> Result<Vec<std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>>, kids_lib::error::KidsError> {
+        let direct_members = self
+            .keycloak_api
+            .get_users_of_group(&self.id)
+            .await?
+            .into_iter()
+            .map(|user| {
+                std::sync::Arc::new(crate::user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), user))
+                    as std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>
+            })
+            .collect();
+        if !include_subgroup_users {
+            return Ok(direct_members);
+        }
+        let all_subgroup_ids = {
+            let mut all_subgroup_ids = self
+                .keycloak_api
+                .get_subgroups(&self.id)
+                .await?
+                .into_iter()
+                .filter_map(|group| group.id)
+                .collect::<std::collections::HashSet<_>>();
+            let mut subgroups_to_handle = all_subgroup_ids.clone().into_iter().collect::<Vec<_>>();
+            while let Some(subgroup_id) = subgroups_to_handle.pop() {
+                let subgroups = self
+                    .keycloak_api
+                    .get_subgroups(subgroup_id.as_str())
+                    .await?
+                    .into_iter()
+                    .filter_map(|group| group.id)
+                    .collect::<Vec<_>>();
+                all_subgroup_ids.extend(subgroups.clone());
+                subgroups_to_handle.extend(subgroups);
+            }
+            all_subgroup_ids
+        };
+        let mut members = direct_members;
+        for subgroup_id in all_subgroup_ids {
+            let direct_members = self
+                .keycloak_api
+                .get_users_of_group(&subgroup_id)
+                .await?
+                .into_iter()
+                .map(|user| {
+                    std::sync::Arc::new(crate::user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), user))
+                        as std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>
+                })
+                .collect::<Vec<_>>();
+            members.extend(direct_members);
+        }
+        Ok(members)
     }
 }
 

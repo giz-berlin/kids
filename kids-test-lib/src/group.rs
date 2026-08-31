@@ -19,7 +19,7 @@ impl From<Group> for std::sync::Arc<dyn kids_lib::interface::source::Group + Sen
     }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait::async_trait]
 impl kids_lib::interface::source::Group for Group {
     fn id(&self) -> &kids_lib::types::SharedResourceIdentifier {
         &self.id
@@ -46,6 +46,13 @@ impl kids_lib::interface::source::Group for Group {
     }
 
     async fn sub_groups(self: std::sync::Arc<Self>) -> Result<Vec<std::sync::Arc<dyn kids_lib::interface::source::Group>>, kids_lib::error::KidsError> {
+        Ok(vec![])
+    }
+
+    async fn users(
+        &self,
+        _include_subgroup_users: bool,
+    ) -> Result<Vec<std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>>, kids_lib::error::KidsError> {
         Ok(vec![])
     }
 }

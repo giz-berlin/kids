@@ -76,6 +76,12 @@ We therefore cannot guarantee that subgroups are deleted before their parent gro
 Targets that implement group hierarchies must handle cascading deletes internally.
 Any remaining subgroups will be cleaned up on the next full sync.
 
+#### Group updates and user updates
+
+When a group receives an update no user update gets triggered automatically.
+In case your target needs such an update the group exposes a method of fetching all its members.
+This method is quite expensive when getting all users of all subgroups as well (two requests to Keycloak per group).
+
 ### Components
 
 #### Source
