@@ -38,3 +38,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
 
 [dev-dependencies]
 rcgen = { version = "0.14.8", features = ["ring"] }
+
+[lints]
+workspace = true

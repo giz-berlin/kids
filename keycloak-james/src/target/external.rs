@@ -59,12 +59,12 @@ impl JamesClient {
         Ok(james_client)
     }
 
-    async fn send_api_get_request<T: serde::de::DeserializeOwned>(&mut self, path: String) -> Result<T, KidsError> {
+    async fn send_api_get_request<T: serde::de::DeserializeOwned>(&self, path: String) -> Result<T, KidsError> {
         self.send_api_request::<(), T>(http::Method::GET, path, None).await
     }
 
     async fn send_api_request<B: serde::Serialize, T: serde::de::DeserializeOwned>(
-        &mut self,
+        &self,
         method: http::Method,
         path: String,
         body: Option<B>,
@@ -77,7 +77,7 @@ impl JamesClient {
         self.send_request(request).await
     }
 
-    async fn send_request<T: serde::de::DeserializeOwned>(&mut self, request: RequestBuilder) -> Result<T, KidsError> {
+    async fn send_request<T: serde::de::DeserializeOwned>(&self, request: RequestBuilder) -> Result<T, KidsError> {
         match request.send().await {
             Ok(response) => {
                 let status = response.status();

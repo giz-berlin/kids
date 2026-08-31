@@ -2,8 +2,8 @@ use mockall::predicate::eq;
 
 use kids_lib::error::KidsError;
 
+use crate::target::dto;
 use crate::target::external::MockSynapseApi;
-use crate::target::{dto, external};
 
 // The builder macro appears to confuse clippy in some way.
 // For example, it thinks the build_into() methods and the entity_number fields are unused, but they aren't.
@@ -73,17 +73,20 @@ impl MockSynapseUserBuilder {
 
 pub struct SynapseApiMocker {
     pub api_mock: MockSynapseApi,
+    pub syncer_user_id: String,
     pub synapse_rooms: Vec<MockSynapseRoom>,
     pub synapse_users: Vec<MockSynapseUser>,
 }
 
 impl SynapseApiMocker {
-    pub fn new() -> Self {
+    pub fn new(syncer_user_id: impl Into<String>) -> Self {
         SynapseApiMocker {
             api_mock: MockSynapseApi::default(),
+            syncer_user_id: syncer_user_id.into(),
             synapse_rooms: Vec::new(),
             synapse_users: Vec::new(),
         }
+        .can_get_is_syncer_user()
     }
 
     pub fn with_rooms(mut self, rooms: Vec<MockSynapseRoom>) -> Self {
@@ -304,28 +307,33 @@ impl SynapseApiMocker {
         self
     }
 
+    pub fn can_get_is_syncer_user(mut self) -> Self {
+        self.api_mock
+            .expect_user_is_matrix_syncer()
+            .with(eq(self.syncer_user_id.clone()))
+            .return_const(true);
+        self.api_mock.expect_user_is_matrix_syncer().return_const(false);
+        self
+    }
+
     pub fn can_manage_room_members<S: Into<String>>(
         mut self,
         matrix_room_id: impl Into<String>,
-        syncer_user_id: impl Into<String>,
         users_in_room: impl IntoIterator<Item = S>,
         allow_syncer_to_leave_room: bool,
         user_id_fails_to_kick: Option<S>,
     ) -> Self {
         let matrix_room_id = matrix_room_id.into();
-        let syncer_user_id = syncer_user_id.into();
         let user_id_fails_to_kick = user_id_fails_to_kick.map(Into::into);
         let users_in_room: std::collections::HashMap<String, serde_json::Value> = users_in_room
             .into_iter()
             .map(Into::into)
             .map(|user_id| (user_id, serde_json::Value::Null))
-            .chain([(syncer_user_id.clone(), serde_json::Value::Null)])
+            .chain([(self.syncer_user_id.clone(), serde_json::Value::Null)])
             .collect();
-        self.api_mock.expect_user_is_matrix_syncer().with(eq(syncer_user_id.clone())).return_const(true);
-        self.api_mock.expect_user_is_matrix_syncer().return_const(false);
         for user in users_in_room.keys() {
             let expectation = self.api_mock.expect_kick_user_from_room().with(eq(matrix_room_id.clone()), eq(user.to_owned()));
-            if *user == syncer_user_id {
+            if *user == self.syncer_user_id {
                 // Syncer is never kicked but rather removed using `syncer_leave_room`.
                 expectation.never();
             } else if user_id_fails_to_kick.as_ref().is_some_and(|u| u == user) {
@@ -477,8 +485,8 @@ impl SynapseApiMocker {
     }
 }
 
-impl From<SynapseApiMocker> for Box<dyn external::SynapseApi + Send + Sync> {
-    fn from(val: SynapseApiMocker) -> Self {
-        Box::new(val.api_mock)
+impl From<SynapseApiMocker> for crate::target::SynapseInteractor {
+    fn from(value: SynapseApiMocker) -> Self {
+        Self::new(value.api_mock)
     }
 }

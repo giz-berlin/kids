@@ -153,7 +153,9 @@ test-synapse-e2e:
     - echo "$CI_REGISTRY_PASSWORD" | podman login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
     - echo "127.0.0.1 host.docker.internal" >> /etc/hosts
     - pushd e2e-test
+    - pushd synapse
     - source .env
+    - popd
     - echo "Download Keycloak Webhook SPI"
     - pushd keycloak
     - >
@@ -164,6 +166,7 @@ test-synapse-e2e:
     - mv build/libs/* .
     - rmdir -p build/libs
     - popd
+    - pushd synapse
     - echo "Start Synapse & Keycloak"
     - ./setup_synapse_e2e.sh
     - echo "Start KIDS"
