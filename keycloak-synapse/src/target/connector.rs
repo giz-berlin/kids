@@ -40,150 +40,150 @@ pub struct Connector {
     mappings: crate::target::IdMapping,
 }
 
-async fn ensure_user_locked_state_in_sync(
-    synapse_interactor: &crate::target::SynapseInteractor,
-    matrix_user: &mut crate::target::dto::User,
-    source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
-    enforce_lock: bool,
-) -> Result<(), kids_lib::error::KidsError> {
-    match source_user.enabled() && !enforce_lock {
-        // Note that we explicitly want to lock users here, NOT deactivate them.
-        // Deactivating users appears to delete all keys of that user, so even when a
-        // user is reactivated, they cannot log in with the same identity and lose
-        // all of their direct message rooms.
-        // With locking, this works properly and unlocked users will encounter the same
-        // state they left off with before being locked.
-        false => ensure_user_locked(synapse_interactor, matrix_user).await,
-        true => ensure_user_unlocked(synapse_interactor, matrix_user).await,
-    }
-}
-
-async fn ensure_user_locked(
-    synapse_interactor: &crate::target::SynapseInteractor,
-    matrix_user: &mut crate::target::dto::User,
-) -> Result<(), kids_lib::error::KidsError> {
-    let matrix_user_id = matrix_user.name.as_str();
-    if !matrix_user.locked {
-        // Note that we explicitly want to lock users here, NOT deactivate them.
-        // Deactivating users appears to delete all keys of that user, so even when a
-        // user is reactivated, they cannot log in with the same identity and lose
-        // all of their direct message rooms.
-        // With locking, this works properly and unlocked users will encounter the same
-        // state they left off with before being locked.
-        match synapse_interactor.synapse_api().lock_user(matrix_user_id).await {
-            Ok(()) => {
-                // Write lock state to user object.
-                matrix_user.locked = true;
-                tracing::info!(matrix_user_id = matrix_user.name, "Locked user");
-            }
-            Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user"),
-        };
-    }
-    Ok(())
-}
-
-async fn ensure_user_unlocked(
-    synapse_interactor: &crate::target::SynapseInteractor,
-    matrix_user: &mut crate::target::dto::User,
-) -> Result<(), kids_lib::error::KidsError> {
-    let matrix_user_id = matrix_user.name.as_str();
-    if matrix_user.locked {
-        match synapse_interactor.synapse_api().unlock_user(matrix_user_id).await {
-            Ok(()) => {
-                // Write lock state to user object.
-                matrix_user.locked = false;
-                tracing::info!(matrix_user_id = matrix_user.name, "Unlocked user");
-            }
-            Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user"),
-        };
-    }
-    Ok(())
-}
-
-async fn ensure_user_display_name(
-    synapse_interactor: &crate::target::SynapseInteractor,
-    matrix_user_id: &str,
-    source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
-) -> Result<(), KidsError> {
-    let desired_display_name = source_user.display_name();
-    synapse_interactor
-        .ensure_user_display_name(matrix_user_id, desired_display_name.as_deref(), source_user.id())
-        .await
-}
-
-async fn ensure_user_email(
-    synapse_interactor: &crate::target::SynapseInteractor,
-    matrix_user: &mut dto::User,
-    source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
-) -> Result<(), KidsError> {
-    let desired_email = source_user.email();
-    matrix_user.threepids = synapse_interactor
-        .ensure_user_email(matrix_user.name.as_str(), desired_email, source_user.id())
-        .await?;
-    Ok(())
-}
-
-async fn ensure_user_rooms(
-    synapse_interactor: &crate::target::SynapseInteractor,
-    groups: &crate::target::GroupMapping,
-    matrix_user: &crate::target::dto::User,
-    source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
-) -> Result<(), KidsError> {
-    let matrix_user_id = matrix_user.name.as_str();
-
-    let desired_user_groups = source_user
-        .groups(true)
-        .await
-        .map_err(|e| e.with_context(&format!("Could not get source groups associated with source user {}", source_user.id())))?;
-    let current_user_rooms = synapse_interactor
-        .synapse_api()
-        .get_user_joined_rooms(matrix_user_id)
-        .await
-        .map_err(|e| e.with_context(&format!("Could not get matrix rooms user {matrix_user_id} has currently joined")))?;
-
-    let desired_user_rooms: Vec<&String> = if !matrix_user.locked {
-        desired_user_groups
-            .iter()
-            .filter_map(|group| {
-                // We only want to add the user to groups that have a corresponding matrix room.
-                // Note: Since rooms are being created before users, all valid rooms must be contained
-                // in the mapping at this point.
-                groups.get_group_opt(group.id())
-            })
-            .collect()
-    } else {
-        // If user is not enabled, we want to remove it from all rooms it is in.
-        // Simply clearing the desired rooms will have this effect using the logic below.
-        vec![]
-    };
-
-    // Add user to all desired groups that they are not already joined to.
-    for matrix_room_id in &desired_user_rooms {
-        if !current_user_rooms.joined_rooms.contains(matrix_room_id) {
-            match synapse_interactor.synapse_api().join_user_to_room(matrix_room_id, matrix_user_id).await {
-                Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User joined matrix room"),
-                Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not join user to matrix room"),
-            }
-        } else {
-            tracing::trace!(matrix_room_id, matrix_user_id, "User has already joined matrix room");
-        }
-    }
-
-    // Remove user from all joined groups that are no longer desired.
-    for matrix_room_id in &current_user_rooms.joined_rooms {
-        if !desired_user_rooms.contains(&matrix_room_id) {
-            match synapse_interactor.synapse_api().kick_user_from_room(matrix_room_id, matrix_user_id).await {
-                Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User kicked from matrix room"),
-                Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not kick user from matrix room"),
-            };
-        } else {
-            tracing::trace!(matrix_room_id, matrix_user_id, "User stays in matrix room");
-        }
-    }
-    Ok(())
-}
-
 impl Connector {
+    async fn ensure_user_locked_state_in_sync(
+        synapse_interactor: &crate::target::SynapseInteractor,
+        matrix_user: &mut crate::target::dto::User,
+        source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
+        enforce_lock: bool,
+    ) -> Result<(), kids_lib::error::KidsError> {
+        match source_user.enabled() && !enforce_lock {
+            // Note that we explicitly want to lock users here, NOT deactivate them.
+            // Deactivating users appears to delete all keys of that user, so even when a
+            // user is reactivated, they cannot log in with the same identity and lose
+            // all of their direct message rooms.
+            // With locking, this works properly and unlocked users will encounter the same
+            // state they left off with before being locked.
+            false => Self::ensure_user_locked(synapse_interactor, matrix_user).await,
+            true => Self::ensure_user_unlocked(synapse_interactor, matrix_user).await,
+        }
+    }
+
+    async fn ensure_user_locked(
+        synapse_interactor: &crate::target::SynapseInteractor,
+        matrix_user: &mut crate::target::dto::User,
+    ) -> Result<(), kids_lib::error::KidsError> {
+        let matrix_user_id = matrix_user.name.as_str();
+        if !matrix_user.locked {
+            // Note that we explicitly want to lock users here, NOT deactivate them.
+            // Deactivating users appears to delete all keys of that user, so even when a
+            // user is reactivated, they cannot log in with the same identity and lose
+            // all of their direct message rooms.
+            // With locking, this works properly and unlocked users will encounter the same
+            // state they left off with before being locked.
+            match synapse_interactor.synapse_api().lock_user(matrix_user_id).await {
+                Ok(()) => {
+                    // Write lock state to user object.
+                    matrix_user.locked = true;
+                    tracing::info!(matrix_user_id = matrix_user.name, "Locked user");
+                }
+                Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user"),
+            };
+        }
+        Ok(())
+    }
+
+    async fn ensure_user_unlocked(
+        synapse_interactor: &crate::target::SynapseInteractor,
+        matrix_user: &mut crate::target::dto::User,
+    ) -> Result<(), kids_lib::error::KidsError> {
+        let matrix_user_id = matrix_user.name.as_str();
+        if matrix_user.locked {
+            match synapse_interactor.synapse_api().unlock_user(matrix_user_id).await {
+                Ok(()) => {
+                    // Write lock state to user object.
+                    matrix_user.locked = false;
+                    tracing::info!(matrix_user_id = matrix_user.name, "Unlocked user");
+                }
+                Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user"),
+            };
+        }
+        Ok(())
+    }
+
+    async fn ensure_user_display_name(
+        synapse_interactor: &crate::target::SynapseInteractor,
+        matrix_user_id: &str,
+        source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
+    ) -> Result<(), KidsError> {
+        let desired_display_name = source_user.display_name();
+        synapse_interactor
+            .ensure_user_display_name(matrix_user_id, desired_display_name.as_deref(), source_user.id())
+            .await
+    }
+
+    async fn ensure_user_email(
+        synapse_interactor: &crate::target::SynapseInteractor,
+        matrix_user: &mut dto::User,
+        source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
+    ) -> Result<(), KidsError> {
+        let desired_email = source_user.email();
+        matrix_user.threepids = synapse_interactor
+            .ensure_user_email(matrix_user.name.as_str(), desired_email, source_user.id())
+            .await?;
+        Ok(())
+    }
+
+    async fn ensure_user_rooms(
+        synapse_interactor: &crate::target::SynapseInteractor,
+        groups: &crate::target::GroupMapping,
+        matrix_user: &crate::target::dto::User,
+        source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
+    ) -> Result<(), KidsError> {
+        let matrix_user_id = matrix_user.name.as_str();
+
+        let desired_user_groups = source_user
+            .groups(true)
+            .await
+            .map_err(|e| e.with_context(&format!("Could not get source groups associated with source user {}", source_user.id())))?;
+        let current_user_rooms = synapse_interactor
+            .synapse_api()
+            .get_user_joined_rooms(matrix_user_id)
+            .await
+            .map_err(|e| e.with_context(&format!("Could not get matrix rooms user {matrix_user_id} has currently joined")))?;
+
+        let desired_user_rooms: Vec<&String> = if !matrix_user.locked {
+            desired_user_groups
+                .iter()
+                .filter_map(|group| {
+                    // We only want to add the user to groups that have a corresponding matrix room.
+                    // Note: Since rooms are being created before users, all valid rooms must be contained
+                    // in the mapping at this point.
+                    groups.get_group_opt(group.id())
+                })
+                .collect()
+        } else {
+            // If user is not enabled, we want to remove it from all rooms it is in.
+            // Simply clearing the desired rooms will have this effect using the logic below.
+            vec![]
+        };
+
+        // Add user to all desired groups that they are not already joined to.
+        for matrix_room_id in &desired_user_rooms {
+            if !current_user_rooms.joined_rooms.contains(matrix_room_id) {
+                match synapse_interactor.synapse_api().join_user_to_room(matrix_room_id, matrix_user_id).await {
+                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User joined matrix room"),
+                    Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not join user to matrix room"),
+                }
+            } else {
+                tracing::trace!(matrix_room_id, matrix_user_id, "User has already joined matrix room");
+            }
+        }
+
+        // Remove user from all joined groups that are no longer desired.
+        for matrix_room_id in &current_user_rooms.joined_rooms {
+            if !desired_user_rooms.contains(&matrix_room_id) {
+                match synapse_interactor.synapse_api().kick_user_from_room(matrix_room_id, matrix_user_id).await {
+                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User kicked from matrix room"),
+                    Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not kick user from matrix room"),
+                };
+            } else {
+                tracing::trace!(matrix_room_id, matrix_user_id, "User stays in matrix room");
+            }
+        }
+        Ok(())
+    }
+
     /// Returns `true` when the user has the required role in Source
     /// or when the the config option `required_role_name` is unset.
     async fn source_user_has_required_role(&self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<bool, KidsError> {
@@ -373,65 +373,65 @@ impl kids_lib::interface::target::Target for Connector {
             return Ok(());
         }
 
-        let matrix_user = get_or_create_user(&self.synapse_interactor, &mut self.mappings.user_id_mapping, source_user.as_ref()).await?;
+        let matrix_user = Self::get_or_create_user(&self.synapse_interactor, &mut self.mappings.user_id_mapping, source_user.as_ref()).await?;
 
         // Lock also if user has no required role
-        ensure_user_locked_state_in_sync(&self.synapse_interactor, matrix_user, source_user.as_ref(), !source_user_has_required_role).await?;
+        Self::ensure_user_locked_state_in_sync(&self.synapse_interactor, matrix_user, source_user.as_ref(), !source_user_has_required_role).await?;
 
-        ensure_user_display_name(&self.synapse_interactor, &matrix_user.name, source_user.as_ref()).await?;
-        ensure_user_email(&self.synapse_interactor, matrix_user, source_user.as_ref()).await?;
+        Self::ensure_user_display_name(&self.synapse_interactor, &matrix_user.name, source_user.as_ref()).await?;
+        Self::ensure_user_email(&self.synapse_interactor, matrix_user, source_user.as_ref()).await?;
 
-        ensure_user_rooms(&self.synapse_interactor, &self.mappings.group_id_mapping, matrix_user, source_user.as_ref()).await?;
+        Self::ensure_user_rooms(&self.synapse_interactor, &self.mappings.group_id_mapping, matrix_user, source_user.as_ref()).await?;
 
         Ok(())
     }
 }
 
-fn generate_matrix_user_id(
-    synapse_interactor: &crate::target::SynapseInteractor,
-    source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
-) -> Result<String, KidsError> {
-    match source_user.username() {
-        Some(username) => Ok(synapse_interactor.generate_matrix_user_id(username)),
-        None => {
-            const ERROR_CONTEXT: &str = "Generating matrix user id";
-            const ERROR_MSG: &str = "The matrix user id depends on the source username to be set but it was not.";
-            tracing::error!(user_id = source_user.id(), "{ERROR_CONTEXT}: {ERROR_MSG}");
-            Err(kids_lib::error::KidsError::RequestFailed(
-                ERROR_CONTEXT.to_owned(),
-                anyhow::anyhow!("{ERROR_MSG}"),
-            ))
+impl Connector {
+    fn generate_matrix_user_id(
+        synapse_interactor: &crate::target::SynapseInteractor,
+        source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
+    ) -> Result<String, KidsError> {
+        match source_user.username() {
+            Some(username) => Ok(synapse_interactor.generate_matrix_user_id(username)),
+            None => {
+                const ERROR_CONTEXT: &str = "Generating matrix user id";
+                const ERROR_MSG: &str = "The matrix user id depends on the source username to be set but it was not.";
+                tracing::error!(user_id = source_user.id(), "{ERROR_CONTEXT}: {ERROR_MSG}");
+                Err(kids_lib::error::KidsError::RequestFailed(
+                    ERROR_CONTEXT.to_owned(),
+                    anyhow::anyhow!("{ERROR_MSG}"),
+                ))
+            }
         }
     }
-}
 
-async fn get_or_create_user<'a>(
-    synapse_interactor: &'a crate::target::SynapseInteractor,
-    user_mapping: &'a mut crate::target::UserMapping,
-    source_user: &'a (dyn kids_lib::interface::source::User + Send + Sync),
-) -> Result<&'a mut dto::User, KidsError> {
-    // Unfortunately, `match` did not work here for lifetime reasons.
-    if !user_mapping.has_user(source_user.id()) {
-        let matrix_user_id = generate_matrix_user_id(synapse_interactor, source_user)?;
-        tracing::info!(
-            source_user_id = source_user.id(),
-            source_user_name = source_user.username(),
-            matrix_user_id = matrix_user_id,
-            "Creating user"
-        );
-        let matrix_user = synapse_interactor.synapse_api().create_user(matrix_user_id.as_str(), source_user.id()).await?;
-        user_mapping.get_user_id_mapping_mut().insert(source_user.id().clone(), matrix_user);
-        tracing::info!(
-            source_id = source_user.id(),
-            username = source_user.username(),
-            matrix_user_id = user_mapping.get_user(source_user.id()).name,
-            "User created"
-        );
+    async fn get_or_create_user<'a>(
+        synapse_interactor: &'a crate::target::SynapseInteractor,
+        user_mapping: &'a mut crate::target::UserMapping,
+        source_user: &'a (dyn kids_lib::interface::source::User + Send + Sync),
+    ) -> Result<&'a mut dto::User, KidsError> {
+        // Unfortunately, `match` did not work here for lifetime reasons.
+        if !user_mapping.has_user(source_user.id()) {
+            let matrix_user_id = Self::generate_matrix_user_id(synapse_interactor, source_user)?;
+            tracing::info!(
+                source_user_id = source_user.id(),
+                source_user_name = source_user.username(),
+                matrix_user_id = matrix_user_id,
+                "Creating user"
+            );
+            let matrix_user = synapse_interactor.synapse_api().create_user(matrix_user_id.as_str(), source_user.id()).await?;
+            user_mapping.get_user_id_mapping_mut().insert(source_user.id().clone(), matrix_user);
+            tracing::info!(
+                source_id = source_user.id(),
+                username = source_user.username(),
+                matrix_user_id = user_mapping.get_user(source_user.id()).name,
+                "User created"
+            );
+        }
+        Ok(user_mapping.get_user_opt_mut(source_user.id()).expect("We have just added that user."))
     }
-    Ok(user_mapping.get_user_opt_mut(source_user.id()).expect("We have just added that user."))
-}
 
-impl Connector {
     async fn get_or_create_room(
         &mut self,
         source_group: &std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>,
