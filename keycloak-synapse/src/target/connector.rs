@@ -548,9 +548,10 @@ mod test {
             config: SynapseConfig {
                 synapse_api: external::SynapseApiConfig {
                     matrix_homeserver_url: "".to_string(),
+                    matrix_mas_url: "".to_string(),
                     matrix_source_oidc_provider_id: "".to_string(),
                     matrix_syncer_user_id: "".to_string(),
-                    matrix_syncer_password: "".to_string(),
+                    matrix_syncer_token: "".to_string(),
                     matrix_namespace: "".to_string(),
                     insecure_disable_tls_verification: true,
                 },

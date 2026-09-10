@@ -1,3 +1,5 @@
+# TODO: Update once new config is stable.
+
 [target]
 # Only source groups that have an attribute with this name set will be synced as rooms to
 # Matrix.

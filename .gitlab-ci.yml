@@ -175,6 +175,7 @@ test-synapse-e2e:
     - echo "Waiting for KIDS to sync..."
     - sleep 10
     - podman logs $KIDS_PODMAN_ID
-    - PODMAN_SERVICE_HOSTNAME=$PODMAN_SERVICE_HOSTNAME SYNAPSE_TLS_PORT=$SYNAPSE_TLS_PORT ./verify_synapse_e2e.sh
+    - source .env.token
+    - PODMAN_SERVICE_HOSTNAME=$PODMAN_SERVICE_HOSTNAME SYNAPSE_TLS_PORT=$SYNAPSE_TLS_PORT ADMIN_ACCESS_TOKEN=$ADMIN_ACCESS_TOKEN ./verify_synapse_e2e.sh
     - podman stop $KIDS_PODMAN_ID && podman rm $KIDS_PODMAN_ID
     - ./teardown_synapse_e2e.sh

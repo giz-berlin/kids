@@ -7,6 +7,8 @@ use crate::target::dto;
 
 #[derive(serde::Deserialize, Clone)]
 pub struct SynapseApiConfig {
+    /// URL of the Matrix Authentication Service (probably similar to https://matrix.example.com/auth).
+    pub matrix_mas_url: String,
     /// URL of the Matrix homeserver (probably similar to https://matrix.example.com).
     pub matrix_homeserver_url: String,
     /// The ID of the source (for example, Keycloak) as identity provider in the Synapse config.
@@ -16,8 +18,8 @@ pub struct SynapseApiConfig {
     /// Create a dedicated user if you can.
     /// (probably similar to `@keycloak-sync:matrix.example.org`)
     pub matrix_syncer_user_id: String,
-    /// Password of the syncer Matrix user.
-    pub matrix_syncer_password: String,
+    /// Token for the syncer Matrix user.
+    pub matrix_syncer_token: String,
     /// Whether to validate the server certificate of the Matrix homeserver.
     /// Only disable for local development purposes!
     pub insecure_disable_tls_verification: bool,
@@ -69,18 +71,23 @@ pub trait SynapseApi {
 }
 
 pub struct SynapseClient {
-    authentication: tokio::sync::Mutex<Authentication>,
+    access_token: String,
+    // authentication: tokio::sync::Mutex<Authentication>,
     config: SynapseApiConfig,
     http_client: reqwest::Client,
+    #[allow(unused)]
+    parsed_mas_url: url::Url,
     parsed_homeserver_url: url::Url,
 }
 
+#[allow(unused)]
 struct Authentication {
     access_token: Option<String>,
     refresh_token: Option<String>,
     expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[allow(unused)]
 impl Authentication {
     /// #### `allow_keeping_old_refresh_token`:
     ///
@@ -125,8 +132,9 @@ const SYNCER_ROOM_METADATA_EVENT: &str = "m.room.kids.room_sync";
 
 impl SynapseClient {
     pub async fn new(config: SynapseApiConfig) -> Result<Self, KidsError> {
+        let parsed_mas_url = url::Url::parse(&config.matrix_mas_url).expect("MAS URL should be parseable");
         let parsed_homeserver_url = url::Url::parse(&config.matrix_homeserver_url).expect("Homeserver URL should be parseable");
-        tracing::info!(homeserver_url=%parsed_homeserver_url, "Connecting to homeserver");
+        tracing::info!(homeserver_url=%parsed_homeserver_url, mas_url=%parsed_mas_url, "Connecting to homeserver");
 
         let mut builder = reqwest::Client::builder();
         if config.insecure_disable_tls_verification {
@@ -135,83 +143,87 @@ impl SynapseClient {
         }
         let client = builder.build().unwrap();
 
+        let access_token = config.matrix_syncer_token.clone();
         let synapse_client = SynapseClient {
             config,
             http_client: client,
-            authentication: tokio::sync::Mutex::new(Authentication {
-                access_token: None,
-                refresh_token: None,
-                expires_at: None,
-            }),
+            access_token,
+            // authentication: tokio::sync::Mutex::new(Authentication {
+            //     access_token: None,
+            //     refresh_token: None,
+            //     expires_at: None,
+            // }),
+            parsed_mas_url,
             parsed_homeserver_url,
         };
 
-        synapse_client.login().await?;
+        // synapse_client.login().await?;
 
         Ok(synapse_client)
     }
 
-    /// Returns the valid access token.
-    async fn login(&self) -> Result<String, KidsError> {
-        let token_response: dto::MatrixAuthentication = self
-            .send_client_api_request_unauthenticated(
-                http::Method::POST,
-                kids_lib::types::ApiPath::from_segments(["login"]),
-                Some(serde_json::json!({
-                    "type": "m.login.password",
-                    "identifier": {
-                        "type": "m.id.user",
-                        "user": &self.config.matrix_syncer_user_id,
-                      },
-                    "password": &self.config.matrix_syncer_password,
-                    "refresh_token": true
-                })),
-            )
-            .await?;
-        let mut authentication = self.authentication.lock().await;
-        authentication.replace_by(token_response.into(), false);
-        tracing::info!(homeserver_url=%self.parsed_homeserver_url, "Logged in to homeserver");
-        Ok(authentication.access_token.clone().expect("access token must always be defined"))
-    }
+    // /// Returns the valid access token.
+    // async fn login(&self) -> Result<String, KidsError> {
+    //     let token_response: dto::MatrixAuthentication = self
+    //         .send_mas_request_unauthenticated(
+    //             http::Method::POST,
+    //             ApiPath::from_segments(["personal-sessions"]),
+    //             Some(serde_json::json!({
+    //                 "type": "m.login.password",
+    //                 "identifier": {
+    //                     "type": "m.id.user",
+    //                     "user": &self.config.matrix_syncer_user_id,
+    //                   },
+    //                 "password": &self.config.matrix_syncer_password,
+    //                 "refresh_token": true
+    //             })),
+    //         )
+    //         .await?;
+    //     let mut authentication = self.authentication.lock().await;
+    //     authentication.replace_by(token_response.into(), false);
+    //     tracing::info!(homeserver_url=%self.parsed_homeserver_url, "Logged in to homeserver");
+    //     Ok(authentication.access_token.clone().expect("access token must always be defined"))
+    // }
 
     /// Returns the valid access token.
     async fn refresh_access_token_if_necessary(&self) -> Result<String, KidsError> {
-        let mut authentication = self.authentication.lock().await;
-        // In order to avoid the access token expiring between this check and the actual request,
-        // we also refresh tokens that are not yet expired but will be soon.
-        if let Some(expires_at) = authentication.expires_at
-            && expires_at - chrono::Duration::seconds(5) < chrono::Utc::now()
-        {
-            tracing::debug!("Refreshing access token");
-            if authentication.refresh_token.is_none() {
-                drop(authentication);
-                return self.login().await;
-            }
-            let token_response_res: Result<dto::MatrixAuthentication, KidsError> = self
-                .send_client_api_request_unauthenticated(
-                    http::Method::POST,
-                    kids_lib::types::ApiPath::from_segments(["refresh"]),
-                    Some(serde_json::json!({
-                        "refresh_token": authentication.refresh_token,
-                    })),
-                )
-                .await;
+        Ok(self.access_token.clone())
+        // let mut authentication = self.authentication.lock().await;
+        // // In order to avoid the access token expiring between this check and the actual request,
+        // // we also refresh tokens that are not yet expired but will be soon.
+        // if let Some(expires_at) = authentication.expires_at
+        //     && expires_at - chrono::Duration::seconds(5) < chrono::Utc::now()
+        // {
+        //     tracing::debug!("Refreshing access token");
+        //     if authentication.refresh_token.is_none() {
+        //         drop(authentication);
+        //         return self.login().await;
+        //     }
+        //     let token_response_res: Result<dto::MatrixAuthentication, KidsError> = self
+        //         .send_client_api_request_unauthenticated(
+        //             http::Method::POST,
+        //             ApiPath::from_segments(["refresh"]),
+        //             Some(serde_json::json!({
+        //                 "refresh_token": authentication.refresh_token,
+        //             })),
+        //         )
+        //         .await;
 
-            // Refresh tokens might expire (although they are by default valid for infinite lifetime:
-            // https://element-hq.github.io/synapse/v1.159/usage/configuration/user_authentication/refresh_tokens.html)
-            match token_response_res {
-                Ok(token_response) => {
-                    authentication.replace_by(token_response.into(), true);
-                }
-                Err(error) => {
-                    tracing::warn!(error=%error, "Unable to refresh access token by refresh token, trying again with re-login");
-                    drop(authentication);
-                    return self.login().await;
-                }
-            }
-        }
+        //     // Refresh tokens might expire (although they are by default valid for infinite lifetime:
+        //     // https://element-hq.github.io/synapse/v1.159/usage/configuration/user_authentication/refresh_tokens.html)
+        //     match token_response_res {
+        //         Ok(token_response) => {
+        //             authentication.replace_by(token_response.into(), true);
+        //         }
+        //         Err(error) => {
+        //             tracing::warn!(error=%error, "Unable to refresh access token by refresh token, trying again with re-login");
+        //             drop(authentication);
+        //             return self.login().await;
+        //         }
+        //     }
+        // }
 
-        Ok(authentication.access_token.clone().expect("access token must always be defined"))
+        // Ok(authentication.access_token.clone().expect("access token must always be defined"))
     }
 
     fn construct_unauthenticated_request<B: serde::Serialize>(&self, method: http::Method, url: String, body: Option<B>) -> RequestBuilder {
@@ -277,15 +289,25 @@ impl SynapseClient {
         }
     }
 
-    async fn send_client_api_request_unauthenticated<B: serde::Serialize, T: serde::de::DeserializeOwned>(
-        &self,
-        method: http::Method,
-        path: kids_lib::types::ApiPath,
-        body: Option<B>,
-    ) -> Result<T, KidsError> {
-        let request = self.construct_unauthenticated_request(method, format!("{}_matrix/client/v3/{}", self.parsed_homeserver_url, path), body);
-        self.send_request(request).await
-    }
+    // async fn send_mas_request_unauthenticated<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+    //     &self,
+    //     method: http::Method,
+    //     path: ApiPath,
+    //     body: Option<B>,
+    // ) -> Result<T, KidsError> {
+    //     let request = self.construct_unauthenticated_request(method, format!("{}/api/admin/v1/{}", self.parsed_mas_url, path), body);
+    //     self.send_request(request).await
+    // }
+
+    // async fn send_client_api_request_unauthenticated<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+    //     &self,
+    //     method: http::Method,
+    //     path: ApiPath,
+    //     body: Option<B>,
+    // ) -> Result<T, KidsError> {
+    //     let request = self.construct_unauthenticated_request(method, format!("{}_matrix/client/v3/{}", self.parsed_homeserver_url, path), body);
+    //     self.send_request(request).await
+    // }
 
     async fn send_client_api_request<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         &self,
@@ -434,6 +456,11 @@ impl SynapseApi for SynapseClient {
                         ("limit", ALL_USERS.to_string().as_str()),
                         ("locked", "true"),
                         ("deactivated", "false"),
+                        // This filter parameter defaults to `true`.
+                        // When Synapse is delegating to MAS, it cannot include guests
+                        // and produces an error.
+                        // We thus have to manually set it to `false`.
+                        ("guests", "false"),
                     ],
                 ),
             )

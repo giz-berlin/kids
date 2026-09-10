@@ -1,5 +1,9 @@
+.env.token
 local_ca/
 synapse_data/
 config/keycloak_realm_giz.json
 config/synapse_admin_config.json
 config/synapse_e2e_config.toml
+config/synapse_admin.Caddyfile
+caddy_data/
+caddy_config/
