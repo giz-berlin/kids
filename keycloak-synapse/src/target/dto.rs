@@ -5,6 +5,7 @@ use std::collections;
 #[derive(serde::Deserialize)]
 pub struct IgnoredResponse {}
 
+#[allow(unused)]
 #[derive(serde::Deserialize)]
 pub struct MatrixAuthentication {
     pub access_token: String,

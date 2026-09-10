@@ -8,7 +8,7 @@
       "clientAuthenticatorType": "client-secret",
       "secret": "keycloak_identity_syncer_secret",
       "serviceAccountsEnabled": true,
-      "authorizationServicesEnabled" : true
+      "authorizationServicesEnabled": true
     },
     {
       "clientId": "synapse",
@@ -16,9 +16,20 @@
       "clientAuthenticatorType": "client-secret",
       "secret": "synapse_secret",
       "serviceAccountsEnabled": true,
-      "authorizationServicesEnabled" : true,
+      "authorizationServicesEnabled": true,
       "redirectUris": [
         "https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT/_synapse/client/oidc/callback"
+      ]
+    },
+    {
+      "clientId": "matrix-mas",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "mas_secret",
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "redirectUris": [
+        "https://$PODMAN_SERVICE_HOSTNAME:$MAS_TLS_PORT/upstream/callback/$MAS_KEYCLOAK_ID"
       ]
     }
   ],
@@ -35,7 +46,9 @@
       "enabled": true,
       "firstName": "First",
       "lastName": "Tester",
-      "groups": ["/TestGroup/SubGroup"],
+      "groups": [
+        "/TestGroup/SubGroup"
+      ],
       "realmRoles": [
         "TestRealmRole"
       ],
@@ -55,7 +68,9 @@
       "enabled": true,
       "firstName": "Second",
       "lastName": "Tester",
-      "groups": ["/TestGroup"],
+      "groups": [
+        "/TestGroup"
+      ],
       "realmRoles": [
         "SecondTestRealmRole"
       ],
@@ -72,7 +87,10 @@
       "enabled": true,
       "serviceAccountClientId": "keycloak_identity_syncer",
       "clientRoles": {
-        "realm-management": ["view-users", "view-realm"]
+        "realm-management": [
+          "view-users",
+          "view-realm"
+        ]
       }
     }
   ],
@@ -91,14 +109,18 @@
       "name": "TestGroup",
       "path": "/TestGroup",
       "attributes": {
-        "matrixRoomName": ["Test Group"]
+        "matrixRoomName": [
+          "Test Group"
+        ]
       },
       "subGroups": [
         {
           "name": "SubGroup",
           "path": "/TestGroup/SubGroup",
           "attributes": {
-            "matrixRoomName": ["_name_titlecase"]
+            "matrixRoomName": [
+              "_name_titlecase"
+            ]
           }
         }
       ]

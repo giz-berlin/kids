@@ -26,7 +26,7 @@ check_user_display_name() {
   USER_NAME="$1"
   EXPECTED_DISPLAY_NAME="$2"
   SYNADM_CONFIG_FILE="$3"
-  ACTUAL_DISPLAY_NAME=$(synadm --config-file "$SYNADM_CONFIG_FILE" user list | jq -r ".users.[] | select(.name == \"$USER_NAME\").displayname")
+  ACTUAL_DISPLAY_NAME=$(synadm --config-file "$SYNADM_CONFIG_FILE" user list --no-guests | jq -r ".users.[] | select(.name == \"$USER_NAME\").displayname")
   compare "Display name" "$USER_NAME" "$ACTUAL_DISPLAY_NAME" "$EXPECTED_DISPLAY_NAME"
 }
 
@@ -85,7 +85,7 @@ progress_msg "Set up synadm config."
 export PYTHONWARNINGS="ignore:Unverified HTTPS request"
 SYNADM_CONFIG_FILE=$(mktemp)
 echo "admin_path: /_synapse/admin" >> "$SYNADM_CONFIG_FILE"
-echo "base_url: https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT" >> "$SYNADM_CONFIG_FILE"
+echo "base_url: 'https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT'" >> "$SYNADM_CONFIG_FILE"
 echo "format: json" >> "$SYNADM_CONFIG_FILE"
 echo "homeserver: auto-retrieval" >> "$SYNADM_CONFIG_FILE"
 echo "matrix_path: /_matrix" >> "$SYNADM_CONFIG_FILE"
@@ -93,16 +93,14 @@ echo "protocol: http" >> "$SYNADM_CONFIG_FILE"
 echo "server_discovery: well-known" >> "$SYNADM_CONFIG_FILE"
 echo "ssl_verify: false" >> "$SYNADM_CONFIG_FILE"
 echo "timeout: 30" >> "$SYNADM_CONFIG_FILE"
-echo "token: invalid" >> "$SYNADM_CONFIG_FILE"
+echo "token: $ADMIN_ACCESS_TOKEN" >> "$SYNADM_CONFIG_FILE"
 echo "user: '@admin:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT'" >> "$SYNADM_CONFIG_FILE"
 
-progress_msg "Login to Synapse"
-SYNAPSE_TOKEN=$(synadm --config-file "$SYNADM_CONFIG_FILE" matrix login "@admin:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT" --password "password" | jq -r '.access_token')
-sed -i -e "s/token: invalid/token: $SYNAPSE_TOKEN/g" "$SYNADM_CONFIG_FILE"
-
 progress_msg "Verify users"
-synadm --config-file "$SYNADM_CONFIG_FILE" user list | jq
-TOTAL_NUMBER_OF_USERS=$(synadm --config-file "$SYNADM_CONFIG_FILE" user list | jq '.total')
+# When Synapse is delegating to MAS, it cannot include guests.
+USER_LIST=$(synadm --config-file "$SYNADM_CONFIG_FILE" user list --no-guests)
+echo "$USER_LIST" | jq
+TOTAL_NUMBER_OF_USERS=$(echo "$USER_LIST" | jq '.total')
 EXPECTED_NUMBER_OF_USERS=3
 if [ $TOTAL_NUMBER_OF_USERS -ne $EXPECTED_NUMBER_OF_USERS ]; then
   echo "Found $TOTAL_NUMBER_OF_USERS users, expected $EXPECTED_NUMBER_OF_USERS."
