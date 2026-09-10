@@ -75,14 +75,14 @@ impl KentixClient {
         response.await.map(|paginated_response| {
             if let Ok(per_page) = paginated_response.meta.per_page.parse::<i32>() {
                 if paginated_response.meta.total > per_page {
-                    Err(kids_lib::error::KidsError::InternalError(
-                        "There is more data than what was fetched! Increase PER_PAGE to continue using this client.".to_owned(),
-                    ))
+                    Err(kids_lib::error::KidsError::InternalError(anyhow::anyhow!(
+                        "There is more data than what was fetched! Increase PER_PAGE to continue using this client."
+                    )))
                 } else {
                     Ok(paginated_response.data)
                 }
             } else {
-                Err(kids_lib::error::KidsError::InternalError("Expected a number as per_page.".to_owned()))
+                Err(kids_lib::error::KidsError::InternalError(anyhow::anyhow!("Expected a number as per_page.")))
             }
         })?
     }
@@ -135,7 +135,7 @@ impl KentixClient {
                                 Ok(json)
                             }
                             Err(error) => Err(kids_lib::error::KidsError::ApiOperationFailed(
-                                kids_lib::error::NO_CONTEXT.to_string(),
+                                kids_lib::error::no_context(),
                                 status.as_u16(),
                                 url,
                                 anyhow::anyhow!(error),
@@ -148,7 +148,7 @@ impl KentixClient {
                             Ok(json)
                         }
                         Err(error) => Err(kids_lib::error::KidsError::ApiOperationFailed(
-                            kids_lib::error::NO_CONTEXT.to_string(),
+                            kids_lib::error::no_context(),
                             status.as_u16(),
                             url,
                             anyhow::anyhow!(error),
@@ -163,7 +163,7 @@ impl KentixClient {
 
                 if status.as_u16() == 401 || status.as_u16() == 403 {
                     return Err(kids_lib::error::KidsError::AuthenticationFailed(
-                        kids_lib::error::NO_CONTEXT.to_string(),
+                        kids_lib::error::no_context(),
                         status.as_u16(),
                         url,
                         anyhow::anyhow!(error_information),
@@ -171,16 +171,13 @@ impl KentixClient {
                 }
 
                 Err(kids_lib::error::KidsError::ApiOperationFailed(
-                    kids_lib::error::NO_CONTEXT.to_string(),
+                    kids_lib::error::no_context(),
                     status.as_u16(),
                     url,
                     anyhow::anyhow!(error_information),
                 ))
             }
-            Err(e) => Err(kids_lib::error::KidsError::RequestFailed(
-                kids_lib::error::NO_CONTEXT.to_string(),
-                anyhow::anyhow!(e),
-            )),
+            Err(e) => Err(kids_lib::error::KidsError::RequestFailed(kids_lib::error::no_context(), anyhow::anyhow!(e))),
         }
     }
 }

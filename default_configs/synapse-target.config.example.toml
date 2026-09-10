@@ -25,24 +25,35 @@ room_deletion_strategy = "Evacuate"
 # A role that must be present on the source user for it to be considered in Synapse.
 # Optional
 required_role_name = "feature:authenticate"
+# A role that, if present on a source user, makes that user able to start admin sessions.
+# Optional
+# If not present, admin status of users will not be managed by KIDS.
+admin_role_name = "feature:admin"
 
 [target.synapse_api]
 # URL of the Matrix homeserver (probably similar to https://matrix.example.com).
 matrix_homeserver_url = "https://localhost"
-# The ID of the source as an identity provider in the Synapse config at key config['oidc_providers'][X]['idp_id'].
-# In order to map Matrix users to source users, the syncer needs to know how Synapse identifies the source.
-# If directly reading that from the Synapse config file is not possible, an easy way to find the id of the source is this command:
-# `curl https://matrix.example.org/_matrix/client/r0/login | jq '.flows[] | select(.type=="m.login.sso") | .identity_providers[].id'`
-matrix_source_oidc_provider_id = "keycloak"
+# URL of the Matrix Authentication Service API (probably similar to https://matrix.example.com/auth).
+matrix_mas_url = "https://localhost"
+# The ULID of the source as an identity provider in the MAS config as `client_id` key in `clients`
+# (https://element-hq.github.io/matrix-authentication-service/reference/configuration.html#clients).
+# In order to map Matrix users to source users, the syncer needs to know how MAS identifies the source.
+matrix_source_oidc_provider_ulid = "keycloak"
 # User ID of a Matrix user that must have administrative access.
 # This user will perform all operations required for syncing users and rooms.
 # Create a dedicated user if you can.
 matrix_syncer_user_id = "@example-syncer:localhost"
-# Password of the syncer Matrix user.
-matrix_syncer_password = "syncer-password"
 # Whether to validate the server certificate of the Matrix homeserver.
 # Only disable for local development purposes!
 insecure_disable_tls_verification = false
 # LEGACY: Needed for getting account data events used by old matrix syncer.
 # Only needed while migrating from old syncer, should be removed afterward.
 matrix_namespace = "localhost"
+[target.synapse_api.api_access]
+# The ULID of the MAS client used by KIDS, in the MAS config as `client_id` key in `clients`.
+# It must be part of the `admin_clients` policy for KIDS to function.
+mas_client_id = ""
+# The client secret for the `mas_client_id`.
+mas_client_secret = ""
+# How long tokens used for accessing the Synapse & Matrix C-S API are valid, in seconds.
+token_validity_seconds = 120

@@ -31,9 +31,12 @@ impl KentixApiMocker {
     }
 
     pub fn errors_get_all_users(mut self) -> Self {
-        self.api_mock
-            .expect_get_users()
-            .returning(|| Err(kids_lib::error::KidsError::InternalError(EXPLICITLY_FORBIDDEN_METHOD.to_owned())));
+        self.api_mock.expect_get_users().returning(|| {
+            Err(kids_lib::error::KidsError::RequestFailed(
+                EXPLICITLY_FORBIDDEN_METHOD.to_owned(),
+                anyhow::anyhow!(EXPLICITLY_FORBIDDEN_METHOD),
+            ))
+        });
         self
     }
 
@@ -52,10 +55,12 @@ impl KentixApiMocker {
     }
 
     pub fn errors_update_user(mut self, user: crate::target::dto::UserWithId) -> Self {
-        self.api_mock
-            .expect_update_user()
-            .with(mockall::predicate::eq(user))
-            .returning(|_| Err(kids_lib::error::KidsError::InternalError(EXPLICITLY_FORBIDDEN_METHOD.to_owned())));
+        self.api_mock.expect_update_user().with(mockall::predicate::eq(user)).returning(|_| {
+            Err(kids_lib::error::KidsError::RequestFailed(
+                EXPLICITLY_FORBIDDEN_METHOD.to_owned(),
+                anyhow::anyhow!(EXPLICITLY_FORBIDDEN_METHOD),
+            ))
+        });
         self
     }
 

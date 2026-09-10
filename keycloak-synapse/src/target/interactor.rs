@@ -13,20 +13,16 @@ impl SynapseInteractor {
         self.synapse_api.as_ref()
     }
 
-    pub fn generate_matrix_user_id(&self, username: &str) -> String {
-        format!("@{}:{}", username, self.synapse_api.homeserver_domain())
-    }
-
     pub async fn ensure_user_display_name(
         &self,
-        matrix_user_id: &str,
+        matrix_user_id: &crate::target::types::MatrixUserId,
         desired_name_opt: Option<&str>,
         source_user_id: &str,
     ) -> Result<(), kids_lib::error::KidsError> {
         let matrix_display_name = self.synapse_api.get_user_display_name(matrix_user_id).await?;
         if matrix_display_name.as_deref() != desired_name_opt {
             tracing::debug!(
-                matrix_user_id,
+                matrix_user_id = tracing::field::display(matrix_user_id),
                 source_user_id,
                 old_display_name = matrix_display_name,
                 new_display_name = desired_name_opt,
@@ -47,34 +43,6 @@ impl SynapseInteractor {
         Ok(())
     }
 
-    pub async fn ensure_user_email(
-        &self,
-        matrix_user_id: &str,
-        desired_email: Option<&str>,
-        source_user_id: &str,
-    ) -> Result<Option<Vec<crate::target::dto::ThreePID>>, kids_lib::error::KidsError> {
-        let matrix_three_pids = self.synapse_api.get_user_three_pids(matrix_user_id).await?;
-        let desired_three_pids = if let Some(email) = desired_email {
-            vec![crate::target::dto::ThreePID {
-                medium: crate::target::dto::ThreePIDMedium::Email,
-                address: email.to_owned(),
-            }]
-        } else {
-            vec![]
-        };
-        if matrix_three_pids != desired_three_pids {
-            tracing::debug!(
-                matrix_user_id,
-                source_user_id,
-                old_three_pids = ?matrix_three_pids,
-                new_three_pids = ?desired_three_pids,
-                "Updating user's 3PIDs."
-            );
-            self.synapse_api.set_user_three_pids(matrix_user_id, desired_three_pids.as_slice()).await?;
-        }
-        Ok(if desired_three_pids.is_empty() { None } else { Some(desired_three_pids) })
-    }
-
     /// The old syncer used a different event to associate matrix rooms to keycloak rooms.
     /// This function migrates rooms to the new format.
     /// Once the new syncer was successfully run once, we should be able to delete this method.
@@ -87,6 +55,52 @@ impl SynapseInteractor {
                 };
             }
         }
+    }
+
+    pub fn generate_matrix_user_id(&self, username: &str) -> crate::target::types::MatrixUserId {
+        crate::target::types::MatrixUserId {
+            username: username.to_owned(),
+            homeserver: self.synapse_api.homeserver_domain().clone(),
+        }
+    }
+
+    pub async fn get_user_from_mas_user(
+        &self,
+        mas_user: crate::target::dto::mas::UserResponse,
+    ) -> Result<crate::target::types::User, kids_lib::error::KidsError> {
+        let matrix_user_id = self.generate_matrix_user_id(mas_user.attributes.username.as_str());
+        let source_user_id = self.synapse_api.get_source_user_id_for_mas_user_id(&mas_user.id).await?;
+        let display_name = self.synapse_api.get_user_display_name(&matrix_user_id).await?;
+        let emails = self.synapse_api.get_user_emails(&mas_user.id).await?;
+        let user = crate::target::types::User {
+            matrix_user_id,
+            mas_user_id: mas_user.id,
+            source_user_id,
+            display_name,
+            emails,
+            locked: mas_user.attributes.locked_at.is_some(),
+            is_admin: mas_user.attributes.admin,
+        };
+        Ok(user)
+    }
+
+    pub async fn get_users(&self) -> Result<Vec<crate::target::types::User>, kids_lib::error::KidsError> {
+        let mas_users = self.synapse_api.get_mas_users().await?;
+        let mut users = Vec::with_capacity(mas_users.len());
+        for mas_user in mas_users {
+            let user = self.get_user_from_mas_user(mas_user).await?;
+            users.push(user);
+        }
+        Ok(users)
+    }
+
+    pub async fn create_user(
+        &self,
+        matrix_user_id: &crate::target::types::MatrixUserId,
+        source_user_id: &kids_lib::types::SharedResourceIdentifier,
+    ) -> Result<crate::target::types::User, kids_lib::error::KidsError> {
+        let mas_user = self.synapse_api.create_user(matrix_user_id, source_user_id).await?;
+        self.get_user_from_mas_user(mas_user).await
     }
 
     pub async fn ensure_group_display_name(&self, matrix_room_id: &str, desired_name: String) {
@@ -116,7 +130,12 @@ impl SynapseInteractor {
                 match self.synapse_api.create_room_alias(matrix_room_id, &desired_alias).await {
                     Ok(()) => tracing::debug!(matrix_room_id, desired_alias, "Created new room alias"),
                     Err(e) => {
-                        tracing::warn!(?e, matrix_room_id, "Could not create new alias for room. Aborting update of canonical alias");
+                        tracing::warn!(
+                            ?e,
+                            matrix_room_id,
+                            ?desired_alias,
+                            "Could not create new alias for room. Aborting update of canonical alias"
+                        );
                         return;
                     }
                 }
@@ -165,12 +184,12 @@ impl SynapseInteractor {
 
                 let mut all_kicked = true;
                 for member in joined_members.joined.keys() {
-                    tracing::debug!(matrix_room_id, member, "Kicking member from room");
+                    tracing::debug!(matrix_room_id, member = member.display(), "Kicking member from room");
                     if self.synapse_api.user_is_matrix_syncer(member) {
                         continue;
                     }
                     if let Err(e) = self.synapse_api.kick_user_from_room(matrix_room_id, member).await {
-                        tracing::error!(matrix_room_id, member, error = ?e, "Could not kick member from room");
+                        tracing::error!(matrix_room_id, member = member.display(), error = ?e, "Could not kick member from room");
                         all_kicked = false;
                     }
                 }
@@ -178,7 +197,7 @@ impl SynapseInteractor {
                 if !all_kicked {
                     // Note: Need to return early here because the syncer should only leave the room
                     // if all users have been kicked successfully.
-                    return Err(kids_lib::error::KidsError::InternalError(format!(
+                    return Err(kids_lib::error::KidsError::InternalError(anyhow::anyhow!(
                         "Could not kick all members from room {matrix_room_id}"
                     )));
                 }
