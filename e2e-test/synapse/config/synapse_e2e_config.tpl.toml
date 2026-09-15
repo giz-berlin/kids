@@ -31,7 +31,12 @@ room_deletion_strategy = "KickAll"
 matrix_homeserver_url = "https://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
 matrix_mas_url = "https://$PODMAN_SERVICE_HOSTNAME:$MAS_TLS_PORT"
 matrix_source_oidc_provider_id = "oidc-keycloak"
+matrix_source_oidc_provider_ulid = "$MAS_KEYCLOAK_ULID"
 matrix_syncer_user_id = "@admin:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
-matrix_syncer_token = "$ADMIN_ACCESS_TOKEN"
 matrix_namespace = "$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT"
 insecure_disable_tls_verification = true
+[target.synapse_api.api_access]
+matrix_token = "$ADMIN_ACCESS_TOKEN_SYNAPSE"
+synapse_token = "$ADMIN_ACCESS_TOKEN_SYNAPSE"
+mas_client_id = "$MAS_KIDS_CLIENT_ULID"
+mas_client_secret = "$MAS_KIDS_CLIENT_SECRET"

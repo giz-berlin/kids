@@ -79,7 +79,7 @@ impl GroupMapping {
                 );
                 // We don't really know which room really is the better one to use in case of duplicate mapping.
                 // As this is a situation that should never arise, we error out.
-                return Err(kids_lib::error::KidsError::InternalError("Duplicate source group mapping".to_owned()));
+                return Err(kids_lib::error::KidsError::InternalError(anyhow::anyhow!("Duplicate source group mapping")));
             }
 
             group_id_mapping.insert(source_group_id, matrix_room_id);
@@ -96,17 +96,17 @@ impl GroupMapping {
 }
 
 pub struct UserMapping {
-    user_id_mapping: std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User>,
+    user_id_mapping: std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::types::User>,
     /// The source id of the syncer user, if present.
     /// This user will be ignored.
     syncer_source_user_id: Option<kids_lib::types::SharedResourceIdentifier>,
 }
 
 impl UserMapping {
-    pub const fn get_user_id_mapping(&self) -> &std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User> {
+    pub const fn get_user_id_mapping(&self) -> &std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::types::User> {
         &self.user_id_mapping
     }
-    pub const fn get_user_id_mapping_mut(&mut self) -> &mut std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::dto::User> {
+    pub const fn get_user_id_mapping_mut(&mut self) -> &mut std::collections::HashMap<kids_lib::types::SharedResourceIdentifier, crate::target::types::User> {
         &mut self.user_id_mapping
     }
     pub const fn get_syncer_source_user_id(&self) -> Option<&kids_lib::types::SharedResourceIdentifier> {
@@ -117,16 +117,16 @@ impl UserMapping {
         self.get_user_opt(source_user_id).is_some()
     }
 
-    pub fn get_user_opt(&self, source_user_id: &str) -> Option<&crate::target::dto::User> {
+    pub fn get_user_opt(&self, source_user_id: &str) -> Option<&crate::target::types::User> {
         self.get_user_id_mapping().get(source_user_id)
     }
 
-    pub fn get_user_opt_mut(&mut self, source_user_id: &str) -> Option<&mut crate::target::dto::User> {
+    pub fn get_user_opt_mut(&mut self, source_user_id: &str) -> Option<&mut crate::target::types::User> {
         self.get_user_id_mapping_mut().get_mut(source_user_id)
     }
 
     /// This method panics when the user cannot be found.
-    pub fn get_user(&self, source_user_id: &str) -> &crate::target::dto::User {
+    pub fn get_user(&self, source_user_id: &str) -> &crate::target::types::User {
         self.get_user_opt(source_user_id)
             .expect("User not found, although it should be guaranteed it exists")
     }
@@ -139,10 +139,10 @@ impl UserMapping {
             .map_err(|e| e.with_context("Failed getting matrix users"))?;
 
         let mut syncer_source_user_id = None;
-        let mut user_id_mapping: std::collections::HashMap<String, crate::target::dto::User> = std::collections::HashMap::new();
-        for user in matrix_users.users {
-            let source_user_id = synapse_interactor.synapse_api().get_source_user_id_for_matrix_user_id(&user.name).await;
-            let is_syncer_user = synapse_interactor.synapse_api().user_is_matrix_syncer(user.name.as_str());
+        let mut user_id_mapping: std::collections::HashMap<String, crate::target::types::User> = std::collections::HashMap::new();
+        for user in matrix_users {
+            let source_user_id = synapse_interactor.synapse_api().get_source_user_id_for_mas_user_id(&user.mas_user_id).await;
+            let is_syncer_user = synapse_interactor.synapse_api().user_is_matrix_syncer(user.matrix_user_id.as_str());
             let source_user_id = match (source_user_id, is_syncer_user) {
                 (Ok(source_user_id), false) => source_user_id,
                 (Ok(source_user_id), true) => {
@@ -150,11 +150,11 @@ impl UserMapping {
                     continue;
                 }
                 (Err(error), false) => {
-                    tracing::warn!(%error, matrix_user_id=user.name, "Could not obtain source user ID for matrix user");
+                    tracing::warn!(%error, matrix_user_id=user.matrix_user_id, "Could not obtain source user ID for matrix user");
                     continue;
                 }
                 (Err(error), true) => {
-                    tracing::trace!(%error, matrix_user_id=user.name, "Could not obtain source user ID for syncer user");
+                    tracing::trace!(%error, matrix_user_id=user.matrix_user_id, "Could not obtain source user ID for syncer user");
                     continue;
                 }
             };
@@ -164,11 +164,11 @@ impl UserMapping {
                 // (otherwise, when logging in via SSO, matrix would not know which user to login).
                 tracing::error!(
                     source_user_id,
-                    first_matrix_user_id = user.name,
-                    second_matrix_user_id = user_id_mapping[&source_user_id].name,
+                    first_matrix_user_id = user.matrix_user_id,
+                    second_matrix_user_id = user_id_mapping[&source_user_id].matrix_user_id,
                     "Found duplicate mapping for source user"
                 );
-                return Err(kids_lib::error::KidsError::InternalError("Duplicate source user mapping".to_owned()));
+                return Err(kids_lib::error::KidsError::InternalError(anyhow::anyhow!("Duplicate source user mapping")));
             }
 
             user_id_mapping.insert(source_user_id, user);

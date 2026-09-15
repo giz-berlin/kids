@@ -109,14 +109,14 @@ impl SynapseApiMocker {
         let rooms: Vec<String> = self.synapse_rooms.iter().map(|room| room.matrix_room_id.clone()).collect();
         self.api_mock
             .expect_get_joined_rooms_of_syncer()
-            .returning(move || Ok(dto::JoinedRoomsResponse { joined_rooms: rooms.clone() }));
+            .returning(move || Ok(dto::matrix::JoinedRoomsResponse { joined_rooms: rooms.clone() }));
         self
     }
 
     pub fn cannot_get_joined_rooms_of_syncer(mut self) -> Self {
         self.api_mock
             .expect_get_joined_rooms_of_syncer()
-            .returning(|| Err(KidsError::InternalError(kids_lib::error::NO_CONTEXT.to_string())));
+            .returning(|| Err(KidsError::InternalError(kids_lib::error::no_context_anyhow())));
         self
     }
 
@@ -125,7 +125,7 @@ impl SynapseApiMocker {
         self.api_mock
             .expect_get_user_joined_rooms()
             .with(eq(user.matrix_user_id.clone()))
-            .returning(move |_| Ok(dto::UserJoinedRoomsResponse { joined_rooms: rooms.clone() }));
+            .returning(move |_| Ok(dto::matrix::UserJoinedRoomsResponse { joined_rooms: rooms.clone() }));
         self
     }
 
@@ -168,7 +168,7 @@ impl SynapseApiMocker {
         self.api_mock
             .expect_get_room_associated_source_group_id()
             .with(eq(room.matrix_room_id.clone()))
-            .returning(|_| Err(KidsError::InternalError(kids_lib::error::NO_CONTEXT.to_string())));
+            .returning(|_| Err(KidsError::InternalError(kids_lib::error::no_context_anyhow())));
         self
     }
 
@@ -189,17 +189,15 @@ impl SynapseApiMocker {
     }
 
     pub fn can_get_users(mut self) -> Self {
-        let users: Vec<dto::User> = self.synapse_users.iter().map(Self::get_user_from).collect();
-        self.api_mock
-            .expect_get_users()
-            .returning(move || Ok(dto::AllUsersResponse { users: users.clone() }));
+        let users: Vec<crate::target::types::User> = self.synapse_users.iter().map(Self::get_user_from).collect();
+        self.api_mock.expect_get_users().returning(move || Ok(users.clone()));
         self
     }
 
     pub fn cannot_get_users(mut self) -> Self {
         self.api_mock
             .expect_get_users()
-            .returning(|| Err(KidsError::InternalError(kids_lib::error::NO_CONTEXT.to_string())));
+            .returning(|| Err(KidsError::InternalError(kids_lib::error::no_context_anyhow())));
         self
     }
 
@@ -207,7 +205,7 @@ impl SynapseApiMocker {
         self.api_mock.expect_create_room().returning(|name, path| {
             let room = MockSynapseRoomBuilder::default().name(name).alias(path).build();
             let room_id = room.matrix_room_id.clone();
-            Ok(dto::RoomCreationResponse { room_id })
+            Ok(dto::matrix::RoomCreationResponse { room_id })
         });
         self
     }
@@ -215,7 +213,7 @@ impl SynapseApiMocker {
     pub fn cannot_create_room(mut self) -> Self {
         self.api_mock
             .expect_create_room()
-            .returning(|_, _| Err(KidsError::InternalError(kids_lib::error::NO_CONTEXT.to_string())));
+            .returning(|_, _| Err(KidsError::InternalError(kids_lib::error::no_context_anyhow())));
         self
     }
 
@@ -235,7 +233,7 @@ impl SynapseApiMocker {
         }
         self.api_mock.expect_get_room_display_name().returning(|matrix_room_id| {
             Err(KidsError::ApiOperationFailed(
-                kids_lib::error::NO_CONTEXT.to_string(),
+                kids_lib::error::no_context(),
                 404,
                 "get_room_display_name".to_owned(),
                 anyhow::anyhow!("Could not find room with matrix id '{matrix_room_id}'."),
@@ -267,7 +265,7 @@ impl SynapseApiMocker {
             let matrix_room_id = room.matrix_room_id.clone();
             let room_alias = room.alias.clone();
             self.api_mock.expect_get_room_canonical_alias().with(eq(matrix_room_id)).returning(move |_| {
-                Ok(dto::RoomCanonicalAliasEvent {
+                Ok(dto::matrix::RoomCanonicalAliasEvent {
                     alias: room_alias.clone(),
                     alt_aliases: None,
                 })
@@ -275,7 +273,7 @@ impl SynapseApiMocker {
         }
         self.api_mock.expect_get_room_canonical_alias().returning(|matrix_room_id| {
             Err(KidsError::ApiOperationFailed(
-                kids_lib::error::NO_CONTEXT.to_string(),
+                kids_lib::error::no_context(),
                 404,
                 "get_room_canonical_alias".to_owned(),
                 anyhow::anyhow!("Could not find room with matrix id '{matrix_room_id}'."),
@@ -339,7 +337,7 @@ impl SynapseApiMocker {
             } else if user_id_fails_to_kick.as_ref().is_some_and(|u| u == user) {
                 expectation
                     .times(1)
-                    .return_once(|_, _| Err(KidsError::InternalError(kids_lib::error::NO_CONTEXT.to_string())));
+                    .return_once(|_, _| Err(KidsError::InternalError(kids_lib::error::no_context_anyhow())));
             } else {
                 expectation.times(1).return_once(|_, _| Ok(()));
             }
@@ -353,11 +351,11 @@ impl SynapseApiMocker {
         // Catch-all forbid syncer to leave rooms.
         self.api_mock
             .expect_syncer_leave_room()
-            .returning(|_| Err(KidsError::InternalError(kids_lib::error::NO_CONTEXT.to_string())));
+            .returning(|_| Err(KidsError::InternalError(kids_lib::error::no_context_anyhow())));
         self.api_mock
             .expect_get_room_joined_users()
             .with(eq(matrix_room_id.clone()))
-            .return_once(|_| Ok(dto::RoomJoinedUsersResponse { joined: users_in_room }));
+            .return_once(|_| Ok(dto::matrix::RoomJoinedUsersResponse { joined: users_in_room }));
         self
     }
 
@@ -371,7 +369,7 @@ impl SynapseApiMocker {
     pub fn can_get_source_user_id_for_matrix_user(mut self, user: &MockSynapseUser) -> Self {
         let user_id = user.source_user_id.clone();
         self.api_mock
-            .expect_get_source_user_id_for_matrix_user_id()
+            .expect_get_source_user_id_for_matrix_user_id_v1()
             .with(eq(user.matrix_user_id.clone()))
             .returning(move |_| Ok(user_id.clone()));
         self
@@ -379,9 +377,9 @@ impl SynapseApiMocker {
 
     pub fn cannot_get_source_user_id_for_matrix_user(mut self, user: &MockSynapseUser) -> Self {
         self.api_mock
-            .expect_get_source_user_id_for_matrix_user_id()
+            .expect_get_source_user_id_for_matrix_user_id_v1()
             .with(eq(user.matrix_user_id.clone()))
-            .returning(|_| Err(KidsError::InternalError(kids_lib::error::NO_CONTEXT.to_string())));
+            .returning(|_| Err(KidsError::InternalError(kids_lib::error::no_context_anyhow())));
         self
     }
 
@@ -435,8 +433,8 @@ impl SynapseApiMocker {
             .with(eq(user.matrix_user_id.clone()))
             .returning(move |_| {
                 Ok(if let Some(email) = current_email.as_ref() {
-                    vec![dto::ThreePID {
-                        medium: dto::ThreePIDMedium::Email,
+                    vec![dto::synapse::ThreePID {
+                        medium: dto::synapse::ThreePIDMedium::Email,
                         address: email.to_owned(),
                     }]
                 } else {
@@ -451,8 +449,8 @@ impl SynapseApiMocker {
             .expect_set_user_three_pids()
             .with(
                 eq(user_to_be_modified.matrix_user_id.clone()),
-                eq(vec![dto::ThreePID {
-                    medium: dto::ThreePIDMedium::Email,
+                eq(vec![dto::synapse::ThreePID {
+                    medium: dto::synapse::ThreePIDMedium::Email,
                     address: new_email.to_owned(),
                 }]),
             )
@@ -472,15 +470,14 @@ impl SynapseApiMocker {
 }
 
 impl SynapseApiMocker {
-    pub fn get_user_from(user: &MockSynapseUser) -> dto::User {
-        dto::User {
-            name: user.matrix_user_id.clone(),
+    pub fn get_user_from(user: &MockSynapseUser) -> crate::target::types::User {
+        crate::target::types::User {
+            matrix_user_id: user.matrix_user_id.clone(),
+            mas_user_id: "".into(),
+            source_user_id: user.source_user_id.clone(),
+            display_name: None,
+            emails: vec![],
             locked: user.locked,
-            external_ids: Some(vec![dto::ExternalId {
-                auth_provider: kids_test_lib::util::constants::DEFAULT_AUTH_PROVIDER.to_string(),
-                external_id: user.source_user_id.clone(),
-            }]),
-            threepids: None,
         }
     }
 }

@@ -83,9 +83,9 @@ impl kids_lib::interface::target::Target for Connector {
             has_team = group.has_team;
             has_list = group.has_list;
         } else {
-            return Err(KidsError::InternalError(
-                "Source group should be in group id mapping due to previous check, but we cannot get it".to_string(),
-            ));
+            return Err(KidsError::InternalError(anyhow::anyhow!(
+                "Source group should be in group id mapping due to previous check, but we cannot get it"
+            )));
         }
 
         let uuid_team_email = self
@@ -160,9 +160,9 @@ impl kids_lib::interface::target::Target for Connector {
             has_teams_in_james = group.has_team;
             has_lists_in_james = group.has_list;
         } else {
-            return Err(KidsError::InternalError(
-                "Source group should be in group id mapping due to previous check, but we cannot get it".to_string(),
-            ));
+            return Err(KidsError::InternalError(anyhow::anyhow!(
+                "Source group should be in group id mapping due to previous check, but we cannot get it"
+            )));
         }
 
         let team_uuid_email = self
@@ -448,7 +448,7 @@ impl Connector {
         if let Some(domains) = &self.james_domains {
             return Ok(domains.contains(domain));
         }
-        Err(KidsError::InternalError("James domains are None, which should not happen".to_string()))
+        Err(KidsError::InternalError(anyhow::anyhow!("James domains are None, which should not happen")))
     }
 
     async fn update_caches(&mut self) -> Result<(), KidsError> {
