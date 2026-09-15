@@ -5,6 +5,7 @@ members = [
     "keycloak-kentix",
     "keycloak-memory",
     "keycloak-synapse",
+    "keycloak-vaultwarden",
     "kids-lib",
     "source-keycloak-lib",
     "webhook-cli",

@@ -1,0 +1,32 @@
+[target]
+# URL of the Vaultwarden server.
+url = "https://localhost"
+# Organization ID.
+org_id = "00000000-0000-0000-0000-000000000000"
+
+# Client ID/Secret of the user used to authenticate against the vault API
+# and via the `bw` CLI. This user must be an Owner or Admin of the organization.
+user_client_id = "user.00000000-0000-0000-0000-000000000000"
+user_client_secret = "Secret"
+# Master password of the user above, required to unlock the `bw` CLI vault.
+master_password = "Password"
+
+# Client ID/Secret of the organization API key, found in the organization's "Settings" ->
+# "Organization info" -> "API Key" screen.
+org_client_id = "organization.00000000-0000-0000-0000-000000000000"
+org_client_secret = "Secret"
+
+# Value of the `ADMIN_TOKEN` configured on the Vaultwarden server.
+admin_token = "Token"
+
+# Whether to skip validating the server certificate of Vaultwarden.
+# Only enable for local development purposes!
+insecure_disable_tls_verification = false
+
+# A role that must be present on the source user for it to be given access to Vaultwarden.
+# Optional
+required_role_name = "vaultwarden"
+
+# Emails of accounts the syncer never touches.
+# The syncer's own account, the user above, is always ignored automatically.
+ignored_emails = []

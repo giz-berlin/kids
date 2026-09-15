@@ -7,7 +7,7 @@ pub struct KeycloakApiConfig {
     /// Address of the external Keycloak to fetch data from.
     pub keycloak_address: String,
     /// Client ID of a Keycloak service account used to fetch the data.
-    /// The service account needs to have access to the realm and have the "view-users" and "view-realm" roles assigned.
+    /// The service account needs to have access to the realm and have the "view-users", "view-realm" and "view-clients" roles assigned.
     /// Otherwise, the API will report an authentication error as it is not able to access the desired information,
     /// even when the credentials are valid.
     pub client_id: String,
