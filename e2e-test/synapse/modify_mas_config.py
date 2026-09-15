@@ -73,11 +73,20 @@ with open(CONFIG_FILE) as f:
     # See https://element-hq.github.io/matrix-authentication-service/reference/configuration.html#policy
     config['policy'] = {
         'data': {
+            'admin_clients': [
+                f'{os.environ.get("MAS_KIDS_CLIENT_ULID")}'
+            ],
             'client_registration': {
                 'allow_insecure_uris': True
             }
         }
     }
+    config['clients'] = [{
+        'client_id': f'{os.environ.get("MAS_KIDS_CLIENT_ULID")}',
+        'client_auth_method': 'client_secret_basic',
+        'client_secret': f'{os.environ.get("MAS_KIDS_CLIENT_SECRET")}',
+        'redirect_uris': [],
+    }]
 
 with open(CONFIG_FILE, 'w') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)

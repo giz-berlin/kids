@@ -6,20 +6,40 @@ use kids_lib::error::KidsError;
 use crate::target::dto;
 
 #[derive(serde::Deserialize, Clone)]
+pub struct ApiAccessConfig {
+    /// Token used to access Matrix routes (`_matrix/client/v3`).
+    ///
+    /// Can usually be the same as [`synapse_token`](Self::synapse_token).
+    pub matrix_token: String,
+    /// Token used to access Synapse routes (`_synapse/admin`).
+    ///
+    /// Can usually be the same as [`matrix_token`](Self::matrix_token).
+    pub synapse_token: String,
+    /// Client ID to authenticate against for MAS routes (`api/admin/v1`).
+    pub mas_client_id: String,
+    /// Client Secret to authenticate with for MAS routes (`api/admin/v1`).
+    pub mas_client_secret: String,
+}
+
+#[derive(serde::Deserialize, Clone)]
 pub struct SynapseApiConfig {
     /// URL of the Matrix Authentication Service (probably similar to https://matrix.example.com/auth).
     pub matrix_mas_url: String,
     /// URL of the Matrix homeserver (probably similar to https://matrix.example.com).
     pub matrix_homeserver_url: String,
     /// The ID of the source (for example, Keycloak) as identity provider in the Synapse config.
+    /// E.g. `oidc-keycloak`.
     pub matrix_source_oidc_provider_id: String,
+    /// The ULID of the source (for example, Keycloak) as identity provider in the MAS config.
+    /// E.g. `01M2FZGR28JRY6XHVB574A83S0`.
+    pub matrix_source_oidc_provider_ulid: String,
     /// User ID of a Matrix user that must have administrative access.
     /// This user will perform all operations required for syncing users and rooms.
     /// Create a dedicated user if you can.
     /// (probably similar to `@keycloak-sync:matrix.example.org`)
     pub matrix_syncer_user_id: String,
-    /// Token for the syncer Matrix user.
-    pub matrix_syncer_token: String,
+    /// Tokens for the syncer Matrix user.
+    pub api_access: ApiAccessConfig,
     /// Whether to validate the server certificate of the Matrix homeserver.
     /// Only disable for local development purposes!
     pub insecure_disable_tls_verification: bool,
@@ -33,19 +53,21 @@ pub struct SynapseApiConfig {
 pub trait SynapseApi {
     fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool;
     fn homeserver_domain(&self) -> &str;
-    async fn get_joined_rooms_of_syncer(&self) -> Result<dto::JoinedRoomsResponse, KidsError>;
+    async fn get_joined_rooms_of_syncer(&self) -> Result<dto::matrix::JoinedRoomsResponse, KidsError>;
     async fn syncer_leave_room(&self, matrix_room_id: &str) -> Result<(), KidsError>;
-    async fn get_users(&self) -> Result<dto::AllUsersResponse, KidsError>;
+    async fn get_users(&self) -> Result<Vec<crate::target::types::User>, KidsError>;
     async fn deactivate_user(&self, matrix_user_id: &str) -> Result<(), KidsError>;
-    async fn get_user_three_pids(&self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, KidsError>;
-    async fn set_user_three_pids(&self, matrix_user_id: &str, three_pids: &[dto::ThreePID]) -> Result<(), KidsError>;
+    async fn get_user_three_pids(&self, matrix_user_id: &str) -> Result<Vec<dto::synapse::ThreePID>, KidsError>;
+    async fn set_user_three_pids(&self, matrix_user_id: &str, three_pids: &[dto::synapse::ThreePID]) -> Result<(), KidsError>;
+    async fn get_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<Vec<String>, KidsError>;
+    async fn set_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id, emails: &[String]) -> Result<(), KidsError>;
     async fn lock_user(&self, matrix_user_id: &str) -> Result<(), KidsError>;
     async fn unlock_user(&self, matrix_user_id: &str) -> Result<(), KidsError>;
     async fn set_user_display_name(&self, matrix_user_id: &str, display_name: &str) -> Result<(), KidsError>;
     async fn get_user_display_name(&self, matrix_user_id: &str) -> Result<Option<String>, KidsError>;
-    async fn create_user(&self, matrix_user_id: &str, source_user_id: &str) -> Result<dto::User, KidsError>;
+    async fn create_user(&self, matrix_user_id: &str, source_user_id: &str) -> Result<crate::target::types::User, KidsError>;
 
-    async fn create_room(&self, name: &str, path: &str) -> Result<dto::RoomCreationResponse, KidsError>;
+    async fn create_room(&self, name: &str, path: &str) -> Result<dto::matrix::RoomCreationResponse, KidsError>;
     async fn delete_room(&self, matrix_room_id: &str) -> Result<(), KidsError>;
     async fn associate_source_group_id_to_room(
         &self,
@@ -61,65 +83,45 @@ pub trait SynapseApi {
     async fn create_room_alias(&self, matrix_room_id: &str, alias: &str) -> Result<(), KidsError>;
     async fn delete_room_alias(&self, alias: &str) -> Result<(), KidsError>;
     async fn set_room_canonical_alias(&self, matrix_room_id: &str, canonical_alias: &str) -> Result<(), KidsError>;
-    async fn get_room_canonical_alias(&self, matrix_room_id: &str) -> Result<dto::RoomCanonicalAliasEvent, KidsError>;
+    async fn get_room_canonical_alias(&self, matrix_room_id: &str) -> Result<dto::matrix::RoomCanonicalAliasEvent, KidsError>;
 
-    async fn get_source_user_id_for_matrix_user_id(&self, matrix_user_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError>;
-    async fn get_user_joined_rooms(&self, matrix_user_id: &str) -> Result<dto::UserJoinedRoomsResponse, KidsError>;
-    async fn get_room_joined_users(&self, matrix_room_id: &str) -> Result<dto::RoomJoinedUsersResponse, KidsError>;
+    /// Get the source user id as stored by MAS via the upstream Oauth provider.
+    async fn get_source_user_id_for_mas_user_id(
+        &self,
+        mas_user_id: &dto::mas::internal::user::Id,
+    ) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError>;
+    /// Get the source user id as stored by Synapse via their OIDC implementation.
+    async fn get_source_user_id_for_matrix_user_id_v1(&self, matrix_user_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError>;
+    async fn get_user_joined_rooms(&self, matrix_user_id: &str) -> Result<dto::matrix::UserJoinedRoomsResponse, KidsError>;
+    async fn get_room_joined_users(&self, matrix_room_id: &str) -> Result<dto::matrix::RoomJoinedUsersResponse, KidsError>;
     async fn join_user_to_room(&self, matrix_room_id: &str, matrix_user_id: &str) -> Result<(), KidsError>;
     async fn kick_user_from_room(&self, matrix_room_id: &str, matrix_user_id: &str) -> Result<(), KidsError>;
 }
 
+pub struct ApiAccess {
+    /// Token used to access Matrix routes (`_matrix/client/v3`).
+    ///
+    /// Can usually be the same as [`synapse_token`](Self::synapse_token).
+    matrix_token: String,
+    /// Token used to access Synapse routes (`_synapse/admin`).
+    ///
+    /// Can usually be the same as [`matrix_token`](Self::matrix_token).
+    synapse_token: String,
+    /// Account used for MAS routes (`api/admin/v1`).
+    mas_account: oidc_rp::account::Account<
+        oidc_rp::oidc::EmptyAdditionalClaims,
+        oidc_rp::oidc::EmptyAdditionalClaims,
+        oidc_rp::oidc::EmptyAdditionalProviderMetadata,
+        oidc_rp::types::AttributeSet,
+    >,
+}
+
 pub struct SynapseClient {
-    access_token: String,
-    // authentication: tokio::sync::Mutex<Authentication>,
+    api_access: ApiAccess,
     config: SynapseApiConfig,
     http_client: reqwest::Client,
-    #[allow(unused)]
     parsed_mas_url: url::Url,
     parsed_homeserver_url: url::Url,
-}
-
-#[allow(unused)]
-struct Authentication {
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    expires_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-#[allow(unused)]
-impl Authentication {
-    /// #### `allow_keeping_old_refresh_token`:
-    ///
-    /// Keep the old refresh token if no new one was provided.
-    /// This is only possible for `refresh` requests.
-    /// `login` requests are not allowed to do this.
-    /// See https://spec.matrix.org/latest/client-server-api/#post_matrixclientv3refresh
-    /// and https://spec.matrix.org/latest/client-server-api/#post_matrixclientv3login.
-    fn replace_by(&mut self, other: Self, allow_keeping_old_refresh_token: bool) {
-        self.access_token = other.access_token;
-        if allow_keeping_old_refresh_token {
-            self.refresh_token = other.refresh_token.or(self.refresh_token.take());
-        } else {
-            self.refresh_token = other.refresh_token;
-        }
-        self.expires_at = other.expires_at;
-    }
-}
-
-impl From<dto::MatrixAuthentication> for Authentication {
-    fn from(value: dto::MatrixAuthentication) -> Self {
-        let access_token = Some(value.access_token);
-        let refresh_token = value.refresh_token;
-        let expires_at = value
-            .expires_in_ms
-            .map(|expires_in_ms| chrono::Utc::now() + chrono::Duration::milliseconds(expires_in_ms));
-        Self {
-            access_token,
-            expires_at,
-            refresh_token,
-        }
-    }
 }
 
 /// Page size requested when loading users.
@@ -129,6 +131,11 @@ const ALL_USERS: u32 = u32::MAX;
 /// The name of the room state event the syncer stores its metadata in
 /// (such as the mapping of room to source group).
 const SYNCER_ROOM_METADATA_EVENT: &str = "m.room.kids.room_sync";
+
+fn error_to_kids_error(err: impl Into<anyhow::Error>) -> kids_lib::error::KidsError {
+    let err = err.into();
+    err.into()
+}
 
 impl SynapseClient {
     pub async fn new(config: SynapseApiConfig) -> Result<Self, KidsError> {
@@ -143,87 +150,46 @@ impl SynapseClient {
         }
         let client = builder.build().unwrap();
 
-        let access_token = config.matrix_syncer_token.clone();
+        let mas_account = {
+            let idp = if config.insecure_disable_tls_verification {
+                oidc_rp::idp::IdP::new_with_reqwest_client(parsed_mas_url.clone(), client.clone()).await
+            } else {
+                oidc_rp::idp::IdP::new(parsed_mas_url.clone()).await
+            }
+            .map_err(error_to_kids_error)?
+            .set_default_idp_refresh_strategy()
+            .await
+            .map_err(error_to_kids_error)?;
+            let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(idp.clone(), config.api_access.mas_client_id.clone())
+                .map_err(error_to_kids_error)?
+                .allow_all_access_token_jose_types()
+                .set_other_audience_verifier_fn(|_| true);
+            let account = oidc_rp::account::Account::new_secret(
+                idp,
+                config.api_access.mas_client_id.clone(),
+                config.api_access.mas_client_secret.clone(),
+                verifier,
+            );
+            let account = account
+                .exchange_client_credentials(vec!["urn:mas:admin".to_owned()])
+                .await
+                .map_err(error_to_kids_error)?;
+            account.start_auto_refresh()
+        };
+        let api_access = ApiAccess {
+            matrix_token: config.api_access.matrix_token.clone(),
+            synapse_token: config.api_access.synapse_token.clone(),
+            mas_account,
+        };
         let synapse_client = SynapseClient {
             config,
             http_client: client,
-            access_token,
-            // authentication: tokio::sync::Mutex::new(Authentication {
-            //     access_token: None,
-            //     refresh_token: None,
-            //     expires_at: None,
-            // }),
+            api_access,
             parsed_mas_url,
             parsed_homeserver_url,
         };
 
-        // synapse_client.login().await?;
-
         Ok(synapse_client)
-    }
-
-    // /// Returns the valid access token.
-    // async fn login(&self) -> Result<String, KidsError> {
-    //     let token_response: dto::MatrixAuthentication = self
-    //         .send_mas_request_unauthenticated(
-    //             http::Method::POST,
-    //             ApiPath::from_segments(["personal-sessions"]),
-    //             Some(serde_json::json!({
-    //                 "type": "m.login.password",
-    //                 "identifier": {
-    //                     "type": "m.id.user",
-    //                     "user": &self.config.matrix_syncer_user_id,
-    //                   },
-    //                 "password": &self.config.matrix_syncer_password,
-    //                 "refresh_token": true
-    //             })),
-    //         )
-    //         .await?;
-    //     let mut authentication = self.authentication.lock().await;
-    //     authentication.replace_by(token_response.into(), false);
-    //     tracing::info!(homeserver_url=%self.parsed_homeserver_url, "Logged in to homeserver");
-    //     Ok(authentication.access_token.clone().expect("access token must always be defined"))
-    // }
-
-    /// Returns the valid access token.
-    async fn refresh_access_token_if_necessary(&self) -> Result<String, KidsError> {
-        Ok(self.access_token.clone())
-        // let mut authentication = self.authentication.lock().await;
-        // // In order to avoid the access token expiring between this check and the actual request,
-        // // we also refresh tokens that are not yet expired but will be soon.
-        // if let Some(expires_at) = authentication.expires_at
-        //     && expires_at - chrono::Duration::seconds(5) < chrono::Utc::now()
-        // {
-        //     tracing::debug!("Refreshing access token");
-        //     if authentication.refresh_token.is_none() {
-        //         drop(authentication);
-        //         return self.login().await;
-        //     }
-        //     let token_response_res: Result<dto::MatrixAuthentication, KidsError> = self
-        //         .send_client_api_request_unauthenticated(
-        //             http::Method::POST,
-        //             ApiPath::from_segments(["refresh"]),
-        //             Some(serde_json::json!({
-        //                 "refresh_token": authentication.refresh_token,
-        //             })),
-        //         )
-        //         .await;
-
-        //     // Refresh tokens might expire (although they are by default valid for infinite lifetime:
-        //     // https://element-hq.github.io/synapse/v1.159/usage/configuration/user_authentication/refresh_tokens.html)
-        //     match token_response_res {
-        //         Ok(token_response) => {
-        //             authentication.replace_by(token_response.into(), true);
-        //         }
-        //         Err(error) => {
-        //             tracing::warn!(error=%error, "Unable to refresh access token by refresh token, trying again with re-login");
-        //             drop(authentication);
-        //             return self.login().await;
-        //         }
-        //     }
-        // }
-
-        // Ok(authentication.access_token.clone().expect("access token must always be defined"))
     }
 
     fn construct_unauthenticated_request<B: serde::Serialize>(&self, method: http::Method, url: String, body: Option<B>) -> RequestBuilder {
@@ -239,12 +205,11 @@ impl SynapseClient {
         method: http::Method,
         url: String,
         body: Option<B>,
-    ) -> Result<RequestBuilder, KidsError> {
+        token: impl std::fmt::Display,
+    ) -> RequestBuilder {
         let mut builder = self.construct_unauthenticated_request(method, url, body);
-        let access_token = self.refresh_access_token_if_necessary().await?;
-        // Since we just refreshed the access token above, we can safely access it here.
-        builder = builder.bearer_auth(access_token);
-        Ok(builder)
+        builder = builder.bearer_auth(token);
+        builder
     }
 
     async fn send_request<T: serde::de::DeserializeOwned>(&self, request: RequestBuilder) -> Result<T, KidsError> {
@@ -256,7 +221,7 @@ impl SynapseClient {
                     return match response.json().await {
                         Ok(json) => Ok(json),
                         Err(error) => Err(KidsError::ApiOperationFailed(
-                            kids_lib::error::NO_CONTEXT.to_string(),
+                            kids_lib::error::no_context(),
                             status.as_u16(),
                             url,
                             anyhow!(error),
@@ -271,7 +236,7 @@ impl SynapseClient {
 
                 if status.as_u16() == 401 || status.as_u16() == 403 {
                     return Err(KidsError::AuthenticationFailed(
-                        kids_lib::error::NO_CONTEXT.to_string(),
+                        kids_lib::error::no_context(),
                         status.as_u16(),
                         url,
                         anyhow!(error_information),
@@ -279,35 +244,53 @@ impl SynapseClient {
                 }
 
                 Err(KidsError::ApiOperationFailed(
-                    kids_lib::error::NO_CONTEXT.to_string(),
+                    kids_lib::error::no_context(),
                     status.as_u16(),
                     url,
                     anyhow!(error_information),
                 ))
             }
-            Err(e) => Err(KidsError::RequestFailed(kids_lib::error::NO_CONTEXT.to_string(), anyhow!(e))),
+            Err(e) => Err(KidsError::RequestFailed(kids_lib::error::no_context(), anyhow!(e))),
         }
     }
 
-    // async fn send_mas_request_unauthenticated<B: serde::Serialize, T: serde::de::DeserializeOwned>(
-    //     &self,
-    //     method: http::Method,
-    //     path: ApiPath,
-    //     body: Option<B>,
-    // ) -> Result<T, KidsError> {
-    //     let request = self.construct_unauthenticated_request(method, format!("{}/api/admin/v1/{}", self.parsed_mas_url, path), body);
-    //     self.send_request(request).await
-    // }
+    async fn send_mas_admin_request_single<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        method: http::Method,
+        path: kids_lib::types::ApiPath,
+        body: Option<B>,
+    ) -> Result<dto::mas::SingleResponse<T>, KidsError> {
+        self.send_mas_admin_request(method, path, body).await
+    }
 
-    // async fn send_client_api_request_unauthenticated<B: serde::Serialize, T: serde::de::DeserializeOwned>(
-    //     &self,
-    //     method: http::Method,
-    //     path: ApiPath,
-    //     body: Option<B>,
-    // ) -> Result<T, KidsError> {
-    //     let request = self.construct_unauthenticated_request(method, format!("{}_matrix/client/v3/{}", self.parsed_homeserver_url, path), body);
-    //     self.send_request(request).await
-    // }
+    async fn send_mas_admin_request_list<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        method: http::Method,
+        path: kids_lib::types::ApiPath,
+        body: Option<B>,
+    ) -> Result<dto::mas::ListResponse<T>, KidsError> {
+        self.send_mas_admin_request(method, path, body).await
+    }
+
+    async fn send_mas_admin_request_list_get<T: serde::de::DeserializeOwned>(
+        &self,
+        path: kids_lib::types::ApiPath,
+    ) -> Result<dto::mas::ListResponse<T>, KidsError> {
+        self.send_mas_admin_request_list::<(), _>(http::Method::GET, path, None).await
+    }
+
+    async fn send_mas_admin_request<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        method: http::Method,
+        path: kids_lib::types::ApiPath,
+        body: Option<B>,
+    ) -> Result<T, KidsError> {
+        let mas_access_token = self.api_access.mas_account.get_access_token().await.map_err(error_to_kids_error)?;
+        let request = self
+            .construct_authenticated_request(method, format!("{}api/admin/v1/{}", self.parsed_mas_url, path), body, mas_access_token)
+            .await;
+        self.send_request(request).await
+    }
 
     async fn send_client_api_request<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         &self,
@@ -316,8 +299,13 @@ impl SynapseClient {
         body: Option<B>,
     ) -> Result<T, KidsError> {
         let request = self
-            .construct_authenticated_request(method, format!("{}_matrix/client/v3/{}", self.parsed_homeserver_url, path), body)
-            .await?;
+            .construct_authenticated_request(
+                method,
+                format!("{}_matrix/client/v3/{}", self.parsed_homeserver_url, path),
+                body,
+                &self.api_access.matrix_token,
+            )
+            .await;
         self.send_request(request).await
     }
 
@@ -333,8 +321,13 @@ impl SynapseClient {
         body: Option<B>,
     ) -> Result<T, KidsError> {
         let request = self
-            .construct_authenticated_request(method, format!("{}_synapse/admin/{}/{}", self.parsed_homeserver_url, api_version, path), body)
-            .await?;
+            .construct_authenticated_request(
+                method,
+                format!("{}_synapse/admin/{}/{}", self.parsed_homeserver_url, api_version, path),
+                body,
+                &self.api_access.synapse_token,
+            )
+            .await;
         self.send_request(request).await
     }
 
@@ -415,39 +408,9 @@ impl SynapseClient {
         }
         sanitized_path[path_start_index..].to_owned()
     }
-}
 
-#[async_trait::async_trait]
-impl SynapseApi for SynapseClient {
-    fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool {
-        matrix_user_id == self.config.matrix_syncer_user_id
-    }
-
-    fn homeserver_domain(&self) -> &str {
-        let pos = self.config.matrix_syncer_user_id.find(":").unwrap() + 1;
-        &self.config.matrix_syncer_user_id[pos..]
-    }
-
-    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3joined_rooms
-    async fn get_joined_rooms_of_syncer(&self) -> Result<dto::JoinedRoomsResponse, KidsError> {
-        self.client_api_get(kids_lib::types::ApiPath::from_segments(["joined_rooms"])).await
-    }
-
-    /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3roomsroomidleave
-    async fn syncer_leave_room(&self, matrix_room_id: &str) -> Result<(), KidsError> {
-        let _ = self
-            .send_client_api_request::<(), dto::IgnoredResponse>(
-                http::Method::POST,
-                kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "leave"]),
-                None,
-            )
-            .await?;
-        Ok(())
-    }
-
-    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#list-accounts-v3
-    async fn get_users(&self) -> Result<dto::AllUsersResponse, KidsError> {
-        let users: dto::AllUsersResponse = self
+    async fn get_synapse_users(&self) -> Result<dto::synapse::AllUsersResponse, KidsError> {
+        let users: dto::synapse::AllUsersResponse = self
             .admin_api_get(
                 "v3",
                 kids_lib::types::ApiPath::from_segments_and_query(
@@ -468,6 +431,65 @@ impl SynapseApi for SynapseClient {
         Ok(users)
     }
 
+    async fn get_user_from_mas_user(&self, mas_user: dto::mas::UserResponse) -> Result<crate::target::types::User, KidsError> {
+        let matrix_user_id = mas_user.attributes.username;
+        let source_user_id = self.get_source_user_id_for_mas_user_id(&mas_user.id).await?;
+        let display_name = self.get_user_display_name(&matrix_user_id).await?;
+        let emails = self.get_user_emails(&mas_user.id).await?;
+        let user = crate::target::types::User {
+            matrix_user_id,
+            mas_user_id: mas_user.id,
+            source_user_id,
+            display_name,
+            emails,
+            locked: mas_user.attributes.locked_at.is_some(),
+        };
+        Ok(user)
+    }
+}
+
+#[async_trait::async_trait]
+impl SynapseApi for SynapseClient {
+    fn user_is_matrix_syncer(&self, matrix_user_id: &str) -> bool {
+        matrix_user_id == self.config.matrix_syncer_user_id
+    }
+
+    fn homeserver_domain(&self) -> &str {
+        let pos = self.config.matrix_syncer_user_id.find(":").unwrap() + 1;
+        &self.config.matrix_syncer_user_id[pos..]
+    }
+
+    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3joined_rooms
+    async fn get_joined_rooms_of_syncer(&self) -> Result<dto::matrix::JoinedRoomsResponse, KidsError> {
+        self.client_api_get(kids_lib::types::ApiPath::from_segments(["joined_rooms"])).await
+    }
+
+    /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3roomsroomidleave
+    async fn syncer_leave_room(&self, matrix_room_id: &str) -> Result<(), KidsError> {
+        let _ = self
+            .send_client_api_request::<(), dto::IgnoredResponse>(
+                http::Method::POST,
+                kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "leave"]),
+                None,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#list-accounts-v3
+    async fn get_users(&self) -> Result<Vec<crate::target::types::User>, KidsError> {
+        let mas_users: Vec<dto::mas::UserResponse> = self
+            .send_mas_admin_request_list_get(kids_lib::types::ApiPath::from_segments(["users"]))
+            .await?
+            .data;
+        let mut users = Vec::with_capacity(mas_users.len());
+        for mas_user in mas_users {
+            let user = self.get_user_from_mas_user(mas_user).await?;
+            users.push(user);
+        }
+        Ok(users)
+    }
+
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#deactivate-account
     async fn deactivate_user(&self, matrix_user_id: &str) -> Result<(), KidsError> {
         let _: dto::IgnoredResponse = self
@@ -484,15 +506,15 @@ impl SynapseApi for SynapseClient {
     }
 
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#query-user-account.
-    async fn get_user_three_pids(&self, matrix_user_id: &str) -> Result<Vec<dto::ThreePID>, KidsError> {
-        let response: dto::User = self
+    async fn get_user_three_pids(&self, matrix_user_id: &str) -> Result<Vec<dto::synapse::ThreePID>, KidsError> {
+        let response: dto::synapse::User = self
             .admin_api_get("v2", kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]))
             .await?;
         Ok(response.threepids.unwrap_or_default())
     }
 
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
-    async fn set_user_three_pids(&self, matrix_user_id: &str, three_pids: &[dto::ThreePID]) -> Result<(), KidsError> {
+    async fn set_user_three_pids(&self, matrix_user_id: &str, three_pids: &[dto::synapse::ThreePID]) -> Result<(), KidsError> {
         let _: dto::IgnoredResponse = self
             .send_admin_api_request(
                 "v2",
@@ -503,6 +525,49 @@ impl SynapseApi for SynapseClient {
                 })),
             )
             .await?;
+        Ok(())
+    }
+
+    async fn get_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<Vec<String>, KidsError> {
+        let emails: Vec<dto::mas::UserEmailResponse> = self
+            .send_mas_admin_request_list_get(kids_lib::types::ApiPath::from_segments_and_query(
+                ["user-emails"],
+                [("filter[user]", mas_user_id.as_str())],
+            ))
+            .await?
+            .data;
+        Ok(emails.into_iter().map(|data| data.attributes.email).collect())
+    }
+
+    async fn set_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id, emails: &[String]) -> Result<(), KidsError> {
+        let user_emails: Vec<dto::mas::UserEmailResponse> = self
+            .send_mas_admin_request_list_get(kids_lib::types::ApiPath::from_segments_and_query(
+                ["user-emails"],
+                [("filter[user]", mas_user_id.as_str())],
+            ))
+            .await?
+            .data;
+        let user_emails_to_remove = user_emails.iter().filter(|data| !emails.contains(&data.attributes.email));
+        for user_email in user_emails_to_remove {
+            self.send_mas_admin_request::<(), dto::IgnoredResponse>(
+                http::Method::DELETE,
+                kids_lib::types::ApiPath::from_segments(["user-emails", user_email.id.as_str()]),
+                None,
+            )
+            .await?;
+        }
+        let emails_to_add = emails.iter().filter(|email| !user_emails.iter().any(|data| data.attributes.email == **email));
+        for email in emails_to_add {
+            self.send_mas_admin_request::<_, dto::IgnoredResponse>(
+                http::Method::POST,
+                kids_lib::types::ApiPath::from_segments(["user-emails"]),
+                Some(serde_json::json!({
+                    "user_id": mas_user_id,
+                    "email": email,
+                })),
+            )
+            .await?;
+        }
         Ok(())
     }
 
@@ -550,32 +615,63 @@ impl SynapseApi for SynapseClient {
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3profileuseriddisplayname
     async fn get_user_display_name(&self, matrix_user_id: &str) -> Result<Option<String>, KidsError> {
-        let response: dto::UserDisplayNameResponse = self
+        let response: dto::matrix::UserDisplayNameResponse = self
             .client_api_get(kids_lib::types::ApiPath::from_segments(["profile", matrix_user_id, "displayname"]))
             .await?;
         Ok(response.display_name)
     }
 
-    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#create-or-modify-account
-    async fn create_user(&self, matrix_user_id: &str, source_user_id: &str) -> Result<dto::User, KidsError> {
-        self.send_admin_api_request(
-            "v2",
-            http::Method::PUT,
-            kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]),
+    async fn create_user(&self, matrix_user_id: &str, source_user_id: &str) -> Result<crate::target::types::User, KidsError> {
+        let create_user_result = self
+            .send_mas_admin_request_single::<_, dto::mas::UserResponse>(
+                http::Method::POST,
+                kids_lib::types::ApiPath::from_segments(["users"]),
+                Some(serde_json::json!({
+                    "username": matrix_user_id,
+                })),
+            )
+            .await;
+        let created_user_response = match create_user_result {
+            Ok(response) => response.data,
+            Err(err) => {
+                tracing::warn!(
+                    matrix_user_id,
+                    source_user_id,
+                    "Error creating user. This might be caused by a previously aborted execution where a user account without a link to the source user was created. In this case, manually link the account and re-run the syncer."
+                );
+                return Err(err);
+            }
+        };
+        self.send_mas_admin_request::<_, dto::IgnoredResponse>(
+            http::Method::POST,
+            kids_lib::types::ApiPath::from_segments(["upstream-oauth-links"]),
             Some(serde_json::json!({
-                "external_ids": [
-                    {
-                        "auth_provider": self.config.matrix_source_oidc_provider_id,
-                        "external_id": source_user_id
-                    }
-                ]
+                "user_id": created_user_response.id,
+                "provider_id": self.config.matrix_source_oidc_provider_ulid,
+                "subject": source_user_id
             })),
         )
-        .await
+        .await?;
+        self.get_user_from_mas_user(created_user_response).await
+        // todo!()
+        // self.send_admin_api_request(
+        //     "v2",
+        //     http::Method::PUT,
+        //     kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]),
+        //     Some(serde_json::json!({
+        //         "external_ids": [
+        //             {
+        //                 "auth_provider": self.config.matrix_source_oidc_provider_id,
+        //                 "external_id": source_user_id
+        //             }
+        //         ]
+        //     })),
+        // )
+        // .await
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#post_matrixclientv3createroom
-    async fn create_room(&self, name: &str, path: &str) -> Result<dto::RoomCreationResponse, KidsError> {
+    async fn create_room(&self, name: &str, path: &str) -> Result<dto::matrix::RoomCreationResponse, KidsError> {
         self.send_client_api_request(
             http::Method::POST,
             kids_lib::types::ApiPath::from_segments(["createRoom"]),
@@ -640,7 +736,7 @@ impl SynapseApi for SynapseClient {
     /// We are using a custom state event type here, which must match the one we created via
     /// [SynapseClient::associate_source_group_id_to_room].
     async fn get_room_associated_source_group_id(&self, matrix_room_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError> {
-        let event: dto::RoomGlobalIdEvent = self
+        let event: dto::matrix::RoomGlobalIdEvent = self
             .client_api_get(kids_lib::types::ApiPath::from_segments([
                 "rooms",
                 matrix_room_id,
@@ -668,9 +764,9 @@ impl SynapseApi for SynapseClient {
             .await?;
         match account_data_event.get(format!("{}.room_sync.source_id", self.config.matrix_namespace)) {
             Some(val) => Ok(val.as_str().unwrap().to_string()),
-            None => Err(KidsError::InternalError(
-                "Old version of room sync event did not contain expected attribute".to_string(),
-            )),
+            None => Err(KidsError::InternalError(anyhow::anyhow!(
+                "Old version of room sync event did not contain expected attribute"
+            ))),
         }
     }
 
@@ -681,7 +777,7 @@ impl SynapseApi for SynapseClient {
             .send_client_api_request(
                 http::Method::PUT,
                 kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.name"]),
-                Some(&dto::RoomNameEvent {
+                Some(&dto::matrix::RoomNameEvent {
                     name: display_name.to_string(),
                 }),
             )
@@ -692,7 +788,7 @@ impl SynapseApi for SynapseClient {
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomideventeventid
     /// Event type used is https://spec.matrix.org/v1.15/client-server-api/#mroomname
     async fn get_room_display_name(&self, matrix_room_id: &str) -> Result<String, KidsError> {
-        let room_name_event: dto::RoomNameEvent = self
+        let room_name_event: dto::matrix::RoomNameEvent = self
             .client_api_get(kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.name"]))
             .await?;
         Ok(room_name_event.name)
@@ -744,7 +840,7 @@ impl SynapseApi for SynapseClient {
             .send_client_api_request(
                 http::Method::PUT,
                 kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "state", "m.room.canonical_alias"]),
-                Some(dto::RoomCanonicalAliasEvent {
+                Some(dto::matrix::RoomCanonicalAliasEvent {
                     alias: canonical_alias.to_owned(),
                     alt_aliases: None,
                 }),
@@ -755,14 +851,40 @@ impl SynapseApi for SynapseClient {
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomideventeventid
     /// Event type used is https://spec.matrix.org/v1.15/client-server-api/#mroomcanonical_alias
-    async fn get_room_canonical_alias(&self, room_id: &str) -> Result<dto::RoomCanonicalAliasEvent, KidsError> {
+    async fn get_room_canonical_alias(&self, room_id: &str) -> Result<dto::matrix::RoomCanonicalAliasEvent, KidsError> {
         self.client_api_get(kids_lib::types::ApiPath::from_segments(["rooms", room_id, "state", "m.room.canonical_alias"]))
             .await
     }
 
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#query-user-account.
-    async fn get_source_user_id_for_matrix_user_id(&self, matrix_user_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError> {
-        let response: dto::User = self
+    async fn get_source_user_id_for_mas_user_id(
+        &self,
+        mas_user_id: &dto::mas::internal::user::Id,
+    ) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError> {
+        let response: Vec<dto::mas::UpstreamOauthLinkResponse> = self
+            .send_mas_admin_request_list_get(kids_lib::types::ApiPath::from_segments_and_query(
+                ["upstream-oauth-links"],
+                [
+                    ("filter[user]", mas_user_id.as_str()),
+                    ("filter[provider]", self.config.matrix_source_oidc_provider_ulid.as_str()),
+                ],
+            ))
+            .await?
+            .data;
+        match response.len() {
+            0 => Err(KidsError::InternalError(anyhow::anyhow!(
+                "Did not find external ID for source auth provider for matrix user: {mas_user_id}"
+            ))),
+            1 => Ok(response.into_iter().next().expect("We have just checked the length").attributes.subject),
+            2.. => Err(KidsError::InternalError(anyhow::anyhow!(
+                "Did find multiple external ID for source auth provider for matrix user: {mas_user_id}"
+            ))),
+        }
+    }
+
+    /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#query-user-account.
+    async fn get_source_user_id_for_matrix_user_id_v1(&self, matrix_user_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError> {
+        let response: dto::synapse::User = self
             .admin_api_get("v2", kids_lib::types::ApiPath::from_segments(["users", matrix_user_id]))
             .await?;
         // This endpoint returns extended user information guaranteed to contain the external_ids field.
@@ -772,19 +894,19 @@ impl SynapseApi for SynapseClient {
             }
         }
 
-        Err(KidsError::InternalError(format!(
+        Err(KidsError::InternalError(anyhow::anyhow!(
             "Did not find external ID for source auth provider for matrix user: {matrix_user_id}"
         )))
     }
 
     /// See https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html#list-joined-rooms-of-a-user
-    async fn get_user_joined_rooms(&self, matrix_user_id: &str) -> Result<dto::UserJoinedRoomsResponse, KidsError> {
+    async fn get_user_joined_rooms(&self, matrix_user_id: &str) -> Result<dto::matrix::UserJoinedRoomsResponse, KidsError> {
         self.admin_api_get("v1", kids_lib::types::ApiPath::from_segments(["users", matrix_user_id, "joined_rooms"]))
             .await
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3roomsroomidjoined_members.
-    async fn get_room_joined_users(&self, matrix_room_id: &str) -> Result<dto::RoomJoinedUsersResponse, KidsError> {
+    async fn get_room_joined_users(&self, matrix_room_id: &str) -> Result<dto::matrix::RoomJoinedUsersResponse, KidsError> {
         self.client_api_get(kids_lib::types::ApiPath::from_segments(["rooms", matrix_room_id, "joined_members"]))
             .await
     }

@@ -6,6 +6,7 @@ mod interactor;
 mod room_deletion_strategy;
 #[cfg(test)]
 mod test_mocks;
+mod types;
 
 pub use connector::Connector;
 use id_mapping::{GroupMapping, IdMapping, UserMapping};

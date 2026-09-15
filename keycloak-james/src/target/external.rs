@@ -90,7 +90,7 @@ impl JamesClient {
                     return match response.json().await {
                         Ok(json) => Ok(json),
                         Err(error) => Err(KidsError::ApiOperationFailed(
-                            kids_lib::error::NO_CONTEXT.to_string(),
+                            kids_lib::error::no_context(),
                             status.as_u16(),
                             url,
                             anyhow!(error),
@@ -105,7 +105,7 @@ impl JamesClient {
 
                 if status.as_u16() == 401 || status.as_u16() == 403 {
                     return Err(KidsError::AuthenticationFailed(
-                        kids_lib::error::NO_CONTEXT.to_string(),
+                        kids_lib::error::no_context(),
                         status.as_u16(),
                         url,
                         anyhow!(error_information),
@@ -113,13 +113,13 @@ impl JamesClient {
                 }
 
                 Err(KidsError::ApiOperationFailed(
-                    kids_lib::error::NO_CONTEXT.to_string(),
+                    kids_lib::error::no_context(),
                     status.as_u16(),
                     url,
                     anyhow!(error_information),
                 ))
             }
-            Err(e) => Err(KidsError::RequestFailed(kids_lib::error::NO_CONTEXT.to_string(), anyhow!(e))),
+            Err(e) => Err(KidsError::RequestFailed(kids_lib::error::no_context(), anyhow!(e))),
         }
     }
 }

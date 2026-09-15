@@ -47,34 +47,6 @@ impl SynapseInteractor {
         Ok(())
     }
 
-    pub async fn ensure_user_email(
-        &self,
-        matrix_user_id: &str,
-        desired_email: Option<&str>,
-        source_user_id: &str,
-    ) -> Result<Option<Vec<crate::target::dto::ThreePID>>, kids_lib::error::KidsError> {
-        let matrix_three_pids = self.synapse_api.get_user_three_pids(matrix_user_id).await?;
-        let desired_three_pids = if let Some(email) = desired_email {
-            vec![crate::target::dto::ThreePID {
-                medium: crate::target::dto::ThreePIDMedium::Email,
-                address: email.to_owned(),
-            }]
-        } else {
-            vec![]
-        };
-        if matrix_three_pids != desired_three_pids {
-            tracing::debug!(
-                matrix_user_id,
-                source_user_id,
-                old_three_pids = ?matrix_three_pids,
-                new_three_pids = ?desired_three_pids,
-                "Updating user's 3PIDs."
-            );
-            self.synapse_api.set_user_three_pids(matrix_user_id, desired_three_pids.as_slice()).await?;
-        }
-        Ok(if desired_three_pids.is_empty() { None } else { Some(desired_three_pids) })
-    }
-
     /// The old syncer used a different event to associate matrix rooms to keycloak rooms.
     /// This function migrates rooms to the new format.
     /// Once the new syncer was successfully run once, we should be able to delete this method.
@@ -88,6 +60,12 @@ impl SynapseInteractor {
             }
         }
     }
+
+    /// Previously to MAS, we stored
+    ///
+    /// * source user ids in [Synapse's `external_ids` field](https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html), and
+    /// * email addresses in [Synapse's `threepids` (3PIDs)](https://element-hq.github.io/synapse/latest/admin_api/user_admin_api.html).    ///
+    pub async fn migrate_users_to_mas(&self) {}
 
     pub async fn ensure_group_display_name(&self, matrix_room_id: &str, desired_name: String) {
         let old_display_name = self.synapse_api.get_room_display_name(matrix_room_id).await;
@@ -178,7 +156,7 @@ impl SynapseInteractor {
                 if !all_kicked {
                     // Note: Need to return early here because the syncer should only leave the room
                     // if all users have been kicked successfully.
-                    return Err(kids_lib::error::KidsError::InternalError(format!(
+                    return Err(kids_lib::error::KidsError::InternalError(anyhow::anyhow!(
                         "Could not kick all members from room {matrix_room_id}"
                     )));
                 }

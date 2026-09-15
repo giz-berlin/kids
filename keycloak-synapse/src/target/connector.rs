@@ -2,7 +2,7 @@ use std::collections;
 
 use kids_lib::error::KidsError;
 
-use crate::target::{dto, external};
+use crate::target::external;
 
 #[derive(serde::Deserialize)]
 pub struct SynapseConfig {
@@ -43,7 +43,7 @@ pub struct Connector {
 impl Connector {
     async fn ensure_user_locked_state_in_sync(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user: &mut crate::target::dto::User,
+        matrix_user: &mut crate::target::types::User,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
         enforce_lock: bool,
     ) -> Result<(), kids_lib::error::KidsError> {
@@ -61,9 +61,9 @@ impl Connector {
 
     async fn ensure_user_locked(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user: &mut crate::target::dto::User,
+        matrix_user: &mut crate::target::types::User,
     ) -> Result<(), kids_lib::error::KidsError> {
-        let matrix_user_id = matrix_user.name.as_str();
+        let matrix_user_id = matrix_user.matrix_user_id.as_str();
         if !matrix_user.locked {
             // Note that we explicitly want to lock users here, NOT deactivate them.
             // Deactivating users appears to delete all keys of that user, so even when a
@@ -75,7 +75,7 @@ impl Connector {
                 Ok(()) => {
                     // Write lock state to user object.
                     matrix_user.locked = true;
-                    tracing::info!(matrix_user_id = matrix_user.name, "Locked user");
+                    tracing::info!(matrix_user_id = matrix_user.matrix_user_id, "Locked user");
                 }
                 Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user"),
             };
@@ -85,15 +85,15 @@ impl Connector {
 
     async fn ensure_user_unlocked(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user: &mut crate::target::dto::User,
+        matrix_user: &mut crate::target::types::User,
     ) -> Result<(), kids_lib::error::KidsError> {
-        let matrix_user_id = matrix_user.name.as_str();
+        let matrix_user_id = matrix_user.matrix_user_id.as_str();
         if matrix_user.locked {
             match synapse_interactor.synapse_api().unlock_user(matrix_user_id).await {
                 Ok(()) => {
                     // Write lock state to user object.
                     matrix_user.locked = false;
-                    tracing::info!(matrix_user_id = matrix_user.name, "Unlocked user");
+                    tracing::info!(matrix_user_id = matrix_user.matrix_user_id, "Unlocked user");
                 }
                 Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user"),
             };
@@ -114,23 +114,27 @@ impl Connector {
 
     async fn ensure_user_email(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user: &mut dto::User,
+        matrix_user: &mut crate::target::types::User,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<(), KidsError> {
-        let desired_email = source_user.email();
-        matrix_user.threepids = synapse_interactor
-            .ensure_user_email(matrix_user.name.as_str(), desired_email, source_user.id())
-            .await?;
+        let desired_emails = source_user.email().map_or_default(|email| vec![email.to_owned()]);
+        if matrix_user.emails != desired_emails {
+            synapse_interactor
+                .synapse_api()
+                .set_user_emails(&matrix_user.mas_user_id, desired_emails.as_slice())
+                .await?;
+            matrix_user.emails = desired_emails;
+        }
         Ok(())
     }
 
     async fn ensure_user_rooms(
         synapse_interactor: &crate::target::SynapseInteractor,
         groups: &crate::target::GroupMapping,
-        matrix_user: &crate::target::dto::User,
+        matrix_user: &crate::target::types::User,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<(), KidsError> {
-        let matrix_user_id = matrix_user.name.as_str();
+        let matrix_user_id = matrix_user.matrix_user_id.as_str();
 
         let desired_user_groups = source_user
             .groups(true)
@@ -292,7 +296,7 @@ impl kids_lib::interface::target::Target for Connector {
             }
         };
 
-        let matrix_user_id = matrix_user.name.as_str();
+        let matrix_user_id = matrix_user.matrix_user_id.as_str();
         tracing::info!(matrix_user_id, "Deactivating matrix user");
         self.synapse_interactor
             .synapse_api()
@@ -310,7 +314,7 @@ impl kids_lib::interface::target::Target for Connector {
         // For example, a subgroup "B" of group "A" will receive the path "/A/B", but so will a group named "A/B" directly.
         // The colon causes issues because it is used as a delimiter in the matrix room alias.
         if source_group.name().contains(":") || source_group.name().contains("/") {
-            return Err(KidsError::InternalError(format!(
+            return Err(KidsError::InternalError(anyhow::anyhow!(
                 "Could not create room for group {}: group name contains invalid character",
                 source_group.id()
             )));
@@ -387,7 +391,7 @@ impl kids_lib::interface::target::Target for Connector {
         // Lock also if user has no required role
         Self::ensure_user_locked_state_in_sync(&self.synapse_interactor, matrix_user, source_user.as_ref(), !source_user_has_required_role).await?;
 
-        Self::ensure_user_display_name(&self.synapse_interactor, &matrix_user.name, source_user.as_ref()).await?;
+        Self::ensure_user_display_name(&self.synapse_interactor, &matrix_user.matrix_user_id, source_user.as_ref()).await?;
         Self::ensure_user_email(&self.synapse_interactor, matrix_user, source_user.as_ref()).await?;
 
         Self::ensure_user_rooms(&self.synapse_interactor, &self.mappings.group_id_mapping, matrix_user, source_user.as_ref()).await?;
@@ -419,7 +423,7 @@ impl Connector {
         synapse_interactor: &'a crate::target::SynapseInteractor,
         user_mapping: &'a mut crate::target::UserMapping,
         source_user: &'a (dyn kids_lib::interface::source::User + Send + Sync),
-    ) -> Result<&'a mut dto::User, KidsError> {
+    ) -> Result<&'a mut crate::target::types::User, KidsError> {
         // Unfortunately, `match` did not work here for lifetime reasons.
         if !user_mapping.has_user(source_user.id()) {
             let matrix_user_id = Self::generate_matrix_user_id(synapse_interactor, source_user)?;
@@ -434,7 +438,7 @@ impl Connector {
             tracing::info!(
                 source_id = source_user.id(),
                 username = source_user.username(),
-                matrix_user_id = user_mapping.get_user(source_user.id()).name,
+                matrix_user_id = user_mapping.get_user(source_user.id()).matrix_user_id,
                 "User created"
             );
         }
@@ -550,10 +554,16 @@ mod test {
                     matrix_homeserver_url: "".to_string(),
                     matrix_mas_url: "".to_string(),
                     matrix_source_oidc_provider_id: "".to_string(),
+                    matrix_source_oidc_provider_ulid: "".to_string(),
                     matrix_syncer_user_id: "".to_string(),
-                    matrix_syncer_token: "".to_string(),
                     matrix_namespace: "".to_string(),
                     insecure_disable_tls_verification: true,
+                    api_access: external::ApiAccessConfig {
+                        matrix_token: "".to_owned(),
+                        synapse_token: "".to_owned(),
+                        mas_client_id: "".to_owned(),
+                        mas_client_secret: "".to_owned(),
+                    },
                 },
                 room_deletion_strategy: crate::target::RoomDeletionStrategy::Ignore,
                 source_room_name_attr: "test".to_string(),
@@ -669,11 +679,13 @@ mod test {
             );
             connector.mappings.user_id_mapping.get_user_id_mapping_mut().insert(
                 kids_test_lib::util::constants::DEFAULT_SOURCE_USER_ID.to_string(),
-                dto::User {
-                    name: kids_test_lib::util::constants::DEFAULT_TARGET_USER_ID.to_string(),
+                crate::target::types::User {
+                    matrix_user_id: kids_test_lib::util::constants::DEFAULT_TARGET_USER_ID.to_string(),
+                    mas_user_id: "".into(),
+                    source_user_id: "".into(),
+                    display_name: None,
+                    emails: vec![],
                     locked: false,
-                    external_ids: None,
-                    threepids: None,
                 },
             );
 
@@ -942,8 +954,8 @@ mod test {
                 // then
                 let err: KidsError = created.expect_err("Creating or updating group unexpectedly succeeded");
                 match err {
-                    KidsError::InternalError(ref msg)
-                        if *msg == format!("Could not create room for group {invalid_group_name}: group name contains invalid character") => {}
+                    KidsError::InternalError(ref err)
+                        if err.to_string() == format!("Could not create room for group {invalid_group_name}: group name contains invalid character") => {}
                     ref err => panic!("Error creating or updating group: {err:?}."),
                 };
             }
@@ -1241,7 +1253,7 @@ mod test {
                     // then
                     let err: KidsError = deleted.expect_err("Deleting group unexpectedly succeeded");
                     match err {
-                        KidsError::InternalError(ref msg) if *msg == format!("Could not kick all members from room {matrix_room_id}") => {}
+                        KidsError::InternalError(ref err) if err.to_string() == format!("Could not kick all members from room {matrix_room_id}") => {}
                         ref err => panic!("Error deleting group: {err:?}."),
                     };
                     let all_groups = connector.all_groups().await.unwrap();

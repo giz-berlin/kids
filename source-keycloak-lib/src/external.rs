@@ -76,14 +76,14 @@ impl KeycloakServiceAccountClient {
             Err(keycloak::KeycloakError::HttpFailure { status, text, .. }) => {
                 if status == 401 || status == 403 {
                     return Err(KidsError::AuthenticationFailed(
-                        kids_lib::error::NO_CONTEXT.to_string(),
+                        kids_lib::error::no_context(),
                         status,
                         route.to_string(),
                         anyhow!(text),
                     ));
                 }
                 Err(KidsError::ApiOperationFailed(
-                    kids_lib::error::NO_CONTEXT.to_string(),
+                    kids_lib::error::no_context(),
                     status,
                     route.to_string(),
                     anyhow!(text),
@@ -91,7 +91,7 @@ impl KeycloakServiceAccountClient {
             }
             Err(e) => {
                 tracing::error!(error = ?e, "Unknown Keycloak error");
-                Err(KidsError::RequestFailed(kids_lib::error::NO_CONTEXT.to_string(), anyhow!(e)))
+                Err(KidsError::RequestFailed(kids_lib::error::no_context(), anyhow!(e)))
             }
         }
     }
@@ -167,22 +167,23 @@ impl KeycloakApi for KeycloakServiceAccountClient {
             let client_uuid = match clients.len() {
                 1 => clients.into_iter().next().expect("We have just ensured that there is one element").id,
                 0 => {
-                    return Err(KidsError::InternalError(format!(
+                    return Err(KidsError::InternalError(anyhow!(
                         "Could not find client with clientId {}.",
                         self.config.client_id
                     )));
                 }
                 len => {
-                    return Err(KidsError::InternalError(format!(
+                    return Err(KidsError::InternalError(anyhow!(
                         "Search for client with clientId {} returned {} results",
-                        self.config.client_id, len
+                        self.config.client_id,
+                        len
                     )));
                 }
             };
             match client_uuid {
                 Some(client_uuid) => client_uuid,
                 None => {
-                    return Err(KidsError::InternalError(format!(
+                    return Err(KidsError::InternalError(anyhow!(
                         "Could not find client id for client with clientId {}.",
                         self.config.client_id
                     )));
