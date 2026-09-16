@@ -22,7 +22,7 @@ impl SynapseInteractor {
         let matrix_display_name = self.synapse_api.get_user_display_name(matrix_user_id).await?;
         if matrix_display_name.as_deref() != desired_name_opt {
             tracing::debug!(
-                matrix_user_id,
+                matrix_user_id = tracing::field::display(matrix_user_id),
                 source_user_id,
                 old_display_name = matrix_display_name,
                 new_display_name = desired_name_opt,

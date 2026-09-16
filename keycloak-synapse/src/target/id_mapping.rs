@@ -142,7 +142,7 @@ impl UserMapping {
         let mut user_id_mapping: std::collections::HashMap<String, crate::target::types::User> = std::collections::HashMap::new();
         for user in matrix_users {
             let source_user_id = synapse_interactor.synapse_api().get_source_user_id_for_mas_user_id(&user.mas_user_id).await?;
-            let is_syncer_user = synapse_interactor.synapse_api().user_is_matrix_syncer(user.matrix_user_id.as_str());
+            let is_syncer_user = synapse_interactor.synapse_api().user_is_matrix_syncer(&user.matrix_user_id);
             let source_user_id = match (source_user_id, is_syncer_user) {
                 (Some(source_user_id), false) => source_user_id,
                 (Some(source_user_id), true) => {
@@ -150,11 +150,17 @@ impl UserMapping {
                     continue;
                 }
                 (None, false) => {
-                    tracing::warn!(matrix_user_id = user.matrix_user_id, "Did not find source user ID for matrix user");
+                    tracing::warn!(
+                        matrix_user_id = tracing::field::display(user.matrix_user_id),
+                        "Did not find source user ID for matrix user"
+                    );
                     continue;
                 }
                 (None, true) => {
-                    tracing::trace!(matrix_user_id = user.matrix_user_id, "Did not find source user ID for syncer user");
+                    tracing::trace!(
+                        matrix_user_id = tracing::field::display(user.matrix_user_id),
+                        "Did not find source user ID for syncer user"
+                    );
                     continue;
                 }
             };
@@ -164,8 +170,8 @@ impl UserMapping {
                 // (otherwise, when logging in via SSO, matrix would not know which user to login).
                 tracing::error!(
                     source_user_id,
-                    first_matrix_user_id = user.matrix_user_id,
-                    second_matrix_user_id = user_id_mapping[&source_user_id].matrix_user_id,
+                    first_matrix_user_id = tracing::field::display(user.matrix_user_id),
+                    second_matrix_user_id = tracing::field::display(&user_id_mapping[&source_user_id].matrix_user_id),
                     "Found duplicate mapping for source user"
                 );
                 return Err(kids_lib::error::KidsError::InternalError(anyhow::anyhow!("Duplicate source user mapping")));
