@@ -2619,7 +2619,7 @@ dependencies = [
 [[package]]
 name = "oidc-rp"
 version = "0.0.1"
-source = "git+https://rechenknecht.net/mixxplorer/libraries/oidc-rp.git?branch=feature%2Finitial#a2989035e3668b8186580ba10c845119de1aa409"
+source = "git+https://rechenknecht.net/mixxplorer/libraries/oidc-rp.git?branch=feature%2Finitial#11a83bf1ad9760cb1bf4d2d45d5961913408f197"
 dependencies = [
  "chrono",
  "log",

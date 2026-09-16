@@ -107,11 +107,14 @@ pub struct ApiAccess {
     ///
     /// Can usually be the same as [`matrix_token`](Self::matrix_token).
     synapse_token: String,
-    /// Account used for MAS routes (`api/admin/v1`).
+    /// [Account](oidc_rp::account::Account) used for MAS routes (`api/admin/v1`).
     mas_account: oidc_rp::account::Account<
         oidc_rp::oidc::EmptyAdditionalClaims,
         oidc_rp::oidc::EmptyAdditionalClaims,
         oidc_rp::oidc::EmptyAdditionalProviderMetadata,
+        oidc_rp::account::access_token_type::Opaque,
+        oidc_rp::account::account_user_type::ServiceAccount,
+        oidc_rp::types::AttributeSet,
         oidc_rp::types::AttributeSet,
     >,
 }
@@ -162,9 +165,13 @@ impl SynapseClient {
             .map_err(error_to_kids_error)?;
             let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(idp.clone(), config.api_access.mas_client_id.clone())
                 .map_err(error_to_kids_error)?
-                .allow_all_access_token_jose_types()
-                .set_other_audience_verifier_fn(|_| true);
-            let account = oidc_rp::account::Account::new_secret(
+                .set_access_token_allowed_jose_types(vec![
+                    oidc_rp::oidc::JsonWebTokenType::new("JWT".to_owned())
+                        .normalize()
+                        .map_err(error_to_kids_error)?,
+                ])
+                .allow_other_audiences();
+            let account = oidc_rp::account::Account::from_secret_client(
                 idp,
                 config.api_access.mas_client_id.clone(),
                 config.api_access.mas_client_secret.clone(),
@@ -188,6 +195,9 @@ impl SynapseClient {
             parsed_mas_url,
             parsed_homeserver_url,
         };
+
+        let all_users = synapse_client.get_synapse_users().await?;
+        tracing::info!(?all_users, "All Synapse users");
 
         Ok(synapse_client)
     }
