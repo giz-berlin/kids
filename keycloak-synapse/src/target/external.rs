@@ -53,7 +53,7 @@ pub struct SynapseApiConfig {
 pub trait SynapseApi {
     fn user_is_matrix_syncer(&self, matrix_user_id: &crate::target::types::MatrixUserId) -> bool;
     fn homeserver_domain(&self) -> &str;
-    fn generate_matrix_user_id(&self, username: &str) -> String;
+    fn generate_matrix_user_id(&self, username: &str) -> crate::target::types::MatrixUserId;
     async fn get_joined_rooms_of_syncer(&self) -> Result<dto::matrix::JoinedRoomsResponse, KidsError>;
     async fn syncer_leave_room(&self, matrix_room_id: &str) -> Result<(), KidsError>;
     async fn get_users(&self) -> Result<Vec<crate::target::types::User>, KidsError>;
@@ -470,8 +470,11 @@ impl SynapseApi for SynapseClient {
         &self.config.matrix_syncer_user_id[pos..]
     }
 
-    fn generate_matrix_user_id(&self, username: &str) -> String {
-        format!("@{}:{}", username, self.homeserver_domain())
+    fn generate_matrix_user_id(&self, username: &str) -> crate::target::types::MatrixUserId {
+        crate::target::types::MatrixUserId {
+            username: username.to_owned(),
+            homeserver: self.homeserver_domain().to_owned(),
+        }
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3joined_rooms
