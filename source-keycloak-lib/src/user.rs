@@ -113,7 +113,7 @@ impl kids_lib::interface::source::User for KeycloakUser {
             .collect())
     }
 
-    async fn roles(&self) -> Result<Vec<String>, KidsError> {
+    async fn client_roles(&self) -> Result<Vec<String>, KidsError> {
         let client_roles = self.keycloak_api.get_user_client_roles(self.id()).await?;
         let roles = client_roles.into_iter().filter_map(|role| role.name).collect();
         Ok(roles)

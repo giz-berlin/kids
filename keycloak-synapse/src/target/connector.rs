@@ -188,7 +188,7 @@ impl Connector {
     /// or when the the config option `required_role_name` is unset.
     async fn source_user_has_required_role(&self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<bool, KidsError> {
         if let Some(required_role_name) = &self.config.required_role_name {
-            let roles = source_user.roles().await?;
+            let roles = source_user.client_roles().await?;
             let required_role_present = roles.contains(required_role_name);
             return Ok(required_role_present);
         }
