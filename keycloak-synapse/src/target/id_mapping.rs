@@ -141,20 +141,20 @@ impl UserMapping {
         let mut syncer_source_user_id = None;
         let mut user_id_mapping: std::collections::HashMap<String, crate::target::types::User> = std::collections::HashMap::new();
         for user in matrix_users {
-            let source_user_id = synapse_interactor.synapse_api().get_source_user_id_for_mas_user_id(&user.mas_user_id).await;
+            let source_user_id = synapse_interactor.synapse_api().get_source_user_id_for_mas_user_id(&user.mas_user_id).await?;
             let is_syncer_user = synapse_interactor.synapse_api().user_is_matrix_syncer(user.matrix_user_id.as_str());
             let source_user_id = match (source_user_id, is_syncer_user) {
-                (Ok(source_user_id), false) => source_user_id,
-                (Ok(source_user_id), true) => {
+                (Some(source_user_id), false) => source_user_id,
+                (Some(source_user_id), true) => {
                     syncer_source_user_id = Some(source_user_id);
                     continue;
                 }
-                (Err(error), false) => {
-                    tracing::warn!(%error, matrix_user_id=user.matrix_user_id, "Could not obtain source user ID for matrix user");
+                (None, false) => {
+                    tracing::warn!(matrix_user_id = user.matrix_user_id, "Did not find source user ID for matrix user");
                     continue;
                 }
-                (Err(error), true) => {
-                    tracing::trace!(%error, matrix_user_id=user.matrix_user_id, "Could not obtain source user ID for syncer user");
+                (None, true) => {
+                    tracing::trace!(matrix_user_id = user.matrix_user_id, "Did not find source user ID for syncer user");
                     continue;
                 }
             };

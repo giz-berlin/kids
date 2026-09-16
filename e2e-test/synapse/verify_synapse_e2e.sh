@@ -93,7 +93,7 @@ echo "protocol: http" >> "$SYNADM_CONFIG_FILE"
 echo "server_discovery: well-known" >> "$SYNADM_CONFIG_FILE"
 echo "ssl_verify: false" >> "$SYNADM_CONFIG_FILE"
 echo "timeout: 30" >> "$SYNADM_CONFIG_FILE"
-echo "token: $ADMIN_ACCESS_TOKEN" >> "$SYNADM_CONFIG_FILE"
+echo "token: $ADMIN_ACCESS_TOKEN_SYNAPSE" >> "$SYNADM_CONFIG_FILE"
 echo "user: '@admin:$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_TLS_PORT'" >> "$SYNADM_CONFIG_FILE"
 
 progress_msg "Verify users"

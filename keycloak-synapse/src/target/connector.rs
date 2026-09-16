@@ -103,7 +103,7 @@ impl Connector {
 
     async fn ensure_user_display_name(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user_id: &str,
+        matrix_user_id: &crate::target::types::MatrixUserId,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<(), KidsError> {
         let desired_display_name = source_user.display_name();
@@ -406,7 +406,7 @@ impl Connector {
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<String, KidsError> {
         match source_user.username() {
-            Some(username) => Ok(synapse_interactor.generate_matrix_user_id(username)),
+            Some(username) => Ok(synapse_interactor.synapse_api().generate_matrix_user_id(username)),
             None => {
                 const ERROR_CONTEXT: &str = "Generating matrix user id";
                 const ERROR_MSG: &str = "The matrix user id depends on the source username to be set but it was not.";
@@ -682,7 +682,7 @@ mod test {
                 crate::target::types::User {
                     matrix_user_id: kids_test_lib::util::constants::DEFAULT_TARGET_USER_ID.to_string(),
                     mas_user_id: "".into(),
-                    source_user_id: "".into(),
+                    source_user_id: None,
                     display_name: None,
                     emails: vec![],
                     locked: false,

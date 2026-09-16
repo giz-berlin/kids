@@ -235,8 +235,8 @@ progress_msg "OK - $MAS_CONTAINER_NAME has started"
 if [ $SHOULD_CREATE_USERS -eq 1 ]; then
   progress_msg "Creating admin user in $SYNAPSE_CONTAINER_NAME"
   podman exec -it "$MAS_CONTAINER_NAME" mas-cli manage register-user --config /config.yaml --yes --ignore-password-complexity --password password --admin admin
-  ADMIN_ACCESS_TOKEN="$(podman exec -it "$MAS_CONTAINER_NAME" mas-cli manage issue-compatibility-token --config /config.yaml --yes-i-want-to-grant-synapse-admin-privileges admin | cut -d " " -f 8)"
-  echo "ADMIN_ACCESS_TOKEN=$ADMIN_ACCESS_TOKEN" > ./.env.token
+  ADMIN_ACCESS_TOKEN_SYNAPSE="$(podman exec -it "$MAS_CONTAINER_NAME" mas-cli manage issue-compatibility-token --config /config.yaml --yes-i-want-to-grant-synapse-admin-privileges admin | cut -d " " -f 8)"
+  echo "ADMIN_ACCESS_TOKEN_SYNAPSE=$ADMIN_ACCESS_TOKEN_SYNAPSE" > ./.env.token
 fi
 
 if restart_if_possible $SYNAPSE_ADMIN_CONTAINER_NAME; [ $? -ne 0 ]; then

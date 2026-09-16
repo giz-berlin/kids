@@ -13,13 +13,9 @@ impl SynapseInteractor {
         self.synapse_api.as_ref()
     }
 
-    pub fn generate_matrix_user_id(&self, username: &str) -> String {
-        format!("@{}:{}", username, self.synapse_api.homeserver_domain())
-    }
-
     pub async fn ensure_user_display_name(
         &self,
-        matrix_user_id: &str,
+        matrix_user_id: &crate::target::types::MatrixUserId,
         desired_name_opt: Option<&str>,
         source_user_id: &str,
     ) -> Result<(), kids_lib::error::KidsError> {
