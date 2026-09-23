@@ -20,6 +20,8 @@ required for the used `Source` and `Target` components (see [architecture](#arch
 
 All default configurations can be found in the [default config folder](default_configs).
 
+For more setup information see the [Keycloak source](./source-keycloak-lib/readme.md) as well as the respective target configurations (see [above](#supported-applications)).
+
 ### TLS
 
 To serve the API over HTTPS configure the `[controller.tls]` section in the config file.
