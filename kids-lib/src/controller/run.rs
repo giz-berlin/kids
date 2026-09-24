@@ -99,6 +99,8 @@ pub async fn periodic_full_sync<S: crate::interface::source::Source + Send + Syn
             tracing::error!(error = ?e, "Periodic full sync failed");
         }
 
+        tracing::info!("Periodic full sync completed");
+
         is_initial_sync = false;
     }
 }
