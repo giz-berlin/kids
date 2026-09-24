@@ -1,4 +1,10 @@
-pub const NO_CONTEXT: &str = "No additional context provided";
+const NO_CONTEXT: &str = "No additional context provided";
+pub fn no_context() -> String {
+    NO_CONTEXT.to_owned()
+}
+pub fn no_context_anyhow() -> anyhow::Error {
+    anyhow::anyhow!("{NO_CONTEXT}")
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum KidsError {
@@ -8,8 +14,8 @@ pub enum KidsError {
     RequestFailed(String, #[source] anyhow::Error),
     #[error("{0}: API Operation failed, status {1} for request {2}: {3}")]
     ApiOperationFailed(String, u16, String, #[source] anyhow::Error),
-    #[error("Internal error: {0}")]
-    InternalError(String),
+    #[error("Internal error: {0:?}")]
+    InternalError(#[from] anyhow::Error),
 }
 
 impl KidsError {
@@ -19,7 +25,7 @@ impl KidsError {
             KidsError::AuthenticationFailed(_, b, c, d) => KidsError::AuthenticationFailed(context, b, c, d),
             KidsError::ApiOperationFailed(_, b, c, d) => KidsError::ApiOperationFailed(context, b, c, d),
             KidsError::RequestFailed(_, b) => KidsError::RequestFailed(context, b),
-            KidsError::InternalError(_) => KidsError::InternalError(context),
+            KidsError::InternalError(err) => KidsError::InternalError(err.context(context)),
         }
     }
 }

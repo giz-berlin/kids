@@ -94,6 +94,7 @@ pub fn run_with_args<S: crate::interface::source::Source + Send + Sync + 'static
         let target_impl = match T::new(config.target).await {
             Ok(target_impl) => target_impl,
             Err(e) => {
+                tracing::error!("{}", e);
                 panic!("{}", e)
             }
         };

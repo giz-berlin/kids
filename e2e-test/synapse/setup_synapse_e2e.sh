@@ -1,7 +1,8 @@
 #!/bin/bash
 
-set -e
-set -a
+set -o errexit
+set -o allexport
+set -o nounset
 
 # By default, podman includes the /etc/hosts file of the host system in the /etc/hosts of the
 # containers. We have to disable that behavior, because we have already modified the host system file so that the service hostnames
@@ -74,6 +75,23 @@ if [ ! -d local_ca ]; then
   cd ..
 fi
 
+if restart_if_possible $REVERSE_PROXY_CONTAINER_NAME; [ $? -ne 0 ]; then
+  progress_msg "Starting $REVERSE_PROXY_CONTAINER_NAME"
+  envsubst < config/synapse_admin.tpl.Caddyfile > config/synapse_admin.Caddyfile
+  mkdir -p ./caddy_data
+  mkdir -p ./caddy_config
+  podman run -d --name "$REVERSE_PROXY_CONTAINER_NAME" \
+    -p "$SYNAPSE_ADMIN_TLS_PORT:443" \
+    -p "$MAS_TLS_PORT:444" \
+    -p "$SYNAPSE_TLS_PORT:445" \
+    -v "./local_ca/$KIDS_CA_NAME.crt:/certs/root.pem" \
+    -v "./local_ca/$KIDS_CA_NAME.key:/certs/root.key" \
+    -v "./config/synapse_admin.Caddyfile:/etc/caddy/Caddyfile" \
+    -v "./caddy_data:/data" \
+    -v "./caddy_config:/config" \
+    docker.io/caddy
+fi
+
 if restart_if_possible $KEYCLOAK_CONTAINER_NAME; [ $? -ne 0 ]; then
   cd local_ca
   progress_msg "Generating certificate for $KEYCLOAK_CONTAINER_NAME"
@@ -127,7 +145,7 @@ if restart_if_possible $SYNAPSE_CONTAINER_NAME; [ $? -ne 0 ]; then
   cd ..
 
   progress_msg "Generating configuration file for $SYNAPSE_CONTAINER_NAME"
-  mkdir synapse_data
+  mkdir -p synapse_data
   # Ensure config file is owned by root in container/our user on the host machine so that we can edit it without sudo
   podman run -it --rm \
       -e UID=0 -e GID=0 \
@@ -137,7 +155,7 @@ if restart_if_possible $SYNAPSE_CONTAINER_NAME; [ $? -ne 0 ]; then
       docker.io/matrixdotorg/synapse:latest generate
 
   progress_msg "Adjusting $SYNAPSE_CONTAINER_NAME config"
-  python modify_synapse_config.py
+  python3 modify_synapse_config.py
 
   progress_msg "Starting $SYNAPSE_CONTAINER_NAME podman container with hostname $SYNAPSE_HOSTNAME"
   podman run \
@@ -145,10 +163,51 @@ if restart_if_possible $SYNAPSE_CONTAINER_NAME; [ $? -ne 0 ]; then
       -e UID=0 -e GID=0 \
       -e SSL_CERT_FILE=/opt/ca/$KIDS_CA_NAME.crt \
       -v "./local_ca:/opt/ca" -v "./synapse_data:/data" \
-      -p "127.0.0.1:$SYNAPSE_PORT:$SYNAPSE_PORT" -p "127.0.0.1:$SYNAPSE_TLS_PORT:$SYNAPSE_TLS_PORT" \
+      -p "0.0.0.0:$SYNAPSE_PORT:$SYNAPSE_PORT" \
       docker.io/matrixdotorg/synapse:latest
 
   export SHOULD_CREATE_USERS=1
+fi
+
+if restart_if_possible $MAS_POSTGRES_CONTAINER_NAME; [ $? -ne 0 ]; then
+  export MAS_POSTGRES_HOSTNAME=$PODMAN_SERVICE_HOSTNAME:$MAS_POSTGRES_PORT
+
+  progress_msg "Starting $MAS_POSTGRES_CONTAINER_NAME podman container with hostname $MAS_POSTGRES_HOSTNAME"
+  podman run \
+      -d --name $MAS_POSTGRES_CONTAINER_NAME \
+      -e POSTGRES_DB=$MAS_POSTGRES_DATABASE \
+      -e POSTGRES_USER=$MAS_POSTGRES_USER \
+      -e POSTGRES_PASSWORD=$MAS_POSTGRES_PASSWORD \
+      -p "0.0.0.0:$MAS_POSTGRES_PORT:5432" \
+      docker.io/postgres:18
+fi
+progress_msg "Awaiting $MAS_POSTGRES_CONTAINER_NAME to be healthy..."
+until podman exec "$MAS_POSTGRES_CONTAINER_NAME" pg_isready
+do
+    echo "--> Not yet healthy"
+    sleep 1;
+done
+progress_msg "OK - $MAS_POSTGRES_CONTAINER_NAME has started"
+
+if restart_if_possible $MAS_CONTAINER_NAME; [ $? -ne 0 ]; then
+  export MAS_HOSTNAME=$PODMAN_SERVICE_HOSTNAME:$MAS_PORT
+
+  progress_msg "Generating configuration file for $MAS_CONTAINER_NAME"
+  mkdir -p synapse_data
+  podman run --rm \
+      ghcr.io/element-hq/matrix-authentication-service:latest config generate > synapse_data/mas-config.yaml
+
+  progress_msg "Adjusting $MAS_CONTAINER_NAME config"
+  python3 modify_mas_config.py
+  podman run --rm \
+      -v "./synapse_data/mas-config.yaml:/config.yaml" \
+      ghcr.io/element-hq/matrix-authentication-service:latest config check --config /config.yaml
+
+  podman run -d --name "$MAS_CONTAINER_NAME" \
+      -v "./synapse_data/mas-config.yaml:/config.yaml" \
+      -v "./local_ca/$KIDS_CA_NAME.crt:/etc/ssl/certs/ca-certificates.crt" \
+      -p "0.0.0.0:$MAS_PORT:8080" \
+      ghcr.io/element-hq/matrix-authentication-service:latest server --config /config.yaml
 fi
 
 progress_msg "Awaiting $SYNAPSE_CONTAINER_NAME to be healthy..."
@@ -157,17 +216,33 @@ do
     echo "--> Not yet healthy"
     sleep 5;
 done
+until curl --head -fsS http://$PODMAN_SERVICE_HOSTNAME:$SYNAPSE_PORT/health
+do
+    echo "--> Not yet healthy"
+    sleep 5;
+done
 progress_msg "OK - $SYNAPSE_CONTAINER_NAME has started"
+
+progress_msg "Awaiting $MAS_CONTAINER_NAME to be healthy..."
+until curl --head -fsS http://$PODMAN_SERVICE_HOSTNAME:$MAS_PORT/health --http1.1
+do
+    echo "--> Not yet healthy"
+    sleep 1;
+done
+podman exec -it kids-e2e-mas mas-cli doctor --config /config.yaml
+progress_msg "OK - $MAS_CONTAINER_NAME has started"
 
 if [ $SHOULD_CREATE_USERS -eq 1 ]; then
   progress_msg "Creating admin user in $SYNAPSE_CONTAINER_NAME"
-  podman exec -it $SYNAPSE_CONTAINER_NAME register_new_matrix_user -c /data/homeserver.yaml -u admin -p password -a
+  podman exec -it "$MAS_CONTAINER_NAME" mas-cli manage register-user --config /config.yaml --yes --ignore-password-complexity --password password --admin admin
+  ADMIN_ACCESS_TOKEN_SYNAPSE="$(podman exec -it "$MAS_CONTAINER_NAME" mas-cli manage issue-compatibility-token --config /config.yaml --yes-i-want-to-grant-synapse-admin-privileges admin | cut -d " " -f 8)"
+  echo "ADMIN_ACCESS_TOKEN_SYNAPSE=$ADMIN_ACCESS_TOKEN_SYNAPSE" > ./.env.token
 fi
 
 if restart_if_possible $SYNAPSE_ADMIN_CONTAINER_NAME; [ $? -ne 0 ]; then
   progress_msg "Starting $SYNAPSE_ADMIN_CONTAINER_NAME"
   envsubst < config/synapse_admin_config.tpl.json > config/synapse_admin_config.json
-  podman run -d --name $SYNAPSE_ADMIN_CONTAINER_NAME -p 8080:8080 -v "./config/synapse_admin_config.json:/app/config.json" ghcr.io/etkecc/ketesa
+  podman run -d --name $SYNAPSE_ADMIN_CONTAINER_NAME -p "$SYNAPSE_ADMIN_PORT:8080" -v "./config/synapse_admin_config.json:/app/config.json" ghcr.io/etkecc/ketesa
 fi
 
 progress_msg "Creating synapse_e2e_config.toml from environment variables"

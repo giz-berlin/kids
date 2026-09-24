@@ -4,4 +4,4 @@ pub mod controller;
 pub mod error;
 pub mod interface;
 pub mod types;
-mod util;
+pub mod util;

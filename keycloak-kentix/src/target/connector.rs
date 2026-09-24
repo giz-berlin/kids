@@ -380,7 +380,7 @@ mod test {
             // then
             assert!(matches!(
                 full_sync_incoming_result,
-                Err(kids_lib::error::KidsError::InternalError(err))
+                Err(kids_lib::error::KidsError::RequestFailed(err, _))
                 if err == crate::target::test_mocks::EXPLICITLY_FORBIDDEN_METHOD
             ));
         }

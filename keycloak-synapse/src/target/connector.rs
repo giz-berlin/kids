@@ -2,7 +2,7 @@ use std::collections;
 
 use kids_lib::error::KidsError;
 
-use crate::target::{dto, external};
+use crate::target::external;
 
 #[derive(serde::Deserialize)]
 pub struct SynapseConfig {
@@ -19,6 +19,9 @@ pub struct SynapseConfig {
     /// Only users who have set this role will be handled by the syncer.
     /// When this is not present, all users will be added to Matrix.
     pub required_role_name: Option<String>,
+    /// If present, users with this role set will be made admin and all others will not be admin.
+    /// If not present, admin status of users is not touched.
+    pub admin_role_name: Option<String>,
 }
 
 // If the source_room_name_attr matches this value, instead of using its content as the
@@ -41,9 +44,35 @@ pub struct Connector {
 }
 
 impl Connector {
+    async fn ensure_user_is_admin(
+        synapse_interactor: &crate::target::SynapseInteractor,
+        matrix_user: &mut crate::target::types::User,
+        source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
+        admin_role_name: &String,
+    ) -> Result<(), kids_lib::error::KidsError> {
+        let should_be_admin = source_user.client_roles().await?.contains(admin_role_name);
+        let is_admin = matrix_user.is_admin;
+        if should_be_admin == is_admin {
+            tracing::trace!(matrix_user_id = matrix_user.matrix_user_id.display(), is_admin, "Keeping existing admin status");
+            return Ok(());
+        }
+        tracing::info!(
+            matrix_user_id = matrix_user.matrix_user_id.display(),
+            is_admin,
+            should_be_admin,
+            "Changing admin status of user"
+        );
+        synapse_interactor
+            .synapse_api()
+            .set_admin_status(&matrix_user.mas_user_id, should_be_admin)
+            .await?;
+        matrix_user.is_admin = should_be_admin;
+        Ok(())
+    }
+
     async fn ensure_user_locked_state_in_sync(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user: &mut crate::target::dto::User,
+        matrix_user: &mut crate::target::types::User,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
         enforce_lock: bool,
     ) -> Result<(), kids_lib::error::KidsError> {
@@ -61,9 +90,9 @@ impl Connector {
 
     async fn ensure_user_locked(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user: &mut crate::target::dto::User,
+        matrix_user: &mut crate::target::types::User,
     ) -> Result<(), kids_lib::error::KidsError> {
-        let matrix_user_id = matrix_user.name.as_str();
+        let matrix_user_id = &matrix_user.matrix_user_id;
         if !matrix_user.locked {
             // Note that we explicitly want to lock users here, NOT deactivate them.
             // Deactivating users appears to delete all keys of that user, so even when a
@@ -71,13 +100,13 @@ impl Connector {
             // all of their direct message rooms.
             // With locking, this works properly and unlocked users will encounter the same
             // state they left off with before being locked.
-            match synapse_interactor.synapse_api().lock_user(matrix_user_id).await {
+            match synapse_interactor.synapse_api().lock_user(&matrix_user.mas_user_id).await {
                 Ok(()) => {
                     // Write lock state to user object.
                     matrix_user.locked = true;
-                    tracing::info!(matrix_user_id = matrix_user.name, "Locked user");
+                    tracing::info!(matrix_user_id = matrix_user_id.display(), "Locked user");
                 }
-                Err(e) => tracing::warn!(?e, matrix_user_id, "Could not lock user"),
+                Err(e) => tracing::warn!(?e, matrix_user_id = matrix_user_id.display(), "Could not lock user"),
             };
         }
         Ok(())
@@ -85,17 +114,17 @@ impl Connector {
 
     async fn ensure_user_unlocked(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user: &mut crate::target::dto::User,
+        matrix_user: &mut crate::target::types::User,
     ) -> Result<(), kids_lib::error::KidsError> {
-        let matrix_user_id = matrix_user.name.as_str();
+        let matrix_user_id = &matrix_user.matrix_user_id;
         if matrix_user.locked {
-            match synapse_interactor.synapse_api().unlock_user(matrix_user_id).await {
+            match synapse_interactor.synapse_api().unlock_user(&matrix_user.mas_user_id).await {
                 Ok(()) => {
                     // Write lock state to user object.
                     matrix_user.locked = false;
-                    tracing::info!(matrix_user_id = matrix_user.name, "Unlocked user");
+                    tracing::info!(matrix_user_id = matrix_user_id.display(), "Unlocked user");
                 }
-                Err(e) => tracing::warn!(?e, matrix_user_id, "Could not unlock user"),
+                Err(e) => tracing::warn!(?e, matrix_user_id = matrix_user_id.display(), "Could not unlock user"),
             };
         }
         Ok(())
@@ -103,7 +132,7 @@ impl Connector {
 
     async fn ensure_user_display_name(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user_id: &str,
+        matrix_user_id: &crate::target::types::MatrixUserId,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<(), KidsError> {
         let desired_display_name = source_user.display_name();
@@ -114,23 +143,27 @@ impl Connector {
 
     async fn ensure_user_email(
         synapse_interactor: &crate::target::SynapseInteractor,
-        matrix_user: &mut dto::User,
+        matrix_user: &mut crate::target::types::User,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<(), KidsError> {
-        let desired_email = source_user.email();
-        matrix_user.threepids = synapse_interactor
-            .ensure_user_email(matrix_user.name.as_str(), desired_email, source_user.id())
-            .await?;
+        let desired_emails = source_user.email().map(|email| vec![email.to_owned()]).unwrap_or_default();
+        if matrix_user.emails != desired_emails {
+            synapse_interactor
+                .synapse_api()
+                .set_user_emails(&matrix_user.mas_user_id, desired_emails.as_slice())
+                .await?;
+            matrix_user.emails = desired_emails;
+        }
         Ok(())
     }
 
     async fn ensure_user_rooms(
         synapse_interactor: &crate::target::SynapseInteractor,
         groups: &crate::target::GroupMapping,
-        matrix_user: &crate::target::dto::User,
+        matrix_user: &crate::target::types::User,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
     ) -> Result<(), KidsError> {
-        let matrix_user_id = matrix_user.name.as_str();
+        let matrix_user_id = &matrix_user.matrix_user_id;
 
         let desired_user_groups = source_user
             .groups(true)
@@ -162,24 +195,49 @@ impl Connector {
         for matrix_room_id in &desired_user_rooms {
             if !current_user_rooms.joined_rooms.contains(matrix_room_id) {
                 match synapse_interactor.synapse_api().join_user_to_room(matrix_room_id, matrix_user_id).await {
-                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User joined matrix room"),
-                    Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not join user to matrix room"),
+                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id = matrix_user_id.display(), "User joined matrix room"),
+                    Err(e) => tracing::warn!(
+                        ?e,
+                        matrix_room_id,
+                        matrix_user_id = matrix_user_id.display(),
+                        "Could not join user to matrix room"
+                    ),
                 }
             } else {
-                tracing::trace!(matrix_room_id, matrix_user_id, "User has already joined matrix room");
+                tracing::trace!(matrix_room_id, matrix_user_id = matrix_user_id.display(), "User has already joined matrix room");
             }
         }
 
+        // We can only remove a user from rooms in which we are members as well.
+        // This is not an issue for adding as all rooms desired are derived from source groups
+        // where we have created the associated room ourselves and the syncer user is a member.
+        // However, in manually created rooms we cannot remove the user.
+        // We also should not attempt to do it as we would not re-add the user once they are unlocked.
+        let managed_rooms = synapse_interactor.synapse_api().get_joined_rooms_of_syncer().await?;
+
         // Remove user from all joined groups that are no longer desired.
         for matrix_room_id in &current_user_rooms.joined_rooms {
-            if !desired_user_rooms.contains(&matrix_room_id) {
-                match synapse_interactor.synapse_api().kick_user_from_room(matrix_room_id, matrix_user_id).await {
-                    Ok(()) => tracing::info!(matrix_room_id, matrix_user_id, "User kicked from matrix room"),
-                    Err(e) => tracing::warn!(?e, matrix_room_id, matrix_user_id, "Could not kick user from matrix room"),
-                };
-            } else {
-                tracing::trace!(matrix_room_id, matrix_user_id, "User stays in matrix room");
+            if !managed_rooms.joined_rooms.contains(matrix_room_id) {
+                tracing::debug!(matrix_room_id, matrix_user_id = matrix_user_id.display(), "User stays in unmanaged room");
+                continue;
             }
+            if desired_user_rooms.contains(&matrix_room_id) {
+                tracing::trace!(
+                    matrix_room_id,
+                    matrix_user_id = matrix_user_id.display(),
+                    "User stays in managed matrix room as it is still desired"
+                );
+                continue;
+            }
+            match synapse_interactor.synapse_api().kick_user_from_room(matrix_room_id, matrix_user_id).await {
+                Ok(()) => tracing::info!(matrix_room_id, matrix_user_id = matrix_user_id.display(), "User kicked from matrix room"),
+                Err(e) => tracing::warn!(
+                    ?e,
+                    matrix_room_id,
+                    matrix_user_id = matrix_user_id.display(),
+                    "Could not kick user from matrix room"
+                ),
+            };
         }
         Ok(())
     }
@@ -292,11 +350,11 @@ impl kids_lib::interface::target::Target for Connector {
             }
         };
 
-        let matrix_user_id = matrix_user.name.as_str();
-        tracing::info!(matrix_user_id, "Deactivating matrix user");
+        let matrix_user_id = &matrix_user.matrix_user_id;
+        tracing::info!(matrix_user_id = matrix_user_id.display(), "Deactivating matrix user");
         self.synapse_interactor
             .synapse_api()
-            .deactivate_user(matrix_user_id)
+            .deactivate_user(&matrix_user.mas_user_id)
             .await
             .map_err(|e| e.with_context(&format!("Could not deactivate matrix user {matrix_user_id}")))?;
         self.mappings.user_id_mapping.get_user_id_mapping_mut().remove(user_id);
@@ -305,16 +363,6 @@ impl kids_lib::interface::target::Target for Connector {
 
     async fn create_or_update_group(&mut self, source_group: std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>) -> Result<(), KidsError> {
         tracing::debug!(source_group_id = source_group.id(), "Create or update group");
-        // Note that groups containing the below-mentioned characters will lead to ambiguitive group paths,
-        // which is why we do not allow them.
-        // For example, a subgroup "B" of group "A" will receive the path "/A/B", but so will a group named "A/B" directly.
-        // The colon causes issues because it is used as a delimiter in the matrix room alias.
-        if source_group.name().contains(":") || source_group.name().contains("/") {
-            return Err(KidsError::InternalError(format!(
-                "Could not create room for group {}: group name contains invalid character",
-                source_group.id()
-            )));
-        }
 
         // The target does only care about groups with the domain-specific attribute.
         let room_name_attr = match self.get_room_name_attr(source_group.as_ref()) {
@@ -387,7 +435,11 @@ impl kids_lib::interface::target::Target for Connector {
         // Lock also if user has no required role
         Self::ensure_user_locked_state_in_sync(&self.synapse_interactor, matrix_user, source_user.as_ref(), !source_user_has_required_role).await?;
 
-        Self::ensure_user_display_name(&self.synapse_interactor, &matrix_user.name, source_user.as_ref()).await?;
+        // We only care about admin status when the role name for it is set.
+        if let Some(admin_role_name) = self.config.admin_role_name.as_ref() {
+            Self::ensure_user_is_admin(&self.synapse_interactor, matrix_user, source_user.as_ref(), admin_role_name).await?;
+        }
+        Self::ensure_user_display_name(&self.synapse_interactor, &matrix_user.matrix_user_id, source_user.as_ref()).await?;
         Self::ensure_user_email(&self.synapse_interactor, matrix_user, source_user.as_ref()).await?;
 
         Self::ensure_user_rooms(&self.synapse_interactor, &self.mappings.group_id_mapping, matrix_user, source_user.as_ref()).await?;
@@ -400,7 +452,7 @@ impl Connector {
     fn generate_matrix_user_id(
         synapse_interactor: &crate::target::SynapseInteractor,
         source_user: &(dyn kids_lib::interface::source::User + Send + Sync),
-    ) -> Result<String, KidsError> {
+    ) -> Result<crate::target::types::MatrixUserId, KidsError> {
         match source_user.username() {
             Some(username) => Ok(synapse_interactor.generate_matrix_user_id(username)),
             None => {
@@ -419,22 +471,22 @@ impl Connector {
         synapse_interactor: &'a crate::target::SynapseInteractor,
         user_mapping: &'a mut crate::target::UserMapping,
         source_user: &'a (dyn kids_lib::interface::source::User + Send + Sync),
-    ) -> Result<&'a mut dto::User, KidsError> {
+    ) -> Result<&'a mut crate::target::types::User, KidsError> {
         // Unfortunately, `match` did not work here for lifetime reasons.
         if !user_mapping.has_user(source_user.id()) {
             let matrix_user_id = Self::generate_matrix_user_id(synapse_interactor, source_user)?;
             tracing::info!(
                 source_user_id = source_user.id(),
                 source_user_name = source_user.username(),
-                matrix_user_id = matrix_user_id,
+                matrix_user_id = matrix_user_id.display(),
                 "Creating user"
             );
-            let matrix_user = synapse_interactor.synapse_api().create_user(matrix_user_id.as_str(), source_user.id()).await?;
+            let matrix_user = synapse_interactor.create_user(&matrix_user_id, source_user.id()).await?;
             user_mapping.get_user_id_mapping_mut().insert(source_user.id().clone(), matrix_user);
             tracing::info!(
                 source_id = source_user.id(),
                 username = source_user.username(),
-                matrix_user_id = user_mapping.get_user(source_user.id()).name,
+                matrix_user_id = user_mapping.get_user(source_user.id()).matrix_user_id.display(),
                 "User created"
             );
         }
@@ -540,7 +592,8 @@ mod test {
     use rstest::*;
 
     const REQUIRED_ROLE: &str = "feature:authenticate";
-    const SYNCER_USER_ID: &str = "syncer-user";
+    const ADMIN_ROLE: &str = "feature:admin";
+    const SYNCER_USER_ID: &str = "@syncer-user:example.com";
 
     #[fixture]
     pub fn connector() -> Connector {
@@ -548,15 +601,21 @@ mod test {
             config: SynapseConfig {
                 synapse_api: external::SynapseApiConfig {
                     matrix_homeserver_url: "".to_string(),
-                    matrix_source_oidc_provider_id: "".to_string(),
-                    matrix_syncer_user_id: "".to_string(),
-                    matrix_syncer_password: "".to_string(),
+                    matrix_mas_url: "".to_string(),
+                    matrix_source_oidc_provider_ulid: "".to_string(),
+                    matrix_syncer_user_id: "@syncer:example.com".into(),
                     matrix_namespace: "".to_string(),
                     insecure_disable_tls_verification: true,
+                    api_access: external::ApiAccessConfig {
+                        mas_client_id: "".to_owned(),
+                        mas_client_secret: "".to_owned(),
+                        token_validity_seconds: 120,
+                    },
                 },
                 room_deletion_strategy: crate::target::RoomDeletionStrategy::Ignore,
                 source_room_name_attr: "test".to_string(),
                 required_role_name: Some(REQUIRED_ROLE.to_owned()),
+                admin_role_name: Some(ADMIN_ROLE.to_owned()),
             },
             synapse_interactor: SynapseApiMocker::new(SYNCER_USER_ID).into(),
             mappings: crate::target::IdMapping::empty(),
@@ -648,8 +707,22 @@ mod test {
             // then
             let user_id_mapping = connector.mappings.user_id_mapping.get_user_id_mapping();
             assert_eq!(user_id_mapping.len(), 2);
-            assert_eq!(user_id_mapping.get(&user1.source_user_id).unwrap(), &SynapseApiMocker::get_user_from(&user1));
-            assert_eq!(user_id_mapping.get(&user2.source_user_id).unwrap(), &SynapseApiMocker::get_user_from(&user2));
+            assert_eq!(
+                *user_id_mapping.get(&user1.source_user_id).unwrap(),
+                connector
+                    .synapse_interactor
+                    .get_user_from_mas_user(SynapseApiMocker::get_user_from(&user1))
+                    .await
+                    .unwrap()
+            );
+            assert_eq!(
+                *user_id_mapping.get(&user2.source_user_id).unwrap(),
+                connector
+                    .synapse_interactor
+                    .get_user_from_mas_user(SynapseApiMocker::get_user_from(&user2))
+                    .await
+                    .unwrap()
+            );
             assert_eq!(
                 connector.all_users().await.unwrap(),
                 std::collections::HashSet::from([user1.source_user_id, user2.source_user_id])
@@ -668,11 +741,14 @@ mod test {
             );
             connector.mappings.user_id_mapping.get_user_id_mapping_mut().insert(
                 kids_test_lib::util::constants::DEFAULT_SOURCE_USER_ID.to_string(),
-                dto::User {
-                    name: kids_test_lib::util::constants::DEFAULT_TARGET_USER_ID.to_string(),
+                crate::target::types::User {
+                    matrix_user_id: std::str::FromStr::from_str(kids_test_lib::util::constants::DEFAULT_TARGET_USER_ID).unwrap(),
+                    mas_user_id: "".into(),
+                    source_user_id: None,
+                    display_name: None,
+                    emails: vec![],
                     locked: false,
-                    external_ids: None,
-                    threepids: None,
+                    is_admin: false,
                 },
             );
 
@@ -768,7 +844,7 @@ mod test {
 
         #[rstest]
         #[tokio::test]
-        async fn and_obtaining_mapping_for_one_user_fails_then_still_process_other_user(mut connector: Connector) {
+        async fn and_obtaining_mapping_for_one_user_fails_then_error(mut connector: Connector) {
             // given
             let user1 = MockSynapseUserBuilder::default().build();
             let user2 = MockSynapseUserBuilder::default().build();
@@ -784,12 +860,10 @@ mod test {
                 .into();
 
             // when
-            assert!(connector.full_sync_incoming().await.is_ok());
+            let full_sync_incoming_result = connector.full_sync_incoming().await;
 
             // then
-            assert!(connector.mappings.user_id_mapping.has_user(&user1.source_user_id));
-            assert!(!connector.mappings.user_id_mapping.has_user(&user2.source_user_id));
-            assert!(connector.mappings.user_id_mapping.has_user(&user3.source_user_id));
+            full_sync_incoming_result.expect_err("We do not want partial results");
         }
 
         #[rstest]
@@ -923,28 +997,6 @@ mod test {
                     let all_groups = connector.all_groups().await.unwrap();
                     assert!(all_groups.contains(&group_id));
                 }
-            }
-
-            #[rstest]
-            #[tokio::test]
-            #[case("C:\\Windows")]
-            #[tokio::test]
-            #[case("/usr/bin")]
-            async fn create_group_fails_with_invalid_group_name(mut connector: Connector, #[case] invalid_group_name: &'static str) {
-                // given
-                let group = kids_test_lib::Group::new(invalid_group_name, None);
-                connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID).can_get_joined_rooms_of_syncer().can_get_users().into();
-
-                // when
-                let created = connector.create_or_update_group(std::sync::Arc::new(group)).await;
-
-                // then
-                let err: KidsError = created.expect_err("Creating or updating group unexpectedly succeeded");
-                match err {
-                    KidsError::InternalError(ref msg)
-                        if *msg == format!("Could not create room for group {invalid_group_name}: group name contains invalid character") => {}
-                    ref err => panic!("Error creating or updating group: {err:?}."),
-                };
             }
         }
 
@@ -1164,7 +1216,7 @@ mod test {
                         // Managing room members is necessary to kick users.
                         mock_api = mock_api.can_manage_room_members(
                             matrix_room_id,
-                            ["user-1", "user-2"],
+                            ["@user-1:matrix.example.com", "@user-2:matrix.example.com"],
                             matches!(deletion_strategy, crate::target::RoomDeletionStrategy::Evacuate),
                             None,
                         );
@@ -1230,7 +1282,12 @@ mod test {
                     // Managing room members is necessary to kick users.
                     // We disallow the syncer to leave the room as we will fail kicking all users.
                     // In that case, the syncer must not leave the room.
-                    mock_api = mock_api.can_manage_room_members(matrix_room_id.clone(), ["user-1", "user-2"], false, Some("user-1"));
+                    mock_api = mock_api.can_manage_room_members(
+                        matrix_room_id.clone(),
+                        ["@user-1:matrix.example.com", "@user-2:matrix.example.com"],
+                        false,
+                        Some("@user-1:matrix.example.com"),
+                    );
                     mock_api.into()
                 };
                 {
@@ -1240,7 +1297,7 @@ mod test {
                     // then
                     let err: KidsError = deleted.expect_err("Deleting group unexpectedly succeeded");
                     match err {
-                        KidsError::InternalError(ref msg) if *msg == format!("Could not kick all members from room {matrix_room_id}") => {}
+                        KidsError::InternalError(ref err) if err.to_string() == format!("Could not kick all members from room {matrix_room_id}") => {}
                         ref err => panic!("Error deleting group: {err:?}."),
                     };
                     let all_groups = connector.all_groups().await.unwrap();
@@ -1258,32 +1315,39 @@ mod test {
 
             #[rstest]
             #[tokio::test]
-            async fn create_user_succeeds(mut connector: Connector) {
+            #[case(true)]
+            #[tokio::test]
+            #[case(false)]
+            async fn create_user_succeeds(mut connector: Connector, #[case] is_admin: bool) {
                 // given
                 let group = kids_test_lib::Group::new(
                     "group",
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
-                let user = kids_test_lib::User::builder()
+                let user_builder = kids_test_lib::User::builder()
                     .id("my-sub")
                     .username("firstname.lastname")
                     .first_name("Firstname")
                     .last_name("Lastname")
                     .enabled(true)
                     .with_group(group.clone())
-                    .with_role(REQUIRED_ROLE)
-                    .build();
+                    .with_role(REQUIRED_ROLE);
+                let user = if is_admin {
+                    user_builder.with_role(ADMIN_ROLE).build()
+                } else {
+                    user_builder.build()
+                };
                 let user_id = user.id.clone();
                 let matrix_user = MockSynapseUserBuilder::default()
                     .source_user_id(user_id.clone())
-                    .matrix_user_id("@firstname.lastname:testing.example.com")
+                    .matrix_user_id(format!("@firstname.lastname:{}", kids_test_lib::util::constants::DEFAULT_MATRIX_HOMESERVER))
                     .build();
                 let room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
                 connector
-                    .replace_api_mock(
-                        SynapseApiMocker::new(SYNCER_USER_ID)
+                    .replace_api_mock({
+                        let mocker = SynapseApiMocker::new(SYNCER_USER_ID)
                             .with_rooms(vec![room.clone()])
-                            .can_get_homeserver_domain("testing.example.com")
+                            .can_get_homeserver_domain(std::str::FromStr::from_str(kids_test_lib::util::constants::DEFAULT_MATRIX_HOMESERVER).unwrap())
                             .can_get_joined_rooms_of_syncer()
                             .can_get_users()
                             .can_get_source_user_id_for_all_matrix_users()
@@ -1293,10 +1357,11 @@ mod test {
                             .require_create_user(matrix_user.clone())
                             .can_get_user_display_name(&matrix_user, None)
                             .require_set_user_display_name(&matrix_user, "Firstname Lastname")
-                            .can_get_user_three_pids(&matrix_user, None)
+                            .can_get_user_emails(&matrix_user, None)
                             .can_get_joined_rooms_of_user(&matrix_user, vec![])
-                            .require_join_user_to_room(&matrix_user, &room),
-                    )
+                            .require_join_user_to_room(&matrix_user, &room);
+                        if is_admin { mocker.require_set_admin(&matrix_user) } else { mocker }
+                    })
                     .await;
 
                 // when
@@ -1328,7 +1393,7 @@ mod test {
                 let room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
                 connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                     .with_rooms(vec![room.clone()])
-                    .can_get_homeserver_domain("testing.example.com")
+                    .can_get_homeserver_domain("testing.example.com".into())
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_get_source_user_id_for_all_matrix_users()
@@ -1425,7 +1490,7 @@ mod test {
                                     user.display_name().unwrap()
                                 }),
                             )
-                            .can_get_user_three_pids(&synapse_user, Some(current_email.to_owned())),
+                            .can_get_user_emails(&synapse_user, Some(current_email.to_owned())),
                     )
                     .await;
                 let created = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
@@ -1449,9 +1514,9 @@ mod test {
                     // The user is no member of any (managed) room.
                     .can_get_joined_rooms_of_user(&synapse_user, vec![])
                     .can_get_user_display_name(&synapse_user, Some(previous_display_name))
-                    .can_get_user_three_pids(&synapse_user, Some(current_email.to_owned()))
+                    .can_get_user_emails(&synapse_user, Some(current_email.to_owned()))
                     .require_set_user_display_name(&synapse_user, new_display_name)
-                    .require_set_user_three_pids(&synapse_user, new_email)
+                    .require_set_user_email(&synapse_user, new_email)
                     .into();
                 let updated = connector.create_or_update_user(std::sync::Arc::new(user)).await;
 
@@ -1470,10 +1535,9 @@ mod test {
                     Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
                 );
                 let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
-                let current_first_name = "First";
                 let mut user = kids_test_lib::User::builder()
                     .id("user")
-                    .first_name(current_first_name)
+                    .first_name("First")
                     .last_name("Lastname")
                     .enabled(true)
                     .with_group(group.clone())
@@ -1501,7 +1565,7 @@ mod test {
                                     user.display_name().unwrap()
                                 }),
                             )
-                            .can_get_user_three_pids(&synapse_user, None)
+                            .can_get_user_emails(&synapse_user, None)
                             .require_join_user_to_room(&synapse_user, &synapse_room),
                     )
                     .await;
@@ -1527,7 +1591,7 @@ mod test {
                             user.display_name().unwrap()
                         }),
                     )
-                    .can_get_user_three_pids(&synapse_user, None)
+                    .can_get_user_emails(&synapse_user, None)
                     .require_kick_user_from_room(&synapse_user, &synapse_room)
                     .into();
                 let updated = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
@@ -1553,7 +1617,7 @@ mod test {
                             user.display_name().unwrap()
                         }),
                     )
-                    .can_get_user_three_pids(&synapse_user, None)
+                    .can_get_user_emails(&synapse_user, None)
                     // The user is no member of any (managed) room.
                     .can_get_joined_rooms_of_user(&synapse_user, vec![])
                     .require_join_user_to_room(&synapse_user, &synapse_room)
@@ -1595,7 +1659,7 @@ mod test {
                             .can_associate_source_group_id_to_room()
                             .can_get_all_rooms_associated_source_group_id()
                             .can_get_user_display_name(&synapse_user, None)
-                            .can_get_user_three_pids(&synapse_user, None)
+                            .can_get_user_emails(&synapse_user, None)
                             // Assume the user is not yet member of any (managed) room.
                             .can_get_joined_rooms_of_user(&synapse_user, vec![])
                             // This is the core assertion here: The user gets added to the room.
@@ -1636,7 +1700,7 @@ mod test {
                             .can_associate_source_group_id_to_room()
                             .can_get_all_rooms_associated_source_group_id()
                             .can_get_user_display_name(&synapse_user, None)
-                            .can_get_user_three_pids(&synapse_user, None)
+                            .can_get_user_emails(&synapse_user, None)
                             // Assume the user is still member of the managed room.
                             .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
                             // This is the core assertion here: The user gets kicked from the room.
@@ -1681,7 +1745,7 @@ mod test {
                         .can_associate_source_group_id_to_room()
                         .can_get_all_rooms_associated_source_group_id()
                         .can_get_user_display_name(&synapse_user, None)
-                        .can_get_user_three_pids(&synapse_user, None)
+                        .can_get_user_emails(&synapse_user, None)
                         .can_get_joined_rooms_of_user(&synapse_user, joined_room)
                 };
                 {
@@ -1730,6 +1794,80 @@ mod test {
                     assert!(all_users.contains(&user_id));
                     let user_via_connector = connector.mappings.user_id_mapping.get_user(&user_id);
                     assert!(!user_via_connector.locked);
+                }
+            }
+
+            #[rstest]
+            #[tokio::test]
+            async fn update_user_admin(mut connector: Connector) {
+                // given
+                let group = kids_test_lib::Group::new(
+                    "group",
+                    Some([(connector.config.source_room_name_attr.clone(), vec!["group_name".to_owned()])].into()),
+                );
+                let synapse_room = MockSynapseRoomBuilder::default().source_room_id(group.id()).build();
+                let mut user = kids_test_lib::User::builder()
+                    .id("user")
+                    .enabled(true)
+                    .with_group(group.clone())
+                    .with_role(REQUIRED_ROLE)
+                    .build();
+                let user_id = user.id.clone();
+                let synapse_user = MockSynapseUserBuilder::default().source_user_id(user_id.clone()).build();
+                let get_api_mocker = || {
+                    SynapseApiMocker::new(SYNCER_USER_ID)
+                        .with_rooms(vec![synapse_room.clone()])
+                        .with_users(vec![synapse_user.clone()])
+                        .can_get_joined_rooms_of_syncer()
+                        .can_get_users()
+                        .can_get_source_user_id_for_all_matrix_users()
+                        .can_get_room_associated_source_group_id_v1()
+                        .can_associate_source_group_id_to_room()
+                        .can_get_all_rooms_associated_source_group_id()
+                        .can_get_user_display_name(&synapse_user, None)
+                        .can_get_user_emails(&synapse_user, None)
+                        .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
+                };
+                {
+                    // 1. Create as non-admin.
+                    // when
+                    connector.replace_api_mock(get_api_mocker()).await;
+
+                    // then
+                    let all_users = connector.all_users().await.unwrap();
+                    assert!(all_users.contains(&user_id));
+                    let user_via_connector = connector.mappings.user_id_mapping.get_user(&user_id);
+                    assert!(!user_via_connector.is_admin);
+                }
+                {
+                    // 2. Update to admin.
+                    user.roles.push(ADMIN_ROLE.to_owned());
+                    connector.synapse_interactor = get_api_mocker().require_set_admin(&synapse_user).into();
+
+                    // when
+                    let created = connector.create_or_update_user(std::sync::Arc::new(user.clone())).await;
+
+                    // then
+                    created.expect("Error creating or updating user");
+                    let all_users = connector.all_users().await.unwrap();
+                    assert!(all_users.contains(&user_id));
+                    let user_via_connector = connector.mappings.user_id_mapping.get_user(&user_id);
+                    assert!(user_via_connector.is_admin);
+                }
+                {
+                    // 3. Update to non-admin.
+                    user.roles.pop();
+                    connector.synapse_interactor = get_api_mocker().require_remove_admin(&synapse_user).into();
+
+                    // when
+                    let created = connector.create_or_update_user(std::sync::Arc::new(user)).await;
+
+                    // then
+                    created.expect("Error creating or updating user");
+                    let all_users = connector.all_users().await.unwrap();
+                    assert!(all_users.contains(&user_id));
+                    let user_via_connector = connector.mappings.user_id_mapping.get_user(&user_id);
+                    assert!(!user_via_connector.is_admin);
                 }
             }
         }

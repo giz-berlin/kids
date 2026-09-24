@@ -1,0 +1,37 @@
+{
+    pki {
+        ca local {
+            root {
+                format pem_file
+                cert /certs/root.pem
+                key /certs/root.key
+            }
+        }
+    }
+}
+
+$PODMAN_SERVICE_HOSTNAME:443 {
+
+    reverse_proxy $PODMAN_SERVICE_HOSTNAME:$SYNAPSE_ADMIN_PORT
+
+    tls internal
+
+}
+
+$PODMAN_SERVICE_HOSTNAME:444 {
+
+    reverse_proxy $PODMAN_SERVICE_HOSTNAME:$MAS_PORT
+
+    tls internal
+
+}
+
+$PODMAN_SERVICE_HOSTNAME:445 {
+  reverse_proxy /_matrix/client/*/login $PODMAN_SERVICE_HOSTNAME:$MAS_PORT
+  reverse_proxy /_matrix/client/*/logout $PODMAN_SERVICE_HOSTNAME:$MAS_PORT
+  reverse_proxy /_matrix/client/*/refresh $PODMAN_SERVICE_HOSTNAME:$MAS_PORT
+
+  reverse_proxy $PODMAN_SERVICE_HOSTNAME:$SYNAPSE_PORT
+
+  tls internal
+}
