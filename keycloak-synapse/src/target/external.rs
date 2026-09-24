@@ -350,10 +350,26 @@ impl SynapseClient {
     async fn send_mas_admin_request_list<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         &self,
         method: http::Method,
-        path: kids_lib::types::ApiPath,
+        mut path: kids_lib::types::ApiPath,
         body: Option<B>,
     ) -> Result<dto::mas::ListResponse<T>, KidsError> {
-        self.send_mas_admin_request(method, path, body).await
+        path.add_query_parameter("count", "true");
+        path.add_query_parameter("page[first]", "100000");
+        let result: dto::mas::ListResponse<T> = self.send_mas_admin_request(method, path.clone(), body).await?;
+        let reported_total_count = result.meta.count;
+        let observed_count = result.data.len() as u64;
+        if reported_total_count != observed_count {
+            tracing::error!(
+                reported_total_count,
+                observed_count,
+                "Number of returned entities does not match reported total number of entities"
+            );
+            return Err(kids_lib::error::KidsError::RequestFailed(
+                format!("{path}"),
+                anyhow::anyhow!("Number of returned entities does not match reported total number of entities"),
+            ));
+        }
+        Ok(result)
     }
 
     async fn send_mas_admin_request_list_get<T: serde::de::DeserializeOwned>(

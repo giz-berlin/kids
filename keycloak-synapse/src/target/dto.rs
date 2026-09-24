@@ -7,11 +7,16 @@ pub mod mas {
     pub struct SingleResponse<TDataResponse> {
         pub data: TDataResponse,
     }
+    #[derive(Debug, serde::Deserialize)]
+    pub struct Meta {
+        pub count: u64,
+    }
     /// A response for a list of elements of type `TDataResponse`.
     ///
     /// `TDataResponse` should be one of the exposed type aliases in [`mas`](self).
     #[derive(Debug, serde::Deserialize)]
     pub struct ListResponse<TDataResponse> {
+        pub meta: Meta,
         pub data: Vec<TDataResponse>,
     }
     /// A response of type `personal-session`.
