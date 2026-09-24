@@ -48,6 +48,7 @@ impl SynapseInteractor {
     /// Once the new syncer was successfully run once, we should be able to delete this method.
     pub async fn migrate(&self, rooms: &[String]) -> Result<(), kids_lib::error::KidsError> {
         for room in rooms {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
             if let Ok(source_id) = self.synapse_api.get_room_associated_source_group_id_v1(room).await {
                 match self.synapse_api.associate_source_group_id_to_room(room, &source_id).await {
                     Ok(()) => tracing::info!(room, "Migrated room"),
