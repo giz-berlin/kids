@@ -47,11 +47,11 @@ pub trait SynapseApi {
     async fn get_joined_rooms_of_syncer(&self) -> Result<dto::matrix::JoinedRoomsResponse, KidsError>;
     async fn syncer_leave_room(&self, matrix_room_id: &str) -> Result<(), KidsError>;
     async fn get_mas_users(&self) -> Result<Vec<dto::mas::UserResponse>, KidsError>;
-    async fn deactivate_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
     async fn get_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<Vec<String>, KidsError>;
     async fn set_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id, emails: &[String]) -> Result<(), KidsError>;
     async fn lock_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
     async fn unlock_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
+    async fn reactivate_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
     async fn set_user_display_name(&self, matrix_user_id: &crate::target::types::MatrixUserId, display_name: &str) -> Result<(), KidsError>;
     async fn get_user_display_name(&self, matrix_user_id: &crate::target::types::MatrixUserId) -> Result<Option<String>, KidsError>;
     async fn set_admin_status(&self, mas_user_id: &dto::mas::internal::user::Id, should_be_admin: bool) -> Result<(), KidsError>;
@@ -295,6 +295,14 @@ impl SynapseClient {
                 let status = response.status();
                 let url = response.url().to_string();
                 if status.is_success() {
+                    if status == http::StatusCode::NO_CONTENT {
+                        // Try to decode an empty object.
+                        // Even for a struct with no members, deserializing it from the empty string (the real content of the response)
+                        // is not possible. In case this fails, we cannot rescue the situation as our caller
+                        // expects a `T` which we cannot construct here.
+                        return serde_json::from_str("{}")
+                            .map_err(|error| KidsError::ApiOperationFailed(kids_lib::error::no_context(), status.as_u16(), url, anyhow!(error)));
+                    }
                     return match response.json().await {
                         Ok(json) => Ok(json),
                         Err(error) => Err(KidsError::ApiOperationFailed(
@@ -350,10 +358,26 @@ impl SynapseClient {
     async fn send_mas_admin_request_list<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         &self,
         method: http::Method,
-        path: kids_lib::types::ApiPath,
+        mut path: kids_lib::types::ApiPath,
         body: Option<B>,
     ) -> Result<dto::mas::ListResponse<T>, KidsError> {
-        self.send_mas_admin_request(method, path, body).await
+        path.add_query_parameter("count", "true");
+        path.add_query_parameter("page[first]", "100000");
+        let result: dto::mas::ListResponse<T> = self.send_mas_admin_request(method, path.clone(), body).await?;
+        let reported_total_count = result.meta.count;
+        let observed_count = result.data.len() as u64;
+        if reported_total_count != observed_count {
+            tracing::error!(
+                reported_total_count,
+                observed_count,
+                "Number of returned entities does not match reported total number of entities"
+            );
+            return Err(kids_lib::error::KidsError::RequestFailed(
+                format!("{path}"),
+                anyhow::anyhow!("Number of returned entities does not match reported total number of entities"),
+            ));
+        }
+        Ok(result)
     }
 
     async fn send_mas_admin_request_list_get<T: serde::de::DeserializeOwned>(
@@ -544,19 +568,6 @@ impl SynapseApi for SynapseClient {
         Ok(mas_users)
     }
 
-    /// See https://element-hq.github.io/matrix-authentication-service/api/index.html#/user/deactivateUser
-    async fn deactivate_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError> {
-        self.send_mas_admin_request_single::<_, dto::IgnoredResponse>(
-            http::Method::POST,
-            kids_lib::types::ApiPath::from_segments(["users", mas_user_id.as_str(), "deactivate"]),
-            Some(serde_json::json!({
-                "skip_erase": false
-            })),
-        )
-        .await?;
-        Ok(())
-    }
-
     async fn get_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<Vec<String>, KidsError> {
         let emails: Vec<dto::mas::UserEmailResponse> = self
             .send_mas_admin_request_list_get(kids_lib::types::ApiPath::from_segments_and_query(
@@ -621,6 +632,17 @@ impl SynapseApi for SynapseClient {
             Some(serde_json::json!({
                 "skip_erase": false
             })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// See https://element-hq.github.io/matrix-authentication-service/api/index.html#/user/reactivateUser
+    async fn reactivate_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError> {
+        self.send_mas_admin_request_single::<_, dto::IgnoredResponse>(
+            http::Method::POST,
+            kids_lib::types::ApiPath::from_segments(["users", mas_user_id.as_str(), "reactivate"]),
+            None::<()>,
         )
         .await?;
         Ok(())

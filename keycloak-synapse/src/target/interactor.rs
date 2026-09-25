@@ -13,48 +13,23 @@ impl SynapseInteractor {
         self.synapse_api.as_ref()
     }
 
-    pub async fn ensure_user_display_name(
-        &self,
-        matrix_user_id: &crate::target::types::MatrixUserId,
-        desired_name_opt: Option<&str>,
-        source_user_id: &str,
-    ) -> Result<(), kids_lib::error::KidsError> {
-        let matrix_display_name = self.synapse_api.get_user_display_name(matrix_user_id).await?;
-        if matrix_display_name.as_deref() != desired_name_opt {
-            tracing::debug!(
-                matrix_user_id = tracing::field::display(matrix_user_id),
-                source_user_id,
-                old_display_name = matrix_display_name,
-                new_display_name = desired_name_opt,
-                "Updating user's display name."
-            );
-            if let Some(desired_name) = desired_name_opt {
-                self.synapse_api.set_user_display_name(matrix_user_id, desired_name).await?;
-            } else {
-                const ERROR_CONTEXT: &str = "Creating or updating user";
-                const ERROR_MSG: &str = "Requested to unset the display name of a user. This is impossible in Matrix.";
-                tracing::error!(source_user_id = source_user_id, "{ERROR_CONTEXT}: {ERROR_MSG}");
-                return Err(kids_lib::error::KidsError::RequestFailed(
-                    ERROR_CONTEXT.to_owned(),
-                    anyhow::anyhow!("{ERROR_MSG}"),
-                ));
-            }
-        }
-        Ok(())
-    }
-
     /// The old syncer used a different event to associate matrix rooms to keycloak rooms.
     /// This function migrates rooms to the new format.
     /// Once the new syncer was successfully run once, we should be able to delete this method.
-    pub async fn migrate(&self, rooms: &[String]) {
+    pub async fn migrate(&self, rooms: &[String]) -> Result<(), kids_lib::error::KidsError> {
         for room in rooms {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
             if let Ok(source_id) = self.synapse_api.get_room_associated_source_group_id_v1(room).await {
                 match self.synapse_api.associate_source_group_id_to_room(room, &source_id).await {
                     Ok(()) => tracing::info!(room, "Migrated room"),
-                    Err(e) => tracing::warn!(?e, room, "Failed to migrate room"),
+                    Err(e) => {
+                        tracing::error!(?e, room, "Failed to migrate room");
+                        return Err(e);
+                    }
                 };
             }
         }
+        Ok(())
     }
 
     pub fn generate_matrix_user_id(&self, username: &str) -> crate::target::types::MatrixUserId {
@@ -70,16 +45,26 @@ impl SynapseInteractor {
     ) -> Result<crate::target::types::User, kids_lib::error::KidsError> {
         let matrix_user_id = self.generate_matrix_user_id(mas_user.attributes.username.as_str());
         let source_user_id = self.synapse_api.get_source_user_id_for_mas_user_id(&mas_user.id).await?;
-        let display_name = self.synapse_api.get_user_display_name(&matrix_user_id).await?;
+        let deactivated = mas_user.attributes.deactivated_at.is_some();
+        let display_name = self.synapse_api.get_user_display_name(&matrix_user_id).await.unwrap_or(
+            // Getting the display name might fail e.g. when the user is deactivated.
+            // In this case, we assume no set display name which will be fixed by the sync later on.
+            None,
+        );
         let emails = self.synapse_api.get_user_emails(&mas_user.id).await?;
+        let rooms = self.synapse_api.get_user_joined_rooms(&matrix_user_id).await?.joined_rooms;
         let user = crate::target::types::User {
             matrix_user_id,
             mas_user_id: mas_user.id,
             source_user_id,
-            display_name,
-            emails,
-            locked: mas_user.attributes.locked_at.is_some(),
-            is_admin: mas_user.attributes.admin,
+            deactivated,
+            state: crate::target::types::UserState {
+                display_name,
+                emails,
+                locked: mas_user.attributes.locked_at.is_some(),
+                is_admin: mas_user.attributes.admin,
+                rooms,
+            },
         };
         Ok(user)
     }

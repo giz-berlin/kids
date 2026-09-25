@@ -37,7 +37,7 @@ impl GroupMapping {
             .map_err(|e| e.with_context("Failed getting rooms syncer has joined"))?
             .joined_rooms;
 
-        synapse_interactor.migrate(&matrix_syncer_joined_rooms).await;
+        synapse_interactor.migrate(&matrix_syncer_joined_rooms).await?;
 
         let mut group_id_mapping = std::collections::HashMap::new();
 
