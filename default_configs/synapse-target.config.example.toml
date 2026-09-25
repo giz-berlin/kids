@@ -26,8 +26,6 @@ room_deletion_strategy = "Evacuate"
 # Optional
 required_role_name = "feature:authenticate"
 # A role that, if present on a source user, makes that user able to start admin sessions.
-# Optional
-# If not present, admin status of users will not be managed by KIDS.
 admin_role_name = "feature:admin"
 
 [target.synapse_api]

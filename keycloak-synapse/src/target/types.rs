@@ -40,6 +40,12 @@ pub struct User {
     pub mas_user_id: crate::target::dto::mas::internal::user::Id,
     /// The ID of the user provided by the configured source, e.g. Keycloak, if available.
     pub source_user_id: Option<kids_lib::types::SharedResourceIdentifier>,
+    pub state: UserState,
+}
+
+/// This encapsulates all data of a [Matrix User](User) that we support changing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserState {
     /// The display name of the user, if set.
     pub display_name: Option<String>,
     /// The email addresses associated with this account via [MAS](https://element-hq.github.io/matrix-authentication-service/index.html).
@@ -48,6 +54,8 @@ pub struct User {
     pub locked: bool,
     /// Whether the account can request admin, i.e., can start sessions with admin privileges.
     pub is_admin: bool,
+    /// The rooms this user is a member of.
+    pub rooms: Vec<String>,
 }
 
 /// The server name of a Matrix homeserver, according to the [spec](https://spec.matrix.org/v1.19/appendices/#server-name).

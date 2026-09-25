@@ -47,7 +47,6 @@ pub trait SynapseApi {
     async fn get_joined_rooms_of_syncer(&self) -> Result<dto::matrix::JoinedRoomsResponse, KidsError>;
     async fn syncer_leave_room(&self, matrix_room_id: &str) -> Result<(), KidsError>;
     async fn get_mas_users(&self) -> Result<Vec<dto::mas::UserResponse>, KidsError>;
-    async fn deactivate_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
     async fn get_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<Vec<String>, KidsError>;
     async fn set_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id, emails: &[String]) -> Result<(), KidsError>;
     async fn lock_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
@@ -295,6 +294,14 @@ impl SynapseClient {
                 let status = response.status();
                 let url = response.url().to_string();
                 if status.is_success() {
+                    if status == http::StatusCode::NO_CONTENT {
+                        // Try to decode an empty object.
+                        // Even for a struct with no members, deserializing it from the empty string (the real content of the response)
+                        // is not possible. In case this fails, we cannot rescue the situation as our caller
+                        // expects a `T` which we cannot construct here.
+                        return serde_json::from_str("{}")
+                            .map_err(|error| KidsError::ApiOperationFailed(kids_lib::error::no_context(), status.as_u16(), url, anyhow!(error)));
+                    }
                     return match response.json().await {
                         Ok(json) => Ok(json),
                         Err(error) => Err(KidsError::ApiOperationFailed(
@@ -558,19 +565,6 @@ impl SynapseApi for SynapseClient {
             .await?
             .data;
         Ok(mas_users)
-    }
-
-    /// See https://element-hq.github.io/matrix-authentication-service/api/index.html#/user/deactivateUser
-    async fn deactivate_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError> {
-        self.send_mas_admin_request_single::<_, dto::IgnoredResponse>(
-            http::Method::POST,
-            kids_lib::types::ApiPath::from_segments(["users", mas_user_id.as_str(), "deactivate"]),
-            Some(serde_json::json!({
-                "skip_erase": false
-            })),
-        )
-        .await?;
-        Ok(())
     }
 
     async fn get_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<Vec<String>, KidsError> {

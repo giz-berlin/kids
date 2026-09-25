@@ -408,15 +408,6 @@ impl SynapseApiMocker {
         self
     }
 
-    pub fn require_deactivate_user(mut self, user_to_be_deactivated: &MockSynapseUser) -> Self {
-        self.api_mock
-            .expect_deactivate_user()
-            .with(eq(user_to_be_deactivated.mas_user_id.clone()))
-            .times(1)
-            .return_once(|_| Ok(()));
-        self
-    }
-
     pub fn can_get_user_display_name_empty(mut self) -> Self {
         self.api_mock.expect_get_user_display_name().returning(|_| Ok(None));
         self
@@ -456,6 +447,15 @@ impl SynapseApiMocker {
         self.api_mock
             .expect_set_user_emails()
             .with(eq(user_to_be_modified.mas_user_id.clone()), eq([new_email.to_owned()]))
+            .times(1)
+            .return_once(|_, _| Ok(()));
+        self
+    }
+
+    pub fn require_unset_user_email(mut self, user_to_be_modified: &MockSynapseUser) -> Self {
+        self.api_mock
+            .expect_set_user_emails()
+            .with(eq(user_to_be_modified.mas_user_id.clone()), eq([]))
             .times(1)
             .return_once(|_, _| Ok(()));
         self
