@@ -45,13 +45,19 @@ impl SynapseInteractor {
     ) -> Result<crate::target::types::User, kids_lib::error::KidsError> {
         let matrix_user_id = self.generate_matrix_user_id(mas_user.attributes.username.as_str());
         let source_user_id = self.synapse_api.get_source_user_id_for_mas_user_id(&mas_user.id).await?;
-        let display_name = self.synapse_api.get_user_display_name(&matrix_user_id).await?;
+        let deactivated = mas_user.attributes.deactivated_at.is_some();
+        let display_name = self.synapse_api.get_user_display_name(&matrix_user_id).await.unwrap_or(
+            // Getting the display name might fail e.g. when the user is deactivated.
+            // In this case, we assume no set display name which will be fixed by the sync later on.
+            None,
+        );
         let emails = self.synapse_api.get_user_emails(&mas_user.id).await?;
         let rooms = self.synapse_api.get_user_joined_rooms(&matrix_user_id).await?.joined_rooms;
         let user = crate::target::types::User {
             matrix_user_id,
             mas_user_id: mas_user.id,
             source_user_id,
+            deactivated,
             state: crate::target::types::UserState {
                 display_name,
                 emails,

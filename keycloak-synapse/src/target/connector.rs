@@ -146,7 +146,10 @@ impl Connector {
                     matrix_user.state.locked = true;
                     tracing::info!(matrix_user_id = matrix_user_id.display(), "Locked user");
                 }
-                Err(e) => tracing::warn!(?e, matrix_user_id = matrix_user_id.display(), "Could not lock user"),
+                Err(e) => {
+                    tracing::error!(?e, matrix_user_id = matrix_user_id.display(), "Could not lock user");
+                    return Err(e);
+                }
             };
         }
         Ok(())
@@ -164,7 +167,23 @@ impl Connector {
                     matrix_user.state.locked = false;
                     tracing::info!(matrix_user_id = matrix_user_id.display(), "Unlocked user");
                 }
-                Err(e) => tracing::warn!(?e, matrix_user_id = matrix_user_id.display(), "Could not unlock user"),
+                Err(e) => {
+                    tracing::error!(?e, matrix_user_id = matrix_user_id.display(), "Could not unlock user");
+                    return Err(e);
+                }
+            };
+        }
+        if matrix_user.deactivated {
+            match synapse_interactor.synapse_api().reactivate_user(&matrix_user.mas_user_id).await {
+                Ok(()) => {
+                    // Write deactivation state to user object.
+                    matrix_user.deactivated = false;
+                    tracing::info!(matrix_user_id = matrix_user_id.display(), "Reactivated user");
+                }
+                Err(e) => {
+                    tracing::error!(?e, matrix_user_id = matrix_user_id.display(), "Could not reactivate user");
+                    return Err(e);
+                }
             };
         }
         Ok(())
@@ -835,6 +854,7 @@ mod test {
                     matrix_user_id: std::str::FromStr::from_str(kids_test_lib::util::constants::DEFAULT_TARGET_USER_ID).unwrap(),
                     mas_user_id: "".into(),
                     source_user_id: None,
+                    deactivated: false,
                     state: crate::target::types::UserState {
                         display_name: None,
                         emails: vec![],

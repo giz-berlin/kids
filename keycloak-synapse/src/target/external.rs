@@ -51,6 +51,7 @@ pub trait SynapseApi {
     async fn set_user_emails(&self, mas_user_id: &dto::mas::internal::user::Id, emails: &[String]) -> Result<(), KidsError>;
     async fn lock_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
     async fn unlock_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
+    async fn reactivate_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError>;
     async fn set_user_display_name(&self, matrix_user_id: &crate::target::types::MatrixUserId, display_name: &str) -> Result<(), KidsError>;
     async fn get_user_display_name(&self, matrix_user_id: &crate::target::types::MatrixUserId) -> Result<Option<String>, KidsError>;
     async fn set_admin_status(&self, mas_user_id: &dto::mas::internal::user::Id, should_be_admin: bool) -> Result<(), KidsError>;
@@ -631,6 +632,17 @@ impl SynapseApi for SynapseClient {
             Some(serde_json::json!({
                 "skip_erase": false
             })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// See https://element-hq.github.io/matrix-authentication-service/api/index.html#/user/reactivateUser
+    async fn reactivate_user(&self, mas_user_id: &dto::mas::internal::user::Id) -> Result<(), KidsError> {
+        self.send_mas_admin_request_single::<_, dto::IgnoredResponse>(
+            http::Method::POST,
+            kids_lib::types::ApiPath::from_segments(["users", mas_user_id.as_str(), "reactivate"]),
+            None::<()>,
         )
         .await?;
         Ok(())

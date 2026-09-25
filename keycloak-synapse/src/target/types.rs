@@ -40,6 +40,13 @@ pub struct User {
     pub mas_user_id: crate::target::dto::mas::internal::user::Id,
     /// The ID of the user provided by the configured source, e.g. Keycloak, if available.
     pub source_user_id: Option<kids_lib::types::SharedResourceIdentifier>,
+    /// Whether the user is deactivated.
+    /// We never deactivate a user.
+    /// We only touch this field in the case a user is deactivated, e.g. through Ketesa,
+    /// but is not disabled in the source.
+    /// In that case, we reactivate them.
+    pub deactivated: bool,
+    /// User data that can be freely controlled by KIDS.
     pub state: UserState,
 }
 
