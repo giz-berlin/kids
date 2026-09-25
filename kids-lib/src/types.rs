@@ -73,13 +73,17 @@ impl std::fmt::Display for ApiPath {
         let encoded = {
             let segments = self.segments.iter().map(|segment| urlencoding::encode(segment)).collect::<Vec<_>>();
             let path_section = segments.join("/");
-            let query_parameters = self
-                .query_parameters
-                .iter()
-                .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
-                .collect::<Vec<_>>();
-            let query_section = query_parameters.join("&");
-            format!("{path_section}?{query_section}")
+            if self.query_parameters.is_empty() {
+                path_section
+            } else {
+                let query_parameters = self
+                    .query_parameters
+                    .iter()
+                    .map(|(key, value)| format!("{key}={}", urlencoding::encode(value)))
+                    .collect::<Vec<_>>();
+                let query_section = query_parameters.join("&");
+                format!("{path_section}?{query_section}")
+            }
         };
         std::fmt::Display::fmt(&encoded, f)
     }
