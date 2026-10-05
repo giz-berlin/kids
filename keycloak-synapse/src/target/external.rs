@@ -34,9 +34,6 @@ pub struct SynapseApiConfig {
     /// Whether to validate the server certificate of the Matrix homeserver.
     /// Only disable for local development purposes!
     pub insecure_disable_tls_verification: bool,
-    /// LEGACY: Needed for getting account data events used by old matrix syncer.
-    /// Only needed while migrating from old syncer, should be removed afterward.
-    pub matrix_namespace: String,
 }
 
 #[cfg_attr(test, mockall::automock)]
@@ -75,7 +72,6 @@ pub trait SynapseApi {
         source_group_id: &kids_lib::types::SharedResourceIdentifier,
     ) -> Result<(), KidsError>;
     async fn get_room_associated_source_group_id(&self, matrix_room_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError>;
-    async fn get_room_associated_source_group_id_v1(&self, matrix_room_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError>;
     async fn set_room_display_name(&self, matrix_room_id: &str, display_name: &str) -> Result<(), KidsError>;
     async fn get_room_display_name(&self, matrix_room_id: &str) -> Result<String, KidsError>;
 
@@ -816,28 +812,6 @@ impl SynapseApi for SynapseClient {
             .await?;
         tracing::debug!(source_id = event.source_id, matrix_room_id, "Found mapping");
         Ok(event.source_id)
-    }
-
-    /// See https://spec.matrix.org/v1.15/client-server-api/#get_matrixclientv3useruseridroomsroomidaccount_datatype
-    /// Old version of storing syncer metadata for a room in the account data of the sync user
-    /// instead of in the metadata of a room directly.
-    async fn get_room_associated_source_group_id_v1(&self, matrix_room_id: &str) -> Result<kids_lib::types::SharedResourceIdentifier, KidsError> {
-        let account_data_event: serde_json::Value = self
-            .client_api_get(kids_lib::types::ApiPath::from_segments([
-                "user",
-                &self.config.matrix_syncer_user_id.display(),
-                "rooms",
-                matrix_room_id,
-                "account_data",
-                &format!("{}.room_sync", self.config.matrix_namespace),
-            ]))
-            .await?;
-        match account_data_event.get(format!("{}.room_sync.source_id", self.config.matrix_namespace)) {
-            Some(val) => Ok(val.as_str().unwrap().to_string()),
-            None => Err(KidsError::InternalError(anyhow::anyhow!(
-                "Old version of room sync event did not contain expected attribute"
-            ))),
-        }
     }
 
     /// See https://spec.matrix.org/v1.15/client-server-api/#put_matrixclientv3roomsroomidstateeventtypestatekey

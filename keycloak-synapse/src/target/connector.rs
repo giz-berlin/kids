@@ -711,7 +711,6 @@ mod test {
                     matrix_mas_url: "".to_string(),
                     matrix_source_oidc_provider_ulid: "".to_string(),
                     matrix_syncer_user_id: "@syncer:example.com".into(),
-                    matrix_namespace: "".to_string(),
                     insecure_disable_tls_verification: true,
                     api_access: external::ApiAccessConfig {
                         mas_client_id: "".to_owned(),
@@ -774,7 +773,6 @@ mod test {
             connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                 .with_rooms(vec![room1.clone(), room2.clone()])
                 .can_get_joined_rooms_of_syncer()
-                .can_get_room_associated_source_group_id_v1()
                 .can_associate_source_group_id_to_room()
                 .can_get_all_rooms_associated_source_group_id()
                 .can_get_users()
@@ -887,7 +885,6 @@ mod test {
                 .with_rooms(vec![room1.clone(), room2.clone()])
                 .with_users(vec![user1.clone(), user2.clone()])
                 .can_get_joined_rooms_of_syncer()
-                .can_get_room_associated_source_group_id_v1()
                 .can_associate_source_group_id_to_room()
                 .can_get_all_rooms_associated_source_group_id()
                 .can_get_users()
@@ -917,7 +914,6 @@ mod test {
                 .can_get_joined_rooms_of_syncer()
                 .can_get_joined_rooms_of_user(&user1, vec![])
                 .can_get_joined_rooms_of_user(&user2, vec![])
-                .can_get_room_associated_source_group_id_v1()
                 .can_associate_source_group_id_to_room()
                 .can_get_all_rooms_associated_source_group_id()
                 .can_get_users()
@@ -942,7 +938,6 @@ mod test {
             connector.synapse_interactor = SynapseApiMocker::new(SYNCER_USER_ID)
                 .with_rooms(vec![room1.clone(), room2.clone(), room3.clone()])
                 .can_get_joined_rooms_of_syncer()
-                .can_get_room_associated_source_group_id_v1()
                 .can_associate_source_group_id_to_room()
                 .can_get_room_associated_source_group_id_for_room(&room1)
                 .cannot_get_room_associated_source_group_id_for_room(&room2)
@@ -1469,7 +1464,6 @@ mod test {
                             .can_get_joined_rooms_of_syncer()
                             .can_get_users()
                             .can_get_source_user_id_for_all_matrix_users()
-                            .can_get_room_associated_source_group_id_v1()
                             .can_associate_source_group_id_to_room()
                             .can_get_all_rooms_associated_source_group_id()
                             .require_create_user(matrix_user.clone())
@@ -1515,7 +1509,6 @@ mod test {
                     .can_get_joined_rooms_of_syncer()
                     .can_get_users()
                     .can_get_source_user_id_for_all_matrix_users()
-                    .can_get_room_associated_source_group_id_v1()
                     .can_associate_source_group_id_to_room()
                     .can_get_all_rooms_associated_source_group_id()
                     .into();
@@ -1554,7 +1547,6 @@ mod test {
                             .can_get_joined_rooms_of_syncer()
                             .can_get_users()
                             .can_get_source_user_id_for_all_matrix_users()
-                            .can_get_room_associated_source_group_id_v1()
                             .can_associate_source_group_id_to_room()
                             .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
                             .can_get_all_rooms_associated_source_group_id(),
@@ -1669,7 +1661,6 @@ mod test {
                         SynapseApiMocker::new(SYNCER_USER_ID)
                             .with_rooms(vec![synapse_room.clone()])
                             .with_users(vec![synapse_user.clone()])
-                            .can_get_room_associated_source_group_id_v1()
                             .can_associate_source_group_id_to_room()
                             .can_get_room_associated_source_group_id_for_room(&synapse_room)
                             .can_get_joined_rooms_of_syncer()
@@ -1774,7 +1765,6 @@ mod test {
                             .can_get_joined_rooms_of_syncer()
                             .can_get_users()
                             .can_get_source_user_id_for_all_matrix_users()
-                            .can_get_room_associated_source_group_id_v1()
                             .can_associate_source_group_id_to_room()
                             .can_get_all_rooms_associated_source_group_id()
                             .can_get_user_display_name(&synapse_user, None)
@@ -1817,7 +1807,6 @@ mod test {
                             .can_get_joined_rooms_of_syncer()
                             .can_get_users()
                             .can_get_source_user_id_for_all_matrix_users()
-                            .can_get_room_associated_source_group_id_v1()
                             .can_associate_source_group_id_to_room()
                             .can_get_all_rooms_associated_source_group_id()
                             .can_get_user_display_name(&synapse_user, None)
@@ -1864,7 +1853,6 @@ mod test {
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         .can_get_source_user_id_for_all_matrix_users()
-                        .can_get_room_associated_source_group_id_v1()
                         .can_associate_source_group_id_to_room()
                         .can_get_all_rooms_associated_source_group_id()
                         .can_get_user_display_name(&synapse_user, None)
@@ -1946,7 +1934,6 @@ mod test {
                         .can_get_joined_rooms_of_syncer()
                         .can_get_users()
                         .can_get_source_user_id_for_all_matrix_users()
-                        .can_get_room_associated_source_group_id_v1()
                         .can_associate_source_group_id_to_room()
                         .can_get_all_rooms_associated_source_group_id()
                         .can_get_user_display_name(&synapse_user, None)
@@ -2030,7 +2017,6 @@ mod test {
                                 .can_get_joined_rooms_of_syncer()
                                 .can_get_users()
                                 .can_get_source_user_id_for_all_matrix_users()
-                                .can_get_room_associated_source_group_id_v1()
                                 .can_associate_source_group_id_to_room()
                                 .can_get_joined_rooms_of_user(&synapse_user, vec![&synapse_room])
                                 .require_set_user_display_name(&synapse_user, "User")

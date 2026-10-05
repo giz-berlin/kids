@@ -179,17 +179,6 @@ impl SynapseApiMocker {
         self
     }
 
-    pub fn can_get_room_associated_source_group_id_v1(mut self) -> Self {
-        for room in self.synapse_rooms.iter() {
-            let room_id = room.source_room_id.clone();
-            self.api_mock
-                .expect_get_room_associated_source_group_id_v1()
-                .with(eq(room.matrix_room_id.clone()))
-                .returning(move |_| Ok(room_id.clone()));
-        }
-        self
-    }
-
     pub fn can_associate_source_group_id_to_room(mut self) -> Self {
         self.api_mock.expect_associate_source_group_id_to_room().returning(|_, _| Ok(()));
         self
