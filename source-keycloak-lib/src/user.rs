@@ -5,6 +5,8 @@ use kids_lib::error::KidsError;
 pub struct KeycloakUser {
     pub keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi + Send + Sync>,
 
+    config: std::sync::Arc<crate::connector::KeycloakConfig>,
+
     id: String,
     enabled: bool,
     username: Option<String>,
@@ -17,10 +19,12 @@ pub struct KeycloakUser {
 impl KeycloakUser {
     pub fn from_user_representation(
         keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi + Send + Sync>,
+        config: std::sync::Arc<crate::connector::KeycloakConfig>,
         user_representation: keycloak::types::UserRepresentation,
     ) -> Self {
         KeycloakUser {
             keycloak_api,
+            config,
             // The Keycloak API library defines all attributes as optional, which in reality they shouldn't be.
             // Each Keycloak user must have an ID and so we expect the ID to be always set.
             id: user_representation.id.expect("Keycloak user is expected to have an ID"),
@@ -40,18 +44,20 @@ impl KeycloakUser {
 
     pub async fn from_webhook_user(
         keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi + Send + Sync>,
+        config: std::sync::Arc<crate::connector::KeycloakConfig>,
         webhook_user: KeycloakWebhookUser,
     ) -> Result<Self, KidsError> {
         let user = keycloak_api.get_user(&webhook_user.id).await?;
         Ok(KeycloakUser {
             keycloak_api,
+            config,
             id: webhook_user.id,
-            enabled: webhook_user.enabled,
-            username: webhook_user.username,
+            enabled: user.enabled.expect("Keycloak user is expected to have an enabled attribute"),
+            username: user.username,
             first_name: user.first_name,
             last_name: user.last_name,
-            email: webhook_user.email,
-            attributes: webhook_user.attributes,
+            email: user.email,
+            attributes: user.attributes.unwrap_or_default(),
         })
     }
 }
@@ -81,7 +87,10 @@ impl kids_lib::interface::source::User for KeycloakUser {
     }
 
     fn email(&self) -> Option<&str> {
-        self.email.as_deref()
+        match &self.config.email_attribute {
+            None => self.email.as_deref(),
+            Some(attribute) => self.attributes.get(attribute).and_then(|v| v.first().map(String::as_str)),
+        }
     }
 
     fn attributes(&self) -> &collections::HashMap<String, Vec<String>> {
@@ -95,15 +104,18 @@ impl kids_lib::interface::source::User for KeycloakUser {
             return Ok(direct_groups
                 .into_iter()
                 .map(|g| {
-                    std::sync::Arc::new(crate::group::KeycloakGroup::new_from_group_representation(self.keycloak_api.clone(), g))
-                        as std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>
+                    std::sync::Arc::new(crate::group::KeycloakGroup::new_from_group_representation(
+                        self.keycloak_api.clone(),
+                        self.config.clone(),
+                        g,
+                    )) as std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>
                 })
                 .collect());
         }
 
         let mut cache = collections::HashMap::new();
         for direct_group in direct_groups {
-            crate::group::resolve_group_with_ancestors(self.keycloak_api.clone(), direct_group, &mut cache).await?;
+            crate::group::resolve_group_with_ancestors(self.keycloak_api.clone(), self.config.clone(), direct_group, &mut cache).await?;
         }
 
         // Since `cache` ends up holding every direct group and all of their ancestors it already is the (deduplicated) result we want.
@@ -120,13 +132,11 @@ impl kids_lib::interface::source::User for KeycloakUser {
     }
 }
 
+// The received objects are expected to contain more fields.
+// We explicitly don't use `deny_unknown_fields` here to allow that.
 #[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct KeycloakWebhookUser {
     pub id: String,
-    pub enabled: bool,
-    pub username: Option<String>,
-    pub email: Option<String>,
-    pub attributes: std::collections::HashMap<String, Vec<String>>,
 }
 
 #[cfg(test)]
@@ -135,6 +145,55 @@ mod test {
     use kids_lib::interface::source::User;
     use kids_test_lib::util::constants;
     use mockall::predicate;
+
+    #[test]
+    fn test_email_without_configured_attribute_uses_email_field() {
+        // given
+        let mock = crate::external::MockKeycloakApi::new();
+        let user = KeycloakUser::from_user_representation(
+            std::sync::Arc::new(mock),
+            crate::external::test::default_keycloak_config(None),
+            crate::external::test::KeycloakUserRepresentationBuilder::default()
+                .email("foo@example.com")
+                .build_into(),
+        );
+
+        // then
+        assert_eq!(user.email(), Some("foo@example.com"));
+    }
+
+    #[test]
+    fn test_email_uses_configured_attribute() {
+        // given
+        let mock = crate::external::MockKeycloakApi::new();
+        let user = KeycloakUser::from_user_representation(
+            std::sync::Arc::new(mock),
+            crate::external::test::default_keycloak_config(Some("custom_email")),
+            crate::external::test::KeycloakUserRepresentationBuilder::default()
+                .email("foo@example.com")
+                .attribute("custom_email", "custom@example.com")
+                .build_into(),
+        );
+
+        // then
+        assert_eq!(user.email(), Some("custom@example.com"));
+    }
+
+    #[test]
+    fn test_email_configured_attribute_missing_returns_none() {
+        // given
+        let mock = crate::external::MockKeycloakApi::new();
+        let user = KeycloakUser::from_user_representation(
+            std::sync::Arc::new(mock),
+            crate::external::test::default_keycloak_config(Some("custom_email")),
+            crate::external::test::KeycloakUserRepresentationBuilder::default()
+                .email("foo@example.com")
+                .build_into(),
+        );
+
+        // then
+        assert_eq!(user.email(), None);
+    }
 
     #[tokio::test]
     async fn test_user_groups() {
@@ -155,6 +214,7 @@ mod test {
 
         let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
+            crate::external::test::default_keycloak_config(None),
             crate::external::test::KeycloakUserRepresentationBuilder::default()
                 .id(constants::DEFAULT_SOURCE_USER_ID)
                 .build_into(),
@@ -214,6 +274,7 @@ mod test {
 
         let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
+            crate::external::test::default_keycloak_config(None),
             crate::external::test::KeycloakUserRepresentationBuilder::default()
                 .id(constants::DEFAULT_SOURCE_USER_ID)
                 .build_into(),
@@ -265,6 +326,7 @@ mod test {
 
         let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
+            crate::external::test::default_keycloak_config(None),
             crate::external::test::KeycloakUserRepresentationBuilder::default()
                 .id(constants::DEFAULT_SOURCE_USER_ID)
                 .build_into(),
@@ -315,6 +377,7 @@ mod test {
 
         let user = KeycloakUser::from_user_representation(
             std::sync::Arc::new(mock),
+            crate::external::test::default_keycloak_config(None),
             crate::external::test::KeycloakUserRepresentationBuilder::default()
                 .id(constants::DEFAULT_SOURCE_USER_ID)
                 .build_into(),

@@ -7,6 +7,8 @@ pub struct KeycloakGroup {
     pub parent_group: Option<std::sync::Arc<KeycloakGroup>>,
     pub root_group: Option<std::sync::Arc<KeycloakGroup>>,
 
+    config: std::sync::Arc<crate::connector::KeycloakConfig>,
+
     id: String,
     name: String,
     path: String,
@@ -16,6 +18,7 @@ pub struct KeycloakGroup {
 impl KeycloakGroup {
     pub fn new_from_group_representation(
         keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi>,
+        config: std::sync::Arc<crate::connector::KeycloakConfig>,
         group_representation: keycloak::types::GroupRepresentation,
     ) -> Self {
         Self {
@@ -23,22 +26,22 @@ impl KeycloakGroup {
             parent_group: None,
             root_group: None,
 
-            // We can unwrap here because every Keycloak group has got an ID.
-            id: group_representation.id.unwrap(),
-            // We can unwrap here because every Keycloak group has got a name.
-            name: group_representation.name.unwrap(),
-            // We can unwrap here because every Keycloak group has got a path.
-            path: group_representation.path.unwrap(),
+            config,
+
+            id: group_representation.id.expect("Keycloak group is expected to have an ID"),
+            name: group_representation.name.expect("Keycloak group is expected to have a name"),
+            path: group_representation.path.expect("Keycloak group is expected to have a path"),
             attributes: group_representation.attributes.unwrap_or_default(),
         }
     }
 
     pub fn new_with_parent(
         keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi>,
+        config: std::sync::Arc<crate::connector::KeycloakConfig>,
         group_representation: keycloak::types::GroupRepresentation,
         parent: std::sync::Arc<KeycloakGroup>,
     ) -> KeycloakGroup {
-        let mut group = Self::new_from_group_representation(keycloak_api, group_representation);
+        let mut group = Self::new_from_group_representation(keycloak_api, config, group_representation);
         group.root_group = match &parent.root_group {
             Some(root) => Some(root.clone()),
             None => Some(parent.clone()),
@@ -47,16 +50,22 @@ impl KeycloakGroup {
         group
     }
 
-    pub fn from_webhook_group(keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi>, webhook_group: KeycloakWebhookGroup) -> Self {
-        Self {
+    pub async fn from_webhook_group(
+        keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi>,
+        config: std::sync::Arc<crate::connector::KeycloakConfig>,
+        webhook_group: KeycloakWebhookGroup,
+    ) -> Result<Self, KidsError> {
+        let group = keycloak_api.get_group(&webhook_group.id).await?;
+        Ok(Self {
             keycloak_api,
             parent_group: None,
             root_group: None,
-            id: webhook_group.id,
-            name: webhook_group.name,
-            path: webhook_group.path,
-            attributes: webhook_group.attributes,
-        }
+            config,
+            id: group.id.expect("Keycloak group is expected to have an ID"),
+            name: group.name.expect("Keycloak group is expected to have a name"),
+            path: group.path.expect("Keycloak group is expected to have a path"),
+            attributes: group.attributes.unwrap_or_default(),
+        })
     }
 }
 
@@ -66,6 +75,7 @@ impl KeycloakGroup {
 /// between them once, and `cache` ends up holding the union of all resolved groups across those calls.
 pub async fn resolve_group_with_ancestors(
     keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi>,
+    config: std::sync::Arc<crate::connector::KeycloakConfig>,
     group_representation: keycloak::types::GroupRepresentation,
     cache: &mut std::collections::HashMap<String, std::sync::Arc<KeycloakGroup>>,
 ) -> Result<(), KidsError> {
@@ -91,8 +101,12 @@ pub async fn resolve_group_with_ancestors(
         // We can unwrap here because every Keycloak group has an ID.
         let id = representation.id.clone().unwrap();
         let group_instance = match parent {
-            Some(parent) => std::sync::Arc::new(KeycloakGroup::new_with_parent(keycloak_api.clone(), representation, parent)),
-            None => std::sync::Arc::new(KeycloakGroup::new_from_group_representation(keycloak_api.clone(), representation)),
+            Some(parent) => std::sync::Arc::new(KeycloakGroup::new_with_parent(keycloak_api.clone(), config.clone(), representation, parent)),
+            None => std::sync::Arc::new(KeycloakGroup::new_from_group_representation(
+                keycloak_api.clone(),
+                config.clone(),
+                representation,
+            )),
         };
         cache.insert(id, group_instance.clone());
         parent = Some(group_instance);
@@ -141,7 +155,7 @@ impl kids_lib::interface::source::Group for KeycloakGroup {
         Ok(sub_groups
             .into_iter()
             .map(|g| {
-                std::sync::Arc::new(KeycloakGroup::new_with_parent(self.keycloak_api.clone(), g, self.clone()))
+                std::sync::Arc::new(KeycloakGroup::new_with_parent(self.keycloak_api.clone(), self.config.clone(), g, self.clone()))
                     as std::sync::Arc<dyn kids_lib::interface::source::Group>
             })
             .collect())
@@ -157,8 +171,11 @@ impl kids_lib::interface::source::Group for KeycloakGroup {
             .await?
             .into_iter()
             .map(|user| {
-                std::sync::Arc::new(crate::user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), user))
-                    as std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>
+                std::sync::Arc::new(crate::user::KeycloakUser::from_user_representation(
+                    self.keycloak_api.clone(),
+                    self.config.clone(),
+                    user,
+                )) as std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>
             })
             .collect();
         if !include_subgroup_users {
@@ -194,8 +211,11 @@ impl kids_lib::interface::source::Group for KeycloakGroup {
                 .await?
                 .into_iter()
                 .map(|user| {
-                    std::sync::Arc::new(crate::user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), user))
-                        as std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>
+                    std::sync::Arc::new(crate::user::KeycloakUser::from_user_representation(
+                        self.keycloak_api.clone(),
+                        self.config.clone(),
+                        user,
+                    )) as std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>
                 })
                 .collect::<Vec<_>>();
             members.extend(direct_members);
@@ -204,13 +224,11 @@ impl kids_lib::interface::source::Group for KeycloakGroup {
     }
 }
 
+// The received objects are expected to contain more fields.
+// We explicitly don't use `deny_unknown_fields` here to allow that.
 #[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct KeycloakWebhookGroup {
     pub id: String,
-    pub name: String,
-    pub parent_id: Option<String>,
-    pub path: String,
-    pub attributes: std::collections::HashMap<String, Vec<String>>,
 }
 
 #[cfg(test)]
@@ -234,6 +252,7 @@ mod test {
 
         let group = std::sync::Arc::new(KeycloakGroup::new_from_group_representation(
             std::sync::Arc::new(mock),
+            crate::external::test::default_keycloak_config(None),
             crate::external::test::KeycloakGroupRepresentationBuilder::default()
                 .id(constants::DEFAULT_SOURCE_GROUP_ID)
                 .build_into(),

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueHint};
@@ -104,14 +103,6 @@ fn parse_key_val(s: &str) -> Result<(String, String), String> {
     Ok((parts[0].to_string(), parts[1].to_string()))
 }
 
-fn attributes_to_hashmap(attrs: Vec<(String, String)>) -> HashMap<String, Vec<String>> {
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
-    for (key, value) in attrs {
-        map.entry(key).or_default().push(value);
-    }
-    map
-}
-
 fn build_client(cli: &Cli) -> Result<Client, Box<dyn std::error::Error>> {
     let mut builder = Client::builder();
 
@@ -150,13 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             UserCommand::Upsert(args) => {
                 let user_id = args.id;
-                let user = source_keycloak_lib::KeycloakWebhookUser {
-                    id: user_id.clone(),
-                    enabled: !args.disabled,
-                    username: Some(args.name),
-                    email: Some(args.email),
-                    attributes: attributes_to_hashmap(args.attributes),
-                };
+                let user = source_keycloak_lib::KeycloakWebhookUser { id: user_id.clone() };
 
                 let url = cli.endpoint.join(&format!("/v1/users/{}", user_id))?;
                 resp = Some(client.put(url).json(&user).send().await?);
@@ -173,13 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             GroupCommand::Upsert(args) => {
                 let group_id = args.id;
-                let group = source_keycloak_lib::KeycloakWebhookGroup {
-                    id: group_id.clone(),
-                    name: args.name,
-                    parent_id: args.parent_id,
-                    path: args.path,
-                    attributes: attributes_to_hashmap(args.attributes),
-                };
+                let group = source_keycloak_lib::KeycloakWebhookGroup { id: group_id.clone() };
 
                 let url = cli.endpoint.join(&format!("/v1/groups/{}", group_id))?;
                 resp = Some(client.put(url).json(&group).send().await?);

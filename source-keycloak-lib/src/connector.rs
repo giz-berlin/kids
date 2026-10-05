@@ -5,11 +5,15 @@ use kids_lib::interface::source::Group;
 /// A connector to Keycloak providing the [Source](interface::Source) interface.
 pub struct Connector {
     pub keycloak_api: std::sync::Arc<dyn crate::external::KeycloakApi + Send + Sync>,
+    config: std::sync::Arc<KeycloakConfig>,
 }
 
 #[derive(serde::Deserialize)]
 pub struct KeycloakConfig {
     pub keycloak_api: crate::external::KeycloakApiConfig,
+    /// Attribute a user's email address should be taken from.
+    /// If [None], Keycloak's normal email field is used.
+    pub email_attribute: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -24,7 +28,8 @@ impl kids_lib::interface::source::Source for Connector {
 
     fn new(config: Self::Config) -> Self {
         Connector {
-            keycloak_api: std::sync::Arc::new(crate::external::KeycloakServiceAccountClient::new(config.keycloak_api)),
+            keycloak_api: std::sync::Arc::new(crate::external::KeycloakServiceAccountClient::new(config.keycloak_api.clone())),
+            config: std::sync::Arc::new(config),
         }
     }
 
@@ -37,6 +42,7 @@ impl kids_lib::interface::source::Source for Connector {
         for root_group in root_groups {
             let group_instance = std::sync::Arc::new(crate::group::KeycloakGroup::new_from_group_representation(
                 self.keycloak_api.clone(),
+                self.config.clone(),
                 root_group,
             ));
             queue.push_back(group_instance.clone());
@@ -47,6 +53,7 @@ impl kids_lib::interface::source::Source for Connector {
             for subgroup in self.keycloak_api.get_subgroups(parent.id()).await? {
                 let group_instance = std::sync::Arc::new(crate::group::KeycloakGroup::new_with_parent(
                     self.keycloak_api.clone(),
+                    self.config.clone(),
                     subgroup,
                     parent.clone(),
                 ));
@@ -63,8 +70,11 @@ impl kids_lib::interface::source::Source for Connector {
         Ok(users
             .into_iter()
             .map(|u| {
-                std::sync::Arc::new(crate::user::KeycloakUser::from_user_representation(self.keycloak_api.clone(), u))
-                    as std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>
+                std::sync::Arc::new(crate::user::KeycloakUser::from_user_representation(
+                    self.keycloak_api.clone(),
+                    self.config.clone(),
+                    u,
+                )) as std::sync::Arc<dyn kids_lib::interface::source::User + Send + Sync>
             })
             .collect())
     }
@@ -74,12 +84,17 @@ impl kids_lib::interface::source::Source for Connector {
         webhook_user: Self::UserWebhookPayload,
     ) -> Result<Box<dyn kids_lib::interface::source::User + Send + Sync>, error::KidsError> {
         Ok(Box::new(
-            crate::user::KeycloakUser::from_webhook_user(self.keycloak_api.clone(), webhook_user).await?,
+            crate::user::KeycloakUser::from_webhook_user(self.keycloak_api.clone(), self.config.clone(), webhook_user).await?,
         ))
     }
 
-    fn group_from_webhook(&self, webhook_group: Self::GroupWebhookPayload) -> Box<dyn kids_lib::interface::source::Group + Send + Sync> {
-        Box::new(crate::group::KeycloakGroup::from_webhook_group(self.keycloak_api.clone(), webhook_group))
+    async fn group_from_webhook(
+        &self,
+        webhook_group: Self::GroupWebhookPayload,
+    ) -> Result<Box<dyn kids_lib::interface::source::Group + Send + Sync>, error::KidsError> {
+        Ok(Box::new(
+            crate::group::KeycloakGroup::from_webhook_group(self.keycloak_api.clone(), self.config.clone(), webhook_group).await?,
+        ))
     }
 }
 
@@ -107,6 +122,7 @@ mod test {
 
         let source = Connector {
             keycloak_api: std::sync::Arc::new(mock),
+            config: crate::external::test::default_keycloak_config(None),
         };
 
         // when
@@ -136,6 +152,7 @@ mod test {
 
         let source = Connector {
             keycloak_api: std::sync::Arc::new(mock),
+            config: crate::external::test::default_keycloak_config(None),
         };
 
         // when
@@ -173,6 +190,7 @@ mod test {
 
         let source = Connector {
             keycloak_api: std::sync::Arc::new(mock),
+            config: crate::external::test::default_keycloak_config(None),
         };
 
         // when
