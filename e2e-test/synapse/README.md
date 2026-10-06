@@ -43,3 +43,7 @@ The setup script will create a `config/synapse_e2e_config.toml` file that can be
 Before running any commands with podman manually, make sure to run `export CONTAINERS_CONF=./containers.conf` in
 your terminal. See [here](setup_synapse_e2e.sh) for an explanation (tl;dr: networking might not work as expected
 with your manually (re)started container if you don't do it).
+
+## Debugging
+
+  - If you are running an OS with SELinux (like Fedora), you may need to configure `--security-opt label=disable` on each `podman run` command or in your podman's `containers.conf` file. Otherwise the container cannot properly access the mounted files.
