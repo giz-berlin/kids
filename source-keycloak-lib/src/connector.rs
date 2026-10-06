@@ -9,6 +9,7 @@ pub struct Connector {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KeycloakConfig {
     pub keycloak_api: crate::external::KeycloakApiConfig,
     /// Attribute a user's email address should be taken from.

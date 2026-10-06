@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use kids_lib::error::KidsError;
 
 #[derive(serde::Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct KeycloakApiConfig {
     /// Address of the external Keycloak to fetch data from.
     pub keycloak_address: String,

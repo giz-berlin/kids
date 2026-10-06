@@ -16,6 +16,7 @@ pub struct ApiAccessConfig {
 }
 
 #[derive(serde::Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct SynapseApiConfig {
     /// URL of the Matrix Authentication Service (probably similar to https://matrix.example.com/auth).
     pub matrix_mas_url: String,
