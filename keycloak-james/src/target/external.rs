@@ -6,6 +6,7 @@ use reqwest::RequestBuilder;
 use kids_lib::error::KidsError;
 
 #[derive(serde::Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct JamesApiConfig {
     pub james_user_domain: String,
     pub james_list_domain: String,

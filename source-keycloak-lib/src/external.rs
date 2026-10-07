@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use kids_lib::error::KidsError;
 
 #[derive(serde::Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct KeycloakApiConfig {
     /// Address of the external Keycloak to fetch data from.
     pub keycloak_address: String,
@@ -248,6 +249,20 @@ impl KeycloakApi for KeycloakServiceAccountClient {
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
+
+    pub fn default_keycloak_config(email_attribute: Option<&str>) -> std::sync::Arc<crate::connector::KeycloakConfig> {
+        std::sync::Arc::new(crate::connector::KeycloakConfig {
+            keycloak_api: super::KeycloakApiConfig {
+                keycloak_address: "http://localhost".to_string(),
+                client_id: "client".to_string(),
+                client_secret: "secret".to_string(),
+                realm: "realm".to_string(),
+                fetch_service_accounts: false,
+                insecure_disable_tls_verification: false,
+            },
+            email_attribute: email_attribute.map(str::to_string),
+        })
+    }
 
     #[derive(derive_builder::Builder, Default, Debug)]
     #[builder(setter(into), default)]

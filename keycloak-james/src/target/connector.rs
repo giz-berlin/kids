@@ -7,6 +7,7 @@ use kids_lib::error::KidsError;
 use kids_lib::types;
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JamesConfig {
     pub james_api: external::JamesApiConfig,
     /// Attribute names in source groups and users corresponding to teams, groups and users in James.

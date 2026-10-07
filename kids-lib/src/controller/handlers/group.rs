@@ -31,7 +31,7 @@ where
     S: crate::interface::source::Source + Send,
     T: crate::interface::target::Target,
 {
-    let group: std::sync::Arc<dyn crate::interface::source::Group + Send + Sync> = std::sync::Arc::from(state.source.group_from_webhook(payload));
+    let group: std::sync::Arc<dyn crate::interface::source::Group + Send + Sync> = std::sync::Arc::from(state.source.group_from_webhook(payload).await?);
 
     let mut target = state.target.write().await;
 

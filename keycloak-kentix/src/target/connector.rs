@@ -1,4 +1,5 @@
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KentixConfig {
     kentix_api: super::external::KentixApiConfig,
     /// Users with this role set will have `emergency_access` enabled.

@@ -5,6 +5,7 @@ use kids_lib::error::KidsError;
 use crate::target::external;
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SynapseConfig {
     pub synapse_api: external::SynapseApiConfig,
 

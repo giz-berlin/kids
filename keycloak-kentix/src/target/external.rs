@@ -1,4 +1,5 @@
 #[derive(serde::Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct KentixApiConfig {
     /// URL of the Kentix API endpoint, e.g. `https://kentix.example.com/`.
     pub kentix_url: url::Url,

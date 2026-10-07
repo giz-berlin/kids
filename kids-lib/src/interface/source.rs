@@ -52,7 +52,7 @@ pub trait Source {
     async fn all_users(&self) -> Result<Vec<std::sync::Arc<dyn User + Send + Sync>>, error::KidsError>;
 
     async fn user_from_webhook(&self, payload: Self::UserWebhookPayload) -> Result<Box<dyn User + Send + Sync>, error::KidsError>;
-    fn group_from_webhook(&self, payload: Self::GroupWebhookPayload) -> Box<dyn Group + Send + Sync>;
+    async fn group_from_webhook(&self, payload: Self::GroupWebhookPayload) -> Result<Box<dyn Group + Send + Sync>, error::KidsError>;
 }
 
 /// A user entity within a data [Source].
