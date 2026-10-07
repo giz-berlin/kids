@@ -44,9 +44,6 @@ matrix_syncer_user_id = "@example-syncer:localhost"
 # Whether to validate the server certificate of the Matrix homeserver.
 # Only disable for local development purposes!
 insecure_disable_tls_verification = false
-# LEGACY: Needed for getting account data events used by old matrix syncer.
-# Only needed while migrating from old syncer, should be removed afterward.
-matrix_namespace = "localhost"
 [target.synapse_api.api_access]
 # The ULID of the MAS client used by KIDS, in the MAS config as `client_id` key in `clients`.
 # It must be part of the `admin_clients` policy for KIDS to function.
