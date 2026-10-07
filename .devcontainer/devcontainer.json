@@ -1,15 +1,14 @@
+// README at: https://github.com/devcontainers/templates/tree/main/src/rust
 {
     "name": "KIDS Rust",
     "build": {
         // Path is relative to the devcontainer.json file.
         "dockerfile": "Dockerfile",
         "args": {
-            "REMOTE_USER": "${localEnv:USER}",
-            "REMOTE_UID": "${localEnv:REMOTE_UID:1000}",
-            "REMOTE_GID": "${localEnv:REMOTE_GID:1000}"
+            "REMOTE_USER": "${localEnv:USER:developer}"
         }
     },
-    "remoteUser": "${localEnv:USER}",
+    "updateRemoteUserUID": true,
     "customizations": {
         // Configure properties specific to VS Code.
         "vscode": {
