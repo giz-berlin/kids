@@ -173,18 +173,31 @@ impl kids_lib::interface::target::Target for Connector {
             .create_uuid_list_email(source_group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not update teams and lists for group", source_group_id)))?;
 
+        // If an attribute for a team / list is added to a group or a group with those attributes is created, only the group update
+        // is triggered by KIDS. To immediately add all users from the group to the team / list, we have to trigger the user updates
+        // ourselves.
+        let mut users_need_update = false;
+
         let all_teams = self.james_api.get_teams().await?;
         let team_exists = all_teams.contains(&dto::Team {
             id: source_group_id.clone(),
             email_address: team_uuid_email.clone(),
         });
-
-        // no need for creating james lists because they are created with adding first or deleting last user
         if has_teams_in_source && !team_exists {
             match self.james_api.create_team(source_group_id).await {
                 Ok(_) => tracing::info!(source_group_id, "Create new team"),
                 Err(error) => return Err(error.with_context(&format!("group_id = {}, Could not create new team for", source_group_id))),
             };
+            users_need_update = true;
+        }
+
+        let all_lists = self.james_api.get_lists().await?;
+        let list_exists = all_lists.contains(&list_uuid_email);
+        // There is no need for creating james lists because they are created by adding the first user.
+        // Because of this, we can not distinguish between a non-existing list and a list that has no users.
+        // In the latter case, we wrongly trigger user updates here.
+        if has_lists_in_source && !list_exists {
+            users_need_update = true;
         }
 
         let mut team_aliases: &Vec<String> = &vec![];
@@ -199,15 +212,25 @@ impl kids_lib::interface::target::Target for Connector {
         }
         self.update_alias(&list_uuid_email, list_aliases).await?;
 
-        // If james-team attribut is removed, remove all aliases and delete all users from the team
+        // If james-team attribute is removed, remove all aliases and delete all users from the team
         if !has_teams_in_source && has_teams_in_james {
             self.delete_all_aliases_and_members_from_team(source_group_id, &team_uuid_email, &[]).await?;
         }
 
-        // If james-list attribut is removed, remove all aliases and delete all users from the list
+        // If james-list attribute is removed, remove all aliases and delete all users from the list
         if !has_lists_in_source && has_lists_in_james {
             self.delete_all_aliases_and_members_from_list(&list_uuid_email, &[]).await?;
         }
+
+        if users_need_update {
+            // Update all users in the group and its subgroups.
+            // Otherwise, newly added lists / groups would not be populated
+            // as users are only added to them when they are themselves updated.
+            for source_user in source_group.users(true).await? {
+                self.create_or_update_user(source_user).await?;
+            }
+        }
+
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 [package]
 name = "keycloak-james"
-description = "Keycloak to Matrix (James) identity syncer — synchronizes users and groups from Keycloak to a Matrix homeserver via webhook endpoints"
+description = "Keycloak to James identity syncer — synchronizes users and groups from Keycloak to a James email server via webhook endpoints"
 homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-james"
 version = "0.1.0"
 edition = "2024"
