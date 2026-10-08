@@ -2620,7 +2620,7 @@ dependencies = [
 [[package]]
 name = "oidc-rp"
 version = "0.0.1"
-source = "git+https://rechenknecht.net/mixxplorer/libraries/oidc-rp.git?branch=feature%2Finitial#2940ac89760ceed9509e8f0ec39ae4a6ceeb503b"
+source = "git+https://rechenknecht.net/mixxplorer/libraries/oidc-rp.git?branch=feature%2Finitial#03eeab1f8b2bf26657be95bed434e478c1eda1a4"
 dependencies = [
  "chrono",
  "openidconnect",
@@ -4132,7 +4132,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
