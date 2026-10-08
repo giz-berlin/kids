@@ -7,11 +7,13 @@ use url::Url;
 #[derive(Parser)]
 #[command(name = "webhook-cli", about = "CLI for interacting with webhook endpoints", version)]
 struct Cli {
+    /// URL of the KIDS instance (URL for controller.api.bind_addr from the KIDS config).
     #[arg(long, value_hint = ValueHint::Url, default_value = "http://127.0.0.1:4165")]
     endpoint: Url,
 
     /// Path to a PEM certificate to trust as the server's CA, for endpoints using a self-signed
-    /// server certificate not already in the system trust store.
+    /// server certificate not already in the system trust store. Can be the certificate
+    /// itself (controller.api.tls.cert_pem in the KIDS config).
     #[arg(long, value_hint = ValueHint::FilePath)]
     server_ca: Option<PathBuf>,
 
@@ -20,6 +22,7 @@ struct Cli {
     insecure: bool,
 
     /// Path to a PEM client certificate, for endpoints requiring mutual TLS. Requires --client-key.
+    /// As configured in controller.api.tls.client_auth.clients[].cert_pem in the KIDS config.
     #[arg(long, value_hint = ValueHint::FilePath, requires = "client_key")]
     client_cert: Option<PathBuf>,
 
