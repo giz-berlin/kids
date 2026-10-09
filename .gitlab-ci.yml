@@ -23,6 +23,7 @@ cache:
   - keycloak-synapse
   - keycloak-james
   - keycloak-kentix
+  - keycloak-vaultwarden
   - webhook-cli
 
 .build_matrix: &build_matrix
@@ -115,11 +116,14 @@ docker-image:
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - export IMAGE_NAME=$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG/$BINARY
+    - export DOCKERFILE=Dockerfile
+    - if [ -f "$BINARY/Dockerfile" ]; then export DOCKERFILE="$BINARY/Dockerfile"; fi
     - export BINARY_VERSION=`cat target/release/${BINARY}-version | cut -d ' ' -f2`
     - export BINARY_VERSION_MAJOR=`echo $BINARY_VERSION | cut -d '.' -f1`
     - export BINARY_VERSION_MINOR=`echo $BINARY_VERSION | cut -d '.' -f2`
     - export BINARY_VERSION_PATCH=`echo $BINARY_VERSION | cut -d '.' -f3`
     - docker build
+        -f "$DOCKERFILE"
         --build-arg "BINARY=$BINARY"
         -t "$IMAGE_NAME:latest"
         -t "$IMAGE_NAME:pipeline-$CI_PIPELINE_IID"

@@ -1,0 +1,27 @@
+[package]
+name = "keycloak-vaultwarden"
+description = "Keycloak to Vaultwarden identity syncer"
+homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-vaultwarden"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1.88"
+chrono = "0.4.41"
+http = "1.2.0"
+kids-lib = { path = "../kids-lib" }
+reqwest = { version = "0.12.15", features = ["default-tls", "native-tls", "cookies", "json"] }
+serde = { version = "1.0.218", features = ["serde_derive"] }
+serde_json = "1.0.140"
+serde_repr = "0.1.20"
+source-keycloak-lib = { path = "../source-keycloak-lib" }
+tempfile = "3.20.0"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+url = { version = "2.5.4", features = ["serde"] }
+uuid = { version = "1.16.0", features = ["v5"] }
+
+[lints]
+workspace = true

@@ -4,6 +4,13 @@ A software suite to sync users actively from Keycloak to other applications user
 
 If there is a LDAP backend available, please take a look on [Keycloak LDAP server](https://rechenknecht.net/giz/keycloak/keycloak-ldap-server).
 
+## Running KIDS
+
+To run the Keycloak Identity Syncer, follow these steps:
+
+1. Create a `config.toml` file based on the [example config](default_configs/config.example.toml) and the default configs for your source and target.
+1. Run your target with `cargo run -p <target>` (or `cargo run -p <target> -- --config <config_file>`)
+
 ## Supported Applications
 
 Currently, these applications are supported as sync targets:
@@ -11,6 +18,7 @@ Currently, these applications are supported as sync targets:
 * [James email server](https://github.com/apache/james-project)
 * [Synapse matrix server](https://github.com/element-hq/synapse)
 * [Kentix AccessManager](https://kentix.com/de/)
+* [Vaultwarden password manager](https://github.com/dani-garcia/vaultwarden)
 
 ## Configuration
 
