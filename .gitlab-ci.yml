@@ -183,3 +183,57 @@ test-synapse-e2e:
     - PODMAN_SERVICE_HOSTNAME=$PODMAN_SERVICE_HOSTNAME SYNAPSE_TLS_PORT=$SYNAPSE_TLS_PORT ADMIN_ACCESS_TOKEN_SYNAPSE=$ADMIN_ACCESS_TOKEN_SYNAPSE ./verify_synapse_e2e.sh
     - podman stop $KIDS_PODMAN_ID && podman rm $KIDS_PODMAN_ID
     - ./teardown_synapse_e2e.sh
+
+test-vaultwarden-e2e:
+  stage: test-e2e
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: docker-image
+      artifacts: true
+      parallel:
+        matrix:
+          - BINARY: keycloak-vaultwarden
+  tags:
+    # Use a privileged runner for running (Docker) containers.
+    - privileged
+  script:
+    - echo "Install dependencies"
+    - dnf install unzip envsubst openssl jq podman-compose --assumeyes --refresh
+    - echo "$CI_REGISTRY_PASSWORD" | podman login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - echo "127.0.0.1 host.docker.internal" >> /etc/hosts
+    - pushd e2e-test
+    - echo "Download Keycloak Webhook SPI"
+    - pushd keycloak
+    - >
+      curl --output artifacts.zip --header "PRIVATE-TOKEN: $KEYCLOAK_WEBHOOK_SPI_DOWNLOAD"
+      "https://rechenknecht.net/api/v4/projects/192/jobs/artifacts/main/download?job=build-jar"
+    - unzip artifacts.zip
+    - rm artifacts.zip
+    - mv build/libs/* .
+    - rmdir -p build/libs
+    - popd
+    - pushd vaultwarden
+    - echo "Start Vaultwarden & Keycloak"
+    - ./setup.sh
+    - echo "Start KIDS"
+    - >
+      podman run -d --name kids-e2e-kids -v $(realpath config/kids_config.toml):/config.toml --net host
+      $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG/keycloak-vaultwarden:latest --config /config.toml
+    - echo "Waiting for KIDS to finish the first sync..."
+    - >
+      for i in $(seq 1 60); do
+        podman logs kids-e2e-kids 2>&1 | grep -q "Periodic full sync completed" && break;
+        if [ -z "$(podman ps -q --filter name=kids-e2e-kids)" ]; then echo "KIDS exited before finishing the sync"; exit 1; fi;
+        if [ "$i" -eq 60 ]; then echo "KIDS did not finish syncing in time"; exit 1; fi;
+        sleep 2;
+      done
+    - ./verify.sh
+  after_script:
+    - pushd e2e-test
+    - pushd vaultwarden
+    - source .env
+    - podman logs kids-e2e-kids || true
+    - podman logs $VAULTWARDEN_CONTAINER_NAME || true
+    - podman logs $KEYCLOAK_CONTAINER_NAME || true
+    - podman stop kids-e2e-kids && podman rm kids-e2e-kids || true
+    - ./teardown.sh || true

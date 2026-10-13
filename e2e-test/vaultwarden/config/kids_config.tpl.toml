@@ -1,0 +1,39 @@
+# For documentation on the configuration parameters, refer to the default_configs directory.
+# This file does intentionally not contain any parameter comments, as those could get out of sync quite easily.
+
+[controller.api]
+mode = "enabled"
+bind_addr = "0.0.0.0:4165"
+
+[controller.api.tls]
+mode = "insecure_disabled"
+
+[sentry]
+active = false
+dsn = "https://2b259ab7638c4a71ab3fca497e2c5295@sentry.giz.berlin/22"
+environment = "develop"
+
+[source]
+[source.keycloak_api]
+keycloak_address = "http://$PODMAN_SERVICE_HOSTNAME:$KEYCLOAK_PORT"
+client_id = "keycloak_identity_syncer"
+client_secret = "keycloak_identity_syncer_secret"
+realm = "$KEYCLOAK_REALM"
+fetch_service_accounts = false
+insecure_disable_tls_verification = false
+
+[target]
+url = "https://$PODMAN_SERVICE_HOSTNAME:$VAULTWARDEN_TLS_PORT"
+# These belong to the account and organization of seed/db.sqlite3
+org_id = "$VAULTWARDEN_ORG_ID"
+user_client_id = "$VAULTWARDEN_USER_CLIENT_ID"
+user_client_secret = "$VAULTWARDEN_USER_CLIENT_SECRET"
+master_password = "$VAULTWARDEN_SYNCER_MASTER_PASSWORD"
+org_client_id = "$VAULTWARDEN_ORG_CLIENT_ID"
+org_client_secret = "$VAULTWARDEN_ORG_CLIENT_SECRET"
+# Must match ADMIN_TOKEN in compose.yml
+admin_token = "$VAULTWARDEN_ADMIN_TOKEN"
+insecure_disable_tls_verification = true
+# Do not set it to disable this feature in e2e tests.
+# required_role_name = "vaultwarden"
+ignored_emails = []
