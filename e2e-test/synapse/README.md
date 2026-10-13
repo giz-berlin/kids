@@ -46,4 +46,4 @@ with your manually (re)started container if you don't do it).
 
 ## Debugging
 
-  - If you are running an OS with SELinux (like Fedora), you may need to configure `--security-opt label=disable` on each `podman run` command or in your podman's `containers.conf` file. Otherwise the container cannot properly access the mounted files.
+- If you are running an OS with SELinux (like Fedora), you may need to configure `--security-opt label=disable` on each `podman run` command or in your podman's `containers.conf` file. Otherwise the container cannot properly access the mounted files.
