@@ -50,12 +50,14 @@ pub enum MembershipStatus {
 }
 
 /// Type of a user's membership in an organization.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde_repr::Serialize_repr, serde_repr::Deserialize_repr)]
+#[repr(i8)]
 pub enum MembershipType {
     Owner = 0,
     Admin = 1,
     User = 2,
     Manager = 3,
+    Custom = 4,
 }
 
 /// Permissions a user/group has for a collection.
