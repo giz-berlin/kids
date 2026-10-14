@@ -30,6 +30,7 @@ pub struct Group {
     pub id: GroupId,
     pub name: String,
     pub external_id: Option<String>,
+    #[serde(default)]
     pub access_all: bool,
     pub collections: Vec<CollectionAccess>,
 }
