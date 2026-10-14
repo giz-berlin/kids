@@ -184,7 +184,7 @@ impl kids_lib::interface::target::Target for Connector {
             email_address: team_uuid_email.clone(),
         });
         if has_teams_in_source && !team_exists {
-            match self.james_api.create_team(source_group_id).await {
+            match self.james_api.create_team(&team_uuid_email).await {
                 Ok(_) => tracing::info!(source_group_id, "Create new team"),
                 Err(error) => return Err(error.with_context(&format!("group_id = {}, Could not create new team for", source_group_id))),
             };
