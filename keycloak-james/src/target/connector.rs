@@ -249,22 +249,29 @@ impl kids_lib::interface::target::Target for Connector {
 
         let mut desired_aliases: Vec<String> = vec![];
 
-        if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
-            desired_aliases = attributes.clone();
+        // Remove all aliases if user is disabled
+        if source_user.enabled() {
+            if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
+                desired_aliases = attributes.clone();
+            }
+            if let Some(email) = source_user.email()
+                && !desired_aliases.contains(&email.to_string())
+            {
+                desired_aliases.push(email.to_string());
+            }
         }
-        if let Some(email) = source_user.email()
-            && !desired_aliases.contains(&email.to_string())
-        {
-            desired_aliases.push(email.to_string());
-        }
+
         self.update_alias(&user_uuid_email, &desired_aliases).await?;
 
-        let desired_source_groups = source_user.groups(true).await.map_err(|e| {
-            e.with_context(&format!(
-                "user_id = {}, Could not get source groups associated with source user",
-                source_user.id()
-            ))
-        })?;
+        let desired_source_groups = match source_user.enabled() {
+            true => source_user.groups(true).await.map_err(|e| {
+                e.with_context(&format!(
+                    "user_id = {}, Could not get source groups associated with source user",
+                    source_user.id()
+                ))
+            })?,
+            false => vec![],
+        };
 
         // update James teams
         let desired_team_ids: Vec<types::SharedResourceIdentifier> = desired_source_groups
@@ -299,11 +306,14 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         // update James lists
-        let desired_list_ids: Vec<String> = desired_source_groups
-            .iter()
-            .filter(|group| group.attributes().contains_key(&self.config.source_james_list_attr))
-            .map(|group| group.id().to_string())
-            .collect();
+        let desired_list_ids: Vec<String> = match source_user.enabled() {
+            true => desired_source_groups
+                .iter()
+                .filter(|group| group.attributes().contains_key(&self.config.source_james_list_attr))
+                .map(|group| group.id().to_string())
+                .collect(),
+            false => vec![],
+        };
 
         let mut desired_lists: Vec<String> = vec![];
         for id in desired_list_ids.iter() {
