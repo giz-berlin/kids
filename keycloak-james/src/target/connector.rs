@@ -15,6 +15,10 @@ pub struct JamesConfig {
     pub source_james_list_attr: String,
     pub source_james_team_attr: String,
     pub source_james_alias_attr: String,
+
+    /// Only users who have set this role will be synced or activated to/in James.
+    /// When this is not present, all users will be synced.
+    pub required_role_name: Option<String>,
 }
 
 /// A connector to James providing the [Target](kids_lib::interface::target::Target) interface.
@@ -247,10 +251,12 @@ impl kids_lib::interface::target::Target for Connector {
             self.get_cached_user_ids().await?.insert(source_user.id().clone());
         }
 
+        let user_enabled = source_user.enabled() && self.source_user_has_required_role(&*source_user).await?;
+
         let mut desired_aliases: Vec<String> = vec![];
 
         // Remove all aliases if user is disabled
-        if source_user.enabled() {
+        if user_enabled {
             if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
                 desired_aliases = attributes.clone();
             }
@@ -263,7 +269,7 @@ impl kids_lib::interface::target::Target for Connector {
 
         self.update_alias(&user_uuid_email, &desired_aliases).await?;
 
-        let desired_source_groups = match source_user.enabled() {
+        let desired_source_groups = match user_enabled {
             true => source_user.groups(true).await.map_err(|e| {
                 e.with_context(&format!(
                     "user_id = {}, Could not get source groups associated with source user",
@@ -306,7 +312,7 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         // update James lists
-        let desired_list_ids: Vec<String> = match source_user.enabled() {
+        let desired_list_ids: Vec<String> = match user_enabled {
             true => desired_source_groups
                 .iter()
                 .filter(|group| group.attributes().contains_key(&self.config.source_james_list_attr))
@@ -676,5 +682,17 @@ impl Connector {
             };
         }
         Ok(())
+    }
+
+    /// Returns `true` when the user has the required role in Source
+    /// or when the the config option `required_role_name` is unset.
+    async fn source_user_has_required_role(&self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<bool, KidsError> {
+        if let Some(required_role_name) = &self.config.required_role_name {
+            let roles = source_user.client_roles().await?;
+            let required_role_present = roles.contains(required_role_name);
+            return Ok(required_role_present);
+        }
+        // If no required role is set, pass this test
+        Ok(true)
     }
 }

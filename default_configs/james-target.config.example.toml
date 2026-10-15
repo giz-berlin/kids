@@ -20,3 +20,7 @@ james_list_domain = "list.marie.email.interdea.de"
 james_team_domain = "team.marie.email.interdea.de"
 # Base adress of James webadmin API to fetch data from.
 base_url = "http://localhost:8000"
+# A role that must be present on the source user for it to be considered in James.
+# Users not owning this role will not be created
+# Optional
+required_role_name = "feature:authenticate"
