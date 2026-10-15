@@ -15,6 +15,10 @@ pub struct JamesConfig {
     pub source_james_list_attr: String,
     pub source_james_team_attr: String,
     pub source_james_alias_attr: String,
+
+    /// Only users who have set this role will be synced or activated to/in James.
+    /// When this is not present, all users will be synced.
+    pub required_role_name: Option<String>,
 }
 
 /// A connector to James providing the [Target](kids_lib::interface::target::Target) interface.
@@ -38,6 +42,15 @@ impl kids_lib::interface::target::Target for Connector {
                 .await
                 .map_err(|e| e.with_context("Failed to create James API client"))?,
         );
+        if !Self::is_valid_domain(config.james_api.james_user_domain.as_str()) {
+            return Err(anyhow::anyhow!("Invalid james user domain").into());
+        }
+        if !Self::is_valid_domain(config.james_api.james_team_domain.as_str()) {
+            return Err(anyhow::anyhow!("Invalid james team domain").into());
+        }
+        if !Self::is_valid_domain(config.james_api.james_list_domain.as_str()) {
+            return Err(anyhow::anyhow!("Invalid james list domain").into());
+        }
         Ok(Connector {
             config,
             james_api,
@@ -90,7 +103,7 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         let uuid_team_email = self
-            .create_uuid_team_email(group_id)
+            .get_uuid_team_email(group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not delete group", group_id)))?;
 
         if has_team {
@@ -102,7 +115,7 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         let uuid_list_email = self
-            .create_uuid_list_email(group_id)
+            .get_uuid_list_email(group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not delete group", group_id)))?;
 
         if has_list {
@@ -121,7 +134,7 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         let uuid_user_email = self
-            .create_uuid_user_email(user_id)
+            .get_uuid_user_email(user_id)
             .map_err(|error| error.with_context(&format!("user_id = {}, Could not delete user", user_id)))?;
         self.update_alias(&uuid_user_email, &[]).await?;
         match self.james_api.delete_user(&uuid_user_email).await {
@@ -167,10 +180,10 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         let team_uuid_email = self
-            .create_uuid_team_email(source_group_id)
+            .get_uuid_team_email(source_group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not update teams and lists for group", source_group_id)))?;
         let list_uuid_email = self
-            .create_uuid_list_email(source_group_id)
+            .get_uuid_list_email(source_group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not update teams and lists for group", source_group_id)))?;
 
         // If an attribute for a team / list is added to a group or a group with those attributes is created, only the group update
@@ -236,10 +249,16 @@ impl kids_lib::interface::target::Target for Connector {
 
     async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn kids_lib::interface::source::User + Sync + Send>) -> Result<(), KidsError> {
         let user_uuid_email = self
-            .create_uuid_user_email(source_user.id())
+            .get_uuid_user_email(source_user.id())
             .map_err(|error| error.with_context(&format!("user_id = {}, Could not create or update user", source_user.id())))?;
 
+        let user_enabled = source_user.enabled() && self.source_user_has_required_role(&*source_user).await?;
+
         if !self.get_cached_user_ids().await?.contains(source_user.id()) {
+            // Skip creating users, which are disabled and were never created.
+            if !user_enabled {
+                return Ok(());
+            }
             match self.james_api.create_user(&user_uuid_email).await {
                 Ok(_) => tracing::info!(user_id = source_user.id(), "Create new user"),
                 Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not create new user", source_user.id()))),
@@ -249,22 +268,29 @@ impl kids_lib::interface::target::Target for Connector {
 
         let mut desired_aliases: Vec<String> = vec![];
 
-        if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
-            desired_aliases = attributes.clone();
+        // Remove all aliases if user is disabled
+        if user_enabled {
+            if let Some(attributes) = source_user.attributes().get(self.config.source_james_alias_attr.as_str()) {
+                desired_aliases = attributes.clone();
+            }
+            if let Some(email) = source_user.email()
+                && !desired_aliases.contains(&email.to_string())
+            {
+                desired_aliases.push(email.to_string());
+            }
         }
-        if let Some(email) = source_user.email()
-            && !desired_aliases.contains(&email.to_string())
-        {
-            desired_aliases.push(email.to_string());
-        }
+
         self.update_alias(&user_uuid_email, &desired_aliases).await?;
 
-        let desired_source_groups = source_user.groups(true).await.map_err(|e| {
-            e.with_context(&format!(
-                "user_id = {}, Could not get source groups associated with source user",
-                source_user.id()
-            ))
-        })?;
+        let desired_source_groups = match user_enabled {
+            true => source_user.groups(true).await.map_err(|e| {
+                e.with_context(&format!(
+                    "user_id = {}, Could not get source groups associated with source user",
+                    source_user.id()
+                ))
+            })?,
+            false => vec![],
+        };
 
         // update James teams
         let desired_team_ids: Vec<types::SharedResourceIdentifier> = desired_source_groups
@@ -299,15 +325,18 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         // update James lists
-        let desired_list_ids: Vec<String> = desired_source_groups
-            .iter()
-            .filter(|group| group.attributes().contains_key(&self.config.source_james_list_attr))
-            .map(|group| group.id().to_string())
-            .collect();
+        let desired_list_ids: Vec<String> = match user_enabled {
+            true => desired_source_groups
+                .iter()
+                .filter(|group| group.attributes().contains_key(&self.config.source_james_list_attr))
+                .map(|group| group.id().to_string())
+                .collect(),
+            false => vec![],
+        };
 
         let mut desired_lists: Vec<String> = vec![];
         for id in desired_list_ids.iter() {
-            let email = match self.create_uuid_list_email(id) {
+            let email = match self.get_uuid_list_email(id) {
                 Ok(email) => Some(email),
                 Err(error) => {
                     tracing::error!(?error, source_user_id = source_user.id(), list_id = id, "Could not update list for user");
@@ -389,13 +418,13 @@ impl kids_lib::interface::target::Target for Connector {
 }
 
 impl Connector {
-    fn is_valid_id(&self, source_user_id: &str) -> bool {
+    fn is_valid_id(source_user_id: &str) -> bool {
         source_user_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     }
-    fn is_valid_domain(&self, domain: &str) -> bool {
+    fn is_valid_domain(domain: &str) -> bool {
         domain.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
     }
-    fn is_valid_local_part(&self, local_part: &str) -> bool {
+    fn is_valid_local_part(local_part: &str) -> bool {
         local_part.chars().all(|c| {
             c.is_ascii_alphanumeric()
                 || c == '-'
@@ -420,8 +449,8 @@ impl Connector {
                 || c == '~'
         })
     }
-    fn create_uuid_user_email(&self, source_user_id: &str) -> Result<String, KidsError> {
-        if !(self.is_valid_id(source_user_id) && self.is_valid_domain(self.config.james_api.james_user_domain.as_str())) {
+    fn get_uuid_user_email(&self, source_user_id: &str) -> Result<String, KidsError> {
+        if !(Self::is_valid_id(source_user_id)) {
             return Err(KidsError::RequestFailed(
                 "".to_string(),
                 anyhow!(format!(
@@ -432,8 +461,8 @@ impl Connector {
         }
         Ok(source_user_id.to_string() + "@" + self.config.james_api.james_user_domain.as_str())
     }
-    fn create_uuid_list_email(&self, source_group_id: &str) -> Result<String, KidsError> {
-        if !(self.is_valid_id(source_group_id) && self.is_valid_domain(self.config.james_api.james_list_domain.as_str())) {
+    fn get_uuid_list_email(&self, source_group_id: &str) -> Result<String, KidsError> {
+        if !(Self::is_valid_id(source_group_id)) {
             return Err(KidsError::RequestFailed(
                 "".to_string(),
                 anyhow!(format!(
@@ -444,8 +473,8 @@ impl Connector {
         }
         Ok(source_group_id.to_string() + "@" + self.config.james_api.james_list_domain.as_str())
     }
-    fn create_uuid_team_email(&self, source_group_id: &str) -> Result<String, KidsError> {
-        if !(self.is_valid_id(source_group_id) && self.is_valid_domain(self.config.james_api.james_team_domain.as_str())) {
+    fn get_uuid_team_email(&self, source_group_id: &str) -> Result<String, KidsError> {
+        if !(Self::is_valid_id(source_group_id)) {
             return Err(KidsError::RequestFailed(
                 "".to_string(),
                 anyhow!(format!(
@@ -559,7 +588,7 @@ impl Connector {
         for alias in desired_aliases.iter() {
             let domain = self.get_domain_from(alias);
             let local_part = self.get_local_part_from(alias);
-            if !(self.is_valid_domain(&domain) && self.is_valid_local_part(&local_part)) {
+            if !(Self::is_valid_domain(&domain) && Self::is_valid_local_part(&local_part)) {
                 tracing::debug!(
                     alias,
                     user_id = self.get_local_part_from(uuid_email),
@@ -666,5 +695,17 @@ impl Connector {
             };
         }
         Ok(())
+    }
+
+    /// Returns `true` when the user has the required role in Source
+    /// or when the the config option `required_role_name` is unset.
+    async fn source_user_has_required_role(&self, source_user: &(dyn kids_lib::interface::source::User + Send + Sync)) -> Result<bool, KidsError> {
+        if let Some(required_role_name) = &self.config.required_role_name {
+            let roles = source_user.client_roles().await?;
+            let required_role_present = roles.contains(required_role_name);
+            return Ok(required_role_present);
+        }
+        // If no required role is set, pass this test
+        Ok(true)
     }
 }
