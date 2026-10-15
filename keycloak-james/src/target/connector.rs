@@ -42,7 +42,15 @@ impl kids_lib::interface::target::Target for Connector {
                 .await
                 .map_err(|e| e.with_context("Failed to create James API client"))?,
         );
-        self.is_valid_domain(self.config.james_api.james_user_domain.as_str())?;
+        if !Self::is_valid_domain(config.james_api.james_user_domain.as_str()) {
+            return Err(anyhow::anyhow!("Invalid james user domain").into());
+        }
+        if !Self::is_valid_domain(config.james_api.james_team_domain.as_str()) {
+            return Err(anyhow::anyhow!("Invalid james team domain").into());
+        }
+        if !Self::is_valid_domain(config.james_api.james_list_domain.as_str()) {
+            return Err(anyhow::anyhow!("Invalid james list domain").into());
+        }
         Ok(Connector {
             config,
             james_api,
@@ -95,7 +103,7 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         let uuid_team_email = self
-            .create_uuid_team_email(group_id)
+            .get_uuid_team_email(group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not delete group", group_id)))?;
 
         if has_team {
@@ -107,7 +115,7 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         let uuid_list_email = self
-            .create_uuid_list_email(group_id)
+            .get_uuid_list_email(group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not delete group", group_id)))?;
 
         if has_list {
@@ -172,10 +180,10 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         let team_uuid_email = self
-            .create_uuid_team_email(source_group_id)
+            .get_uuid_team_email(source_group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not update teams and lists for group", source_group_id)))?;
         let list_uuid_email = self
-            .create_uuid_list_email(source_group_id)
+            .get_uuid_list_email(source_group_id)
             .map_err(|error| error.with_context(&format!("group_id = {}, Could not update teams and lists for group", source_group_id)))?;
 
         // If an attribute for a team / list is added to a group or a group with those attributes is created, only the group update
@@ -328,7 +336,7 @@ impl kids_lib::interface::target::Target for Connector {
 
         let mut desired_lists: Vec<String> = vec![];
         for id in desired_list_ids.iter() {
-            let email = match self.create_uuid_list_email(id) {
+            let email = match self.get_uuid_list_email(id) {
                 Ok(email) => Some(email),
                 Err(error) => {
                     tracing::error!(?error, source_user_id = source_user.id(), list_id = id, "Could not update list for user");
@@ -410,13 +418,13 @@ impl kids_lib::interface::target::Target for Connector {
 }
 
 impl Connector {
-    fn is_valid_id(&self, source_user_id: &str) -> bool {
+    fn is_valid_id(source_user_id: &str) -> bool {
         source_user_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     }
-    fn is_valid_domain(&self, domain: &str) -> bool {
+    fn is_valid_domain(domain: &str) -> bool {
         domain.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
     }
-    fn is_valid_local_part(&self, local_part: &str) -> bool {
+    fn is_valid_local_part(local_part: &str) -> bool {
         local_part.chars().all(|c| {
             c.is_ascii_alphanumeric()
                 || c == '-'
@@ -442,7 +450,7 @@ impl Connector {
         })
     }
     fn get_uuid_user_email(&self, source_user_id: &str) -> Result<String, KidsError> {
-        if !(self.is_valid_id(source_user_id)) {
+        if !(Self::is_valid_id(source_user_id)) {
             return Err(KidsError::RequestFailed(
                 "".to_string(),
                 anyhow!(format!(
@@ -453,8 +461,8 @@ impl Connector {
         }
         Ok(source_user_id.to_string() + "@" + self.config.james_api.james_user_domain.as_str())
     }
-    fn create_uuid_list_email(&self, source_group_id: &str) -> Result<String, KidsError> {
-        if !(self.is_valid_id(source_group_id) && self.is_valid_domain(self.config.james_api.james_list_domain.as_str())) {
+    fn get_uuid_list_email(&self, source_group_id: &str) -> Result<String, KidsError> {
+        if !(Self::is_valid_id(source_group_id)) {
             return Err(KidsError::RequestFailed(
                 "".to_string(),
                 anyhow!(format!(
@@ -465,8 +473,8 @@ impl Connector {
         }
         Ok(source_group_id.to_string() + "@" + self.config.james_api.james_list_domain.as_str())
     }
-    fn create_uuid_team_email(&self, source_group_id: &str) -> Result<String, KidsError> {
-        if !(self.is_valid_id(source_group_id) && self.is_valid_domain(self.config.james_api.james_team_domain.as_str())) {
+    fn get_uuid_team_email(&self, source_group_id: &str) -> Result<String, KidsError> {
+        if !(Self::is_valid_id(source_group_id)) {
             return Err(KidsError::RequestFailed(
                 "".to_string(),
                 anyhow!(format!(
@@ -580,7 +588,7 @@ impl Connector {
         for alias in desired_aliases.iter() {
             let domain = self.get_domain_from(alias);
             let local_part = self.get_local_part_from(alias);
-            if !(self.is_valid_domain(&domain) && self.is_valid_local_part(&local_part)) {
+            if !(Self::is_valid_domain(&domain) && Self::is_valid_local_part(&local_part)) {
                 tracing::debug!(
                     alias,
                     user_id = self.get_local_part_from(uuid_email),
