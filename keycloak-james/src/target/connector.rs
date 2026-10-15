@@ -42,6 +42,7 @@ impl kids_lib::interface::target::Target for Connector {
                 .await
                 .map_err(|e| e.with_context("Failed to create James API client"))?,
         );
+        self.is_valid_domain(self.config.james_api.james_user_domain.as_str())?;
         Ok(Connector {
             config,
             james_api,
@@ -125,7 +126,7 @@ impl kids_lib::interface::target::Target for Connector {
         }
 
         let uuid_user_email = self
-            .create_uuid_user_email(user_id)
+            .get_uuid_user_email(user_id)
             .map_err(|error| error.with_context(&format!("user_id = {}, Could not delete user", user_id)))?;
         self.update_alias(&uuid_user_email, &[]).await?;
         match self.james_api.delete_user(&uuid_user_email).await {
@@ -240,7 +241,7 @@ impl kids_lib::interface::target::Target for Connector {
 
     async fn create_or_update_user(&mut self, source_user: std::sync::Arc<dyn kids_lib::interface::source::User + Sync + Send>) -> Result<(), KidsError> {
         let user_uuid_email = self
-            .create_uuid_user_email(source_user.id())
+            .get_uuid_user_email(source_user.id())
             .map_err(|error| error.with_context(&format!("user_id = {}, Could not create or update user", source_user.id())))?;
 
         if !self.get_cached_user_ids().await?.contains(source_user.id()) {
@@ -436,8 +437,8 @@ impl Connector {
                 || c == '~'
         })
     }
-    fn create_uuid_user_email(&self, source_user_id: &str) -> Result<String, KidsError> {
-        if !(self.is_valid_id(source_user_id) && self.is_valid_domain(self.config.james_api.james_user_domain.as_str())) {
+    fn get_uuid_user_email(&self, source_user_id: &str) -> Result<String, KidsError> {
+        if !(self.is_valid_id(source_user_id)) {
             return Err(KidsError::RequestFailed(
                 "".to_string(),
                 anyhow!(format!(
