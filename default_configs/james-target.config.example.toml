@@ -9,6 +9,11 @@ source_james_team_attr = "james-team"
 # It is possible that in a source user multiple aliases are set.
 source_james_alias_attr = "james-alias"
 
+# A role that must be present on the source user for it to be considered in James.
+# Users not owning this role will not be created
+# Optional
+required_role_name = "feature:authenticate"
+
 [target.james_api]
 # In order to identify users, lists and teams, we initially create for each an email address with an ID. Afterward we
 # set default email addresses for users, list and teams as well as aliases defined by source attributes above. These
@@ -20,7 +25,3 @@ james_list_domain = "list.marie.email.interdea.de"
 james_team_domain = "team.marie.email.interdea.de"
 # Base adress of James webadmin API to fetch data from.
 base_url = "http://localhost:8000"
-# A role that must be present on the source user for it to be considered in James.
-# Users not owning this role will not be created
-# Optional
-required_role_name = "feature:authenticate"
