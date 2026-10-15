@@ -244,15 +244,19 @@ impl kids_lib::interface::target::Target for Connector {
             .get_uuid_user_email(source_user.id())
             .map_err(|error| error.with_context(&format!("user_id = {}, Could not create or update user", source_user.id())))?;
 
+        let user_enabled = source_user.enabled() && self.source_user_has_required_role(&*source_user).await?;
+
         if !self.get_cached_user_ids().await?.contains(source_user.id()) {
+            // Skip creating users, which are disabled and were never created.
+            if !user_enabled {
+                return Ok(());
+            }
             match self.james_api.create_user(&user_uuid_email).await {
                 Ok(_) => tracing::info!(user_id = source_user.id(), "Create new user"),
                 Err(error) => return Err(error.with_context(&format!("user_id = {}, Could not create new user", source_user.id()))),
             };
             self.get_cached_user_ids().await?.insert(source_user.id().clone());
         }
-
-        let user_enabled = source_user.enabled() && self.source_user_has_required_role(&*source_user).await?;
 
         let mut desired_aliases: Vec<String> = vec![];
 
