@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "keycloak-james"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2117,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "keycloak-kentix"
-version = "0.1.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2138,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "keycloak-memory"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2150,7 +2150,7 @@ dependencies = [
 
 [[package]]
 name = "keycloak-synapse"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2196,7 +2196,7 @@ dependencies = [
 
 [[package]]
 name = "kids-lib"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "aide",
  "anyhow",

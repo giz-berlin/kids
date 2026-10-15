@@ -1,7 +1,7 @@
 [package]
 name = "kids-lib"
 description = "Core library for Keycloak Identity Syncer — provides the sync engine framework with CLI infrastructure, configuration parsing, source/target interfaces, and controller logic for syncing identity data between services"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 publish = false
 

@@ -2,7 +2,7 @@
 name = "keycloak-synapse"
 description = "Keycloak to Synapse identity syncer — synchronizes users and groups from Keycloak to a Synapse Matrix homeserver via webhook endpoints"
 homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-synapse"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 publish = false
 

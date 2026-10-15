@@ -2,7 +2,7 @@
 name = "keycloak-memory"
 description = "In-memory target for Keycloak identity sync — provides a testable, no-dependency target implementation for local development and E2E testing without external services"
 homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-memory"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 publish = false
 
