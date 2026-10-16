@@ -117,36 +117,20 @@ impl KeycloakApi for KeycloakServiceAccountClient {
         KeycloakServiceAccountClient::convert_error(
             "GET_USERS",
             self.keycloak_admin
-                .realm_users_get(
-                    &self.config.realm,
-                    None,
-                    None,
-                    None,
-                    None,
-                    // This sets the query parameter `exact` if service accounts should be included. The value does not matter, it could also be `false`.
-                    // The parameter does not filter the users if other attributes such as components of the name are not given. However, because a
-                    // "filtering" attribute is set, Keycloak handles the request differently and includes service accounts in the result.
-                    // This is hacky and can hopefully be replaced when github.com/keycloak/keycloak/pull/51788 is merged.
-                    if self.config.fetch_service_accounts { Some(true) } else { None },
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(FETCH_ALL_ENTITIES),
-                    None,
-                    None,
-                    None,
-                )
+                .realm(&self.config.realm)
+                .users_get()
+                // This sets the query parameter `exact` if service accounts should be included. The value does not matter, it could also be `false`.
+                // The parameter does not filter the users if other attributes such as components of the name are not given. However, because a
+                // "filtering" attribute is set, Keycloak handles the request differently and includes service accounts in the result.
+                // This is hacky and can hopefully be replaced when github.com/keycloak/keycloak/pull/51788 is merged.
+                .exact(if self.config.fetch_service_accounts { Some(true) } else { None })
+                .max(FETCH_ALL_ENTITIES)
                 .await,
         )
     }
 
     async fn get_user(&self, user_id: &str) -> Result<keycloak::types::UserRepresentation, KidsError> {
-        KeycloakServiceAccountClient::convert_error(
-            "GET_USER",
-            self.keycloak_admin.realm_users_with_user_id_get(&self.config.realm, user_id, None).await,
-        )
+        KeycloakServiceAccountClient::convert_error("GET_USER", self.keycloak_admin.realm(&self.config.realm).users_with_user_id_get(user_id).await)
     }
 
     async fn get_user_client_roles(&self, user_id: &str) -> Result<keycloak::types::TypeVec<keycloak::types::RoleRepresentation>, KidsError> {
@@ -154,15 +138,11 @@ impl KeycloakApi for KeycloakServiceAccountClient {
             let clients = KeycloakServiceAccountClient::convert_error(
                 "GET_REALM_CLIENTS",
                 self.keycloak_admin
-                    .realm_clients_get(
-                        &self.config.realm,
-                        Some(self.config.client_id.clone()),
-                        None,
-                        Some(FETCH_ALL_ENTITIES),
-                        None,
-                        Some(true),
-                        None,
-                    )
+                    .realm(&self.config.realm)
+                    .clients_get()
+                    .client_id(self.config.client_id.clone())
+                    .max(FETCH_ALL_ENTITIES)
+                    .search(true)
                     .await,
             )?;
             let client_uuid = match clients.len() {
@@ -194,7 +174,9 @@ impl KeycloakApi for KeycloakServiceAccountClient {
         KeycloakServiceAccountClient::convert_error(
             "GET_USER_CLIENT_ROLES",
             self.keycloak_admin
-                .realm_users_with_user_id_role_mappings_clients_with_client_id_composite_get(&self.config.realm, user_id, client_uuid.as_ref(), Some(true))
+                .realm(&self.config.realm)
+                .users_with_user_id_role_mappings_clients_with_client_id_composite_get(user_id, client_uuid.as_ref())
+                .brief_representation(true)
                 .await,
         )
     }
@@ -203,7 +185,10 @@ impl KeycloakApi for KeycloakServiceAccountClient {
         KeycloakServiceAccountClient::convert_error(
             "GET_USERS_OF_GROUP",
             self.keycloak_admin
-                .realm_groups_with_group_id_members_get(&self.config.realm, group_id, Some(false), None, Some(FETCH_ALL_ENTITIES))
+                .realm(&self.config.realm)
+                .groups_with_group_id_members_get(group_id)
+                .brief_representation(false)
+                .max(FETCH_ALL_ENTITIES)
                 .await,
         )
     }
@@ -212,7 +197,10 @@ impl KeycloakApi for KeycloakServiceAccountClient {
         KeycloakServiceAccountClient::convert_error(
             "GET_GROUPS_OF_USERS",
             self.keycloak_admin
-                .realm_users_with_user_id_groups_get(&self.config.realm, user_id, Some(false), None, Some(FETCH_ALL_ENTITIES), None)
+                .realm(&self.config.realm)
+                .users_with_user_id_groups_get(user_id)
+                .brief_representation(false)
+                .max(FETCH_ALL_ENTITIES)
                 .await,
         )
     }
@@ -221,7 +209,10 @@ impl KeycloakApi for KeycloakServiceAccountClient {
         KeycloakServiceAccountClient::convert_error(
             "GET_GROUPS",
             self.keycloak_admin
-                .realm_groups_get(&self.config.realm, Some(false), None, None, Some(FETCH_ALL_ENTITIES), None, None, None)
+                .realm(&self.config.realm)
+                .groups_get()
+                .brief_representation(false)
+                .max(FETCH_ALL_ENTITIES)
                 .await,
         )
     }
@@ -230,7 +221,10 @@ impl KeycloakApi for KeycloakServiceAccountClient {
         KeycloakServiceAccountClient::convert_error(
             "GET_SUBGROUPS",
             self.keycloak_admin
-                .realm_groups_with_group_id_children_get(&self.config.realm, group_id, Some(false), None, None, Some(FETCH_ALL_ENTITIES), None)
+                .realm(&self.config.realm)
+                .groups_with_group_id_children_get(group_id)
+                .brief_representation(false)
+                .max(FETCH_ALL_ENTITIES)
                 .await,
         )
     }
@@ -238,7 +232,7 @@ impl KeycloakApi for KeycloakServiceAccountClient {
     async fn get_group(&self, group_id: &str) -> Result<keycloak::types::GroupRepresentation, KidsError> {
         KeycloakServiceAccountClient::convert_error(
             "GET_GROUP",
-            self.keycloak_admin.realm_groups_with_group_id_get(&self.config.realm, group_id).await,
+            self.keycloak_admin.realm(&self.config.realm).groups_with_group_id_get(group_id).await,
         )
     }
 }

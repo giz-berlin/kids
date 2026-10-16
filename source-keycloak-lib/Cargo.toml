@@ -8,7 +8,8 @@ publish = false
 [dependencies]
 anyhow = "1"
 async-trait = "0.1.88"
-keycloak = "~26.2.0"
+# Disable default features as that would use reqwest13 and we stick to reqwest12 for now.
+keycloak = { version = "~26.7.300", default-features = false, features = ["tags-all", "resource-builder", "reqwest12"] }
 kids-lib = { path = "../kids-lib" }
 reqwest = { version = "0.12.15", features = ["default-tls", "native-tls"] }
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
