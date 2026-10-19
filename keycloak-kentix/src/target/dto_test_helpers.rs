@@ -49,6 +49,12 @@ impl From<bool> for crate::target::dto::UserEmergencyAccess {
     }
 }
 
+impl<S: Into<String>> From<S> for crate::target::dto::UserRfidUid {
+    fn from(value: S) -> Self {
+        Self(value.into())
+    }
+}
+
 impl<S: Into<String>> From<S> for crate::target::dto::UserRfidData {
     fn from(value: S) -> Self {
         Self(value.into())

@@ -122,12 +122,7 @@ impl kids_lib::interface::target::Target for Connector {
             let rfid_data = source_user.attributes().get(&self.config.rfid_data_attribute_name);
             match (rfid_uid.map(Vec::as_slice), rfid_data.map(Vec::as_slice), existing_kentix_user.as_ref()) {
                 (Some([rfid_uid]), rfid_data_slice_opt @ (Some([_]) | Some([]) | None), _) => (
-                    rfid_uid.try_into().map_err(|err| {
-                        const ERROR_CONTEXT: &str = "Cannot add or create user";
-                        const ERROR_MSG: &str = "Found invalid RFID UID";
-                        tracing::error!(source_user_id = %source_user.id(), rfid_uid, "{ERROR_CONTEXT}: {ERROR_MSG}: {err}");
-                        kids_lib::error::KidsError::RequestFailed(ERROR_CONTEXT.to_owned(), anyhow::anyhow!("{ERROR_MSG}"))
-                    })?,
+                    super::dto::UserRfidUid(rfid_uid.to_owned()),
                     rfid_data_slice_opt.and_then(|rfid_data_slice| rfid_data_slice.first().map(|rfid_data| super::dto::UserRfidData(rfid_data.clone()))),
                 ),
                 (Some(_), Some(_), _) => {
@@ -308,7 +303,7 @@ mod test {
                         .fullname("user1.name")
                         .is_active(true)
                         .emergency_access(false)
-                        .rfid_uid(123)
+                        .rfid_uid("123")
                         .rfid_data("456")
                         .build(),
                 )
@@ -322,7 +317,7 @@ mod test {
                         .email("user2@example.com")
                         .is_active(false)
                         .emergency_access(false)
-                        .rfid_uid(123)
+                        .rfid_uid("123")
                         .rfid_data("456")
                         .build(),
                 )
@@ -353,7 +348,7 @@ mod test {
                         .fullname("user.name")
                         .is_active(true)
                         .emergency_access(false)
-                        .rfid_uid(123)
+                        .rfid_uid("123")
                         .rfid_data("456")
                         .build(),
                 )
@@ -445,7 +440,7 @@ mod test {
                 .first_name("Firstname")
                 .last_name("Lastname")
                 .enabled(true)
-                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                 .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                 .build(),
             crate::target::dto::UserWithId::builder().id(2).user(crate::target::dto::User::builder()
@@ -453,7 +448,7 @@ mod test {
                 .fullname("firstname.lastname")
                 .is_active(true)
                 .emergency_access(false)
-                .rfid_uid(123)
+                .rfid_uid("123")
                 .rfid_data("456")
                 .build()).build(),
             [])]
@@ -465,7 +460,7 @@ mod test {
                 .last_name("Lastname")
                 .enabled(false)
                 .email("user@example.com")
-                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                 .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                 .build(),
             crate::target::dto::UserWithId::builder().id(3).user(crate::target::dto::User::builder()
@@ -474,7 +469,7 @@ mod test {
                 .email("user@example.com")
                 .is_active(false)
                 .emergency_access(false)
-                .rfid_uid(123)
+                .rfid_uid("123")
                 .rfid_data("456")
                 .build()).build(),
             [])]
@@ -486,7 +481,7 @@ mod test {
                 .last_name("Lastname")
                 .enabled(true)
                 .with_role(OFFLINE_ACCESS_ROLE)
-                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                 .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                 .build(),
             crate::target::dto::UserWithId::builder().id(5).user(crate::target::dto::User::builder()
@@ -494,7 +489,7 @@ mod test {
                 .fullname("firstname.lastname")
                 .is_active(true)
                 .emergency_access(true)
-                .rfid_uid(123)
+                .rfid_uid("123")
                 .rfid_data("456")
                 .build()).build(),
             [crate::target::dto::Levelprofile::builder().id(7).name("main-entrance").build()])]
@@ -504,7 +499,7 @@ mod test {
                 .username("firstname.lastname")
                 .enabled(true)
                 .with_role("main-entrance")
-                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                 .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                 .build(),
             crate::target::dto::UserWithId::builder().id(11).user(crate::target::dto::User::builder()
@@ -513,7 +508,7 @@ mod test {
                 .is_active(true)
                 .with_levelprofile(13)
                 .emergency_access(false)
-                .rfid_uid(123)
+                .rfid_uid("123")
                 .rfid_data("456")
                 .build()).build(),
             [crate::target::dto::Levelprofile::builder().id(13).name("main-entrance").build()])]
@@ -525,7 +520,7 @@ mod test {
                 .with_role("main-entrance")
                 .with_role("server-room")
                 .with_role(OFFLINE_ACCESS_ROLE)
-                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                 .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                 .build(),
             crate::target::dto::UserWithId::builder().id(17).user(crate::target::dto::User::builder()
@@ -535,7 +530,7 @@ mod test {
                 .with_levelprofile(19)
                 .with_levelprofile(23)
                 .emergency_access(true)
-                .rfid_uid(123)
+                .rfid_uid("123")
                 .rfid_data("456")
                 .build()).build(),
             [
@@ -551,7 +546,7 @@ mod test {
                 .enabled(true)
                 .with_role("main-entrance")
                 .with_role(OFFLINE_ACCESS_ROLE)
-                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                 .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                 .build(),
             crate::target::dto::UserWithId::builder().id(31).user(crate::target::dto::User::builder()
@@ -560,7 +555,7 @@ mod test {
                 .is_active(true)
                 .with_levelprofile(37)
                 .emergency_access(true)
-                .rfid_uid(123)
+                .rfid_uid("123")
                 .rfid_data("456")
                 .build()).build(),
             [
@@ -631,7 +626,7 @@ mod test {
                     .username("firstname.lastname")
                     .enabled(true)
                     .with_role("main-entrance")
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                     .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                     .build();
                 connector
@@ -652,7 +647,8 @@ mod test {
                     .id("my-sub")
                     .enabled(true)
                     .username("firstname.lastname")
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "this-is-not-a-hex-string")
+                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
+                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "a123")
                     .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                     .build())]
             #[tokio::test]
@@ -660,43 +656,7 @@ mod test {
                     .id("my-sub")
                     .enabled(true)
                     .username("firstname.lastname")
-                    // This is a valid hex string, but the RFID UID is a 128 bit integer while this one here requires 132 bits (33 hex chars).
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-                    .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
-                    .build())]
-            async fn create_user_fails_with_invalid_rfid_uid(
-                mut connector: Connector,
-                #[case] source_user: impl kids_lib::interface::source::User + Send + Sync + 'static,
-            ) {
-                // given
-                connector
-                    .replace_api_mock(KentixApiMocker::default().can_get_all_levelprofiles().can_get_all_users())
-                    .await;
-                assert!(connector.all_users().await.unwrap().is_empty(), "Sanity: The mapping is empty beforehand.");
-
-                // when
-                let created_result = connector.create_or_update_user(std::sync::Arc::new(source_user)).await;
-
-                // then
-                assert!(matches!(created_result, Err(kids_lib::error::KidsError::RequestFailed(_, _))));
-            }
-
-            #[rstest::rstest]
-            #[tokio::test]
-            #[case(kids_test_lib::User::builder()
-                    .id("my-sub")
-                    .enabled(true)
-                    .username("firstname.lastname")
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "a7b")
-                    .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
-                    .build())]
-            #[tokio::test]
-            #[case(kids_test_lib::User::builder()
-                    .id("my-sub")
-                    .enabled(true)
-                    .username("firstname.lastname")
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                     .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                     .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "789")
                     .build())]
@@ -724,7 +684,7 @@ mod test {
                 let source_user = kids_test_lib::User::builder()
                     .id("my-sub")
                     .enabled(true)
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                     .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                     .build();
                 connector
@@ -760,7 +720,7 @@ mod test {
                             .is_active(true)
                             .with_levelprofile(43)
                             .emergency_access(false)
-                            .rfid_uid(123)
+                            .rfid_uid("123")
                             .rfid_data("456")
                             .build(),
                     )
@@ -774,7 +734,7 @@ mod test {
                     .email("user@example.com")
                     .with_role("server-room")
                     .with_role(OFFLINE_ACCESS_ROLE)
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                     .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                     .build();
                 let expected_kentix_user_after = crate::target::dto::UserWithId::builder()
@@ -787,7 +747,7 @@ mod test {
                             .email("user@example.com")
                             .with_levelprofile(47)
                             .emergency_access(true)
-                            .rfid_uid(123)
+                            .rfid_uid("123")
                             .rfid_data("456")
                             .build(),
                     )
@@ -833,7 +793,7 @@ mod test {
                     .last_name("Lastname")
                     .enabled(false)
                     .email("user@example.com")
-                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "7b")
+                    .with_attribute(RFID_UID_ATTRIBUTE_NAME, "123")
                     .with_attribute(RFID_DATA_ATTRIBUTE_NAME, "456")
                     .build();
                 let kentix_user = crate::target::dto::UserWithId::builder()
@@ -845,7 +805,7 @@ mod test {
                             .is_active(false)
                             .email("user@example.com")
                             .emergency_access(false)
-                            .rfid_uid(123)
+                            .rfid_uid("123")
                             .rfid_data("456")
                             .build(),
                     )
@@ -896,7 +856,7 @@ mod test {
                             .is_active(true)
                             .with_levelprofile(61)
                             .emergency_access(false)
-                            .rfid_uid(123)
+                            .rfid_uid("123")
                             .rfid_data("456")
                             .build(),
                     )
@@ -949,7 +909,7 @@ mod test {
                             .is_active(false)
                             .email("user@example.com")
                             .emergency_access(false)
-                            .rfid_uid(123)
+                            .rfid_uid("123")
                             .rfid_data("456")
                             .build(),
                     )
