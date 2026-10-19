@@ -2,7 +2,7 @@
 name = "keycloak-kentix"
 description = "Keycloak to Kentix identity syncer — synchronizes users and roles from Keycloak to a Kentix server via webhook endpoints"
 homepage = "https://rechenknecht.net/giz/keycloak/kids/-/tree/main/keycloak-kentix"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 publish = false
 
