@@ -50,12 +50,17 @@ pub enum MembershipStatus {
 }
 
 /// Type of a user's membership in an organization.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde_repr::Serialize_repr, serde_repr::Deserialize_repr)]
+#[repr(i8)]
 pub enum MembershipType {
     Owner = 0,
     Admin = 1,
     User = 2,
     Manager = 3,
+    /// Returned by Vaultwarden for all memberships of type `Manager`,
+    /// converted back to `Manager` by all API handlers, so we have to handle it.
+    /// https://github.com/dani-garcia/vaultwarden/blob/58a980f850464f7d9cdc99a765df36f0a3308b91/src/db/models/organization.rs#L316
+    Custom = 4,
 }
 
 /// Permissions a user/group has for a collection.
