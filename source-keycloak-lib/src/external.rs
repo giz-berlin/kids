@@ -42,11 +42,109 @@ pub trait KeycloakApi: Send + Sync {
 /// Primary purpose is to implement the [KeycloakApi] trait.
 pub struct KeycloakServiceAccountClient {
     pub config: KeycloakApiConfig,
-    pub keycloak_admin: keycloak::KeycloakAdmin<keycloak::KeycloakServiceAccountAdminTokenRetriever>,
+    pub keycloak_admin: keycloak::KeycloakAdmin<OidcKeycloakTokenSupplier>,
+}
+
+pub struct OidcKeycloakTokenSupplier {
+    keycloak_base_url: String,
+    keycloak_accounts: oidc_rp::account::Account<
+        oidc_rp::oidc::EmptyAdditionalClaims,
+        oidc_rp::oidc::EmptyAdditionalClaims,
+        oidc_rp::oidc::EmptyAdditionalProviderMetadata,
+        oidc_rp::account::access_token_type::Opaque,
+        oidc_rp::account::account_user_type::ServiceAccount,
+        oidc_rp::types::AttributeSet,
+        oidc_rp::types::AttributeSet,
+    >,
+}
+
+fn error_to_kids_error(err: impl Into<anyhow::Error>) -> kids_lib::error::KidsError {
+    let err = err.into();
+    err.into()
+}
+
+/// This function enforces that an URL is interpreted as if it had at least one trailing slash.
+///
+/// This is useful when concatenating URL segments using [`Url::join`](oidc_rp::oidc::url::Url::join),
+/// especially when user-provided segments are at play where it is unclear whether they have a trailing slash.
+///
+/// In other words:
+///
+/// * If the `url` has at least one trailing slash, nothing happens.
+/// * If the `url` has no trailing slash, one is added.
+fn enforce_trailing_slash(mut url: oidc_rp::oidc::url::Url) -> Result<oidc_rp::oidc::url::Url, KidsError> {
+    let success = match url.path_segments_mut() {
+        Ok(mut segments) => {
+            // Idea from https://users.rust-lang.org/t/what-would-be-the-proper-way-to-fix-extra-slashes-in-urls/98810/5
+            segments.pop_if_empty().push("");
+            true
+        }
+        // The `url` is cannot-be-a-base.
+        Err(()) => false,
+    };
+    // This hoop is required due to the `Drop` impl of `PathSegmentsMut`:
+    // Using `url` before even the `Result` is dropped is impossible,
+    // even in the `Err` case.
+    if !success {
+        return Err(KidsError::InternalError(anyhow!("The url '{url}' is cannot-be-a-base.")));
+    }
+    Ok(url)
+}
+
+impl OidcKeycloakTokenSupplier {
+    async fn new(client_id: &str, client_secret: &str, realm: &str, http_client: reqwest::Client, keycloak_base_url: &str) -> Result<Self, KidsError> {
+        let idp = oidc_rp::idp::IdP::new_with_reqwest_client(
+            enforce_trailing_slash(keycloak_base_url.parse().map_err(error_to_kids_error)?)?
+                .join("realms/")
+                .map_err(error_to_kids_error)?
+                .join(realm)
+                .map_err(error_to_kids_error)?,
+            http_client,
+        )
+        .await
+        .map_err(error_to_kids_error)?
+        .set_default_idp_refresh_strategy()
+        .await
+        .map_err(error_to_kids_error)?;
+        let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(idp.clone(), client_id.to_owned())
+            .map_err(error_to_kids_error)?
+            .set_access_token_allowed_jose_types(vec![
+                oidc_rp::oidc::JsonWebTokenType::new("JWT".to_owned())
+                    .normalize()
+                    .map_err(error_to_kids_error)?,
+            ])
+            .allow_other_audiences();
+        let account = oidc_rp::account::Account::from_secret_client(idp, client_id.to_owned(), client_secret.to_owned(), verifier);
+        let account = account.exchange_client_credentials().await.map_err(error_to_kids_error)?;
+        Ok(Self {
+            keycloak_accounts: account.start_auto_refresh(),
+            keycloak_base_url: keycloak_base_url.to_owned(),
+        })
+        // todo!()
+    }
+}
+impl keycloak::KeycloakTokenSupplier for OidcKeycloakTokenSupplier {
+    fn get<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        url: &'life1 str,
+    ) -> ::core::pin::Pin<Box<dyn ::core::future::Future<Output = Result<String, keycloak::KeycloakError>> + ::core::marker::Send + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let keycloak_base_url = url;
+            if keycloak_base_url != self.keycloak_base_url {
+                panic!("Can only serve keycloak base URL {}, requested {keycloak_base_url}.", self.keycloak_base_url);
+            }
+            Ok(self.keycloak_accounts.get_access_token().await.expect("Cannot get token"))
+        })
+    }
 }
 
 impl KeycloakServiceAccountClient {
-    pub fn new(config: KeycloakApiConfig) -> Self {
+    pub async fn new(config: KeycloakApiConfig) -> Result<Self, KidsError> {
         if config.insecure_disable_tls_verification {
             tracing::warn!("Verification of Keycloak server certificate is disabled. Do not use this setting in a production environment!");
         }
@@ -55,12 +153,14 @@ impl KeycloakServiceAccountClient {
             .danger_accept_invalid_certs(config.insecure_disable_tls_verification)
             .build()
             .unwrap();
-        let keycloak_client = keycloak::KeycloakServiceAccountAdminTokenRetriever::create_with_custom_realm(
-            &config.client_id,
-            &config.client_secret,
-            &config.realm,
+        let keycloak_client = OidcKeycloakTokenSupplier::new(
+            config.client_id.as_ref(),
+            config.client_secret.as_ref(),
+            config.realm.as_ref(),
             token_retriever_http_client,
-        );
+            config.keycloak_address.as_ref(),
+        )
+        .await?;
 
         let api_http_client = reqwest::Client::builder()
             .danger_accept_invalid_certs(config.insecure_disable_tls_verification)
@@ -68,7 +168,7 @@ impl KeycloakServiceAccountClient {
             .unwrap();
         let keycloak_admin = keycloak::KeycloakAdmin::new(&config.keycloak_address, keycloak_client, api_http_client);
 
-        KeycloakServiceAccountClient { config, keycloak_admin }
+        Ok(KeycloakServiceAccountClient { config, keycloak_admin })
     }
 
     fn convert_error<Resource>(route: &str, data: Result<Resource, keycloak::KeycloakError>) -> Result<Resource, KidsError> {
@@ -350,6 +450,29 @@ pub mod test {
                 parent_id: value.parent_id,
                 ..Default::default()
             }
+        }
+    }
+
+    mod enforce_trailing_slash {
+        use super::super::{KidsError, enforce_trailing_slash};
+
+        fn url(url: impl Into<String>) -> oidc_rp::oidc::url::Url {
+            url.into().parse().unwrap()
+        }
+
+        #[test]
+        fn trailing_slashes() {
+            assert_eq!(enforce_trailing_slash(url("http://localhost/a")).unwrap(), url("http://localhost/a/"));
+            assert_eq!(enforce_trailing_slash(url("http://localhost/a/")).unwrap(), url("http://localhost/a/"));
+            assert_eq!(enforce_trailing_slash(url("http://localhost/a//")).unwrap(), url("http://localhost/a//"));
+        }
+
+        #[test]
+        fn cannot_be_a_base() {
+            assert!(matches!(
+                enforce_trailing_slash(url("mailto:me@example.com")).unwrap_err(),
+                KidsError::InternalError(err) if err.to_string() == "The url 'mailto:me@example.com' is cannot-be-a-base."
+            ));
         }
     }
 }

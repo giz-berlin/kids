@@ -4137,6 +4137,7 @@ dependencies = [
  "kids-lib",
  "kids-test-lib",
  "mockall",
+ "oidc-rp",
  "reqwest 0.12.28",
  "schemars 0.9.0",
  "serde",

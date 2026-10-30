@@ -33,7 +33,7 @@ use std::{collections, fmt};
 /// Note that this trait only provides methods for obtaining full lists of [User]s and [Group]s present in the source, as the data
 /// entities directly provide methods for accessing related ones (for example, [Group::sub_groups]).
 #[async_trait::async_trait]
-pub trait Source {
+pub trait Source: Sized {
     /// The configuration struct to use for a specific [Source].
     /// Must derive from [serde::de::DeserializeOwned] because it will be deserialized from a
     /// TOML configuration file.
@@ -44,7 +44,7 @@ pub trait Source {
     fn info(&self) -> String;
 
     /// Construct a new [Source] using the source-specific [Self::Config].
-    fn new(config: Self::Config) -> Self;
+    async fn new(config: Self::Config) -> Result<Self, error::KidsError>;
 
     /// All [Group]s present within the [Source] (in a specific context, for example all groups visible to a Keycloak client within a Keycloak realm).
     async fn all_groups(&self) -> Result<Vec<std::sync::Arc<dyn Group + Send + Sync>>, error::KidsError>;
