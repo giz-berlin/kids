@@ -90,12 +90,18 @@ pub fn run_with_args<S: crate::interface::source::Source + Send + Sync + 'static
     // Sentry should not be initialised inside a tokio async function, thus this weird workaround.
     // See https://docs.sentry.io/platforms/rust/#async-main-function.
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
-        let source_impl = S::new(config.source);
+        let source_impl = match S::new(config.source).await {
+            Ok(source_impl) => source_impl,
+            Err(e) => {
+                tracing::error!("Error initializing source: {}", e);
+                panic!("Error initializing source: {}", e)
+            }
+        };
         let target_impl = match T::new(config.target).await {
             Ok(target_impl) => target_impl,
             Err(e) => {
-                tracing::error!("{}", e);
-                panic!("{}", e)
+                tracing::error!("Error initializing target: {}", e);
+                panic!("Error initializing target: {}", e)
             }
         };
 
