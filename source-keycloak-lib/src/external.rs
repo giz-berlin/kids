@@ -42,11 +42,16 @@ pub trait KeycloakApi: Send + Sync {
 /// Primary purpose is to implement the [KeycloakApi] trait.
 pub struct KeycloakServiceAccountClient {
     pub config: KeycloakApiConfig,
-    pub keycloak_admin: keycloak::KeycloakAdmin<keycloak::KeycloakServiceAccountAdminTokenRetriever>,
+    pub keycloak_admin: keycloak::KeycloakAdmin<oidc_rp::integration::keycloak::TokenSupplier>,
+}
+
+fn error_to_kids_error(err: impl Into<anyhow::Error>) -> kids_lib::error::KidsError {
+    let err = err.into();
+    err.into()
 }
 
 impl KeycloakServiceAccountClient {
-    pub fn new(config: KeycloakApiConfig) -> Self {
+    pub async fn new(config: KeycloakApiConfig) -> Result<Self, KidsError> {
         if config.insecure_disable_tls_verification {
             tracing::warn!("Verification of Keycloak server certificate is disabled. Do not use this setting in a production environment!");
         }
@@ -55,12 +60,15 @@ impl KeycloakServiceAccountClient {
             .danger_accept_invalid_certs(config.insecure_disable_tls_verification)
             .build()
             .unwrap();
-        let keycloak_client = keycloak::KeycloakServiceAccountAdminTokenRetriever::create_with_custom_realm(
-            &config.client_id,
-            &config.client_secret,
-            &config.realm,
+        let keycloak_client = oidc_rp::integration::keycloak::TokenSupplier::new_with_reqwest_client(
+            config.client_id.as_ref(),
+            config.client_secret.as_ref(),
+            config.realm.as_ref(),
+            config.keycloak_address.parse().map_err(error_to_kids_error)?,
             token_retriever_http_client,
-        );
+        )
+        .await
+        .map_err(error_to_kids_error)?;
 
         let api_http_client = reqwest::Client::builder()
             .danger_accept_invalid_certs(config.insecure_disable_tls_verification)
@@ -68,7 +76,7 @@ impl KeycloakServiceAccountClient {
             .unwrap();
         let keycloak_admin = keycloak::KeycloakAdmin::new(&config.keycloak_address, keycloak_client, api_http_client);
 
-        KeycloakServiceAccountClient { config, keycloak_admin }
+        Ok(KeycloakServiceAccountClient { config, keycloak_admin })
     }
 
     fn convert_error<Resource>(route: &str, data: Result<Resource, keycloak::KeycloakError>) -> Result<Resource, KidsError> {

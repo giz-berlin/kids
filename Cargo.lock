@@ -2085,9 +2085,9 @@ dependencies = [
 
 [[package]]
 name = "keycloak"
-version = "26.7.300"
+version = "26.8.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae028e5b3555edb59bb0f27f0cfe0ff60f5695e160be481cd7beef0cce03a9ef"
+checksum = "aaca28371a155ef251878ad01b6d12904227e7df3c35cdbc107c24b27cdc6944"
 dependencies = [
  "async-trait",
  "percent-encoding",
@@ -2160,7 +2160,7 @@ dependencies = [
  "kids-lib",
  "kids-test-lib",
  "mockall",
- "oidc-rp",
+ "oidc-rp 0.0.1 (git+https://rechenknecht.net/mixxplorer/libraries/oidc-rp.git?branch=feature%2Finitial)",
  "reqwest 0.12.28",
  "rstest",
  "serde",
@@ -2697,6 +2697,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12f40cff3dde1b6087cc5d5f5d4d65712f34016a03ed60e9c08dcc392736b5b7"
 dependencies = [
  "asn1-rs",
+]
+
+[[package]]
+name = "oidc-rp"
+version = "0.0.1"
+source = "git+https://rechenknecht.net/mixxplorer/libraries/oidc-rp.git?branch=feat%2Fkeycloak-token-supplier#1a6554b838decda848c54b404ae5a866e48fd458"
+dependencies = [
+ "chrono",
+ "keycloak",
+ "openidconnect",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -4137,6 +4155,7 @@ dependencies = [
  "kids-lib",
  "kids-test-lib",
  "mockall",
+ "oidc-rp 0.0.1 (git+https://rechenknecht.net/mixxplorer/libraries/oidc-rp.git?branch=feat%2Fkeycloak-token-supplier)",
  "reqwest 0.12.28",
  "schemars 0.9.0",
  "serde",
@@ -4260,7 +4279,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
