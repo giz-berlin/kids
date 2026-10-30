@@ -11,6 +11,9 @@ async-trait = "0.1.88"
 # Disable default features as that would use reqwest13 and we stick to reqwest12 for now.
 keycloak = { version = "~26.7.300", default-features = false, features = ["tags-all", "resource-builder", "reqwest12"] }
 kids-lib = { path = "../kids-lib" }
+oidc-rp = { git = "https://rechenknecht.net/mixxplorer/libraries/oidc-rp.git", branch = "feature/initial", features = [
+    "special-reqwest-client",
+] }
 reqwest = { version = "0.12.15", features = ["default-tls", "native-tls"] }
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
 serde = { version = "1.0.218", features = ["serde_derive"] }

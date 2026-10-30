@@ -27,11 +27,11 @@ impl kids_lib::interface::source::Source for Connector {
         "Keycloak Connector!".to_string()
     }
 
-    fn new(config: Self::Config) -> Self {
-        Connector {
-            keycloak_api: std::sync::Arc::new(crate::external::KeycloakServiceAccountClient::new(config.keycloak_api.clone())),
+    async fn new(config: Self::Config) -> Result<Self, kids_lib::error::KidsError> {
+        Ok(Connector {
+            keycloak_api: std::sync::Arc::new(crate::external::KeycloakServiceAccountClient::new(config.keycloak_api.clone()).await?),
             config: std::sync::Arc::new(config),
-        }
+        })
     }
 
     async fn all_groups(&self) -> Result<Vec<std::sync::Arc<dyn kids_lib::interface::source::Group + Send + Sync>>, error::KidsError> {
