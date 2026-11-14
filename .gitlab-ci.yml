@@ -139,7 +139,7 @@ docker-image:
 
 test-synapse-e2e:
   stage: test-e2e
-  image: quay.io/podman/stable:latest
+  image: quay.io/podman/stable:v6
   needs:
     - job: docker-image
       artifacts: true
@@ -152,6 +152,10 @@ test-synapse-e2e:
   script:
     - echo "Install dependencies"
     - dnf install unzip envsubst openssl jq --assumeyes --refresh
+    # Podman 6 logs to journald be default, which does not run in this container.
+    # Related issue: https://github.com/podman-container-tools/podman/issues/26910
+    # Start it so `podman logs` works.
+    - /usr/lib/systemd/systemd-journald > /dev/null 2>&1 &
     - python -m ensurepip --upgrade
     - python -m pip install pyyaml
     - python -m pip install synadm
@@ -186,7 +190,7 @@ test-synapse-e2e:
 
 test-vaultwarden-e2e:
   stage: test-e2e
-  image: quay.io/podman/stable:latest
+  image: quay.io/podman/stable:v6
   needs:
     - job: docker-image
       artifacts: true
@@ -199,6 +203,10 @@ test-vaultwarden-e2e:
   script:
     - echo "Install dependencies"
     - dnf install unzip envsubst openssl jq podman-compose --assumeyes --refresh
+    # Podman 6 logs to journald be default, which does not run in this container.
+    # Related issue: https://github.com/podman-container-tools/podman/issues/26910
+    # Start it so `podman logs` works.
+    - /usr/lib/systemd/systemd-journald > /dev/null 2>&1 &
     - echo "$CI_REGISTRY_PASSWORD" | podman login --username $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
     - echo "127.0.0.1 host.docker.internal" >> /etc/hosts
     - pushd e2e-test
