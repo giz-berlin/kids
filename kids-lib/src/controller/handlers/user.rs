@@ -60,12 +60,8 @@ where
     tracing::info!(user_id = tracing::field::display(&user_id), "Deleting user");
 
     if !target.all_users().await?.contains(&user_id) {
-        return Err(crate::controller::error::ControllerError::new(
-            None,
-            Some("User not found".to_owned()),
-            Some(format!("User with id {user_id} not found in target")),
-            http::StatusCode::NOT_FOUND,
-        ));
+        tracing::info!(user_id, "User to be deleted does not exist in the target.");
+        return Ok(axum::response::NoContent);
     }
 
     target.delete_user(&user_id).await?;
